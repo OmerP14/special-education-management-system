@@ -15,11 +15,8 @@ import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
-import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
-import { mockSessions } from "@/lib/mock/sessions";
-import { mockTeachers } from "@/lib/mock/teachers";
-import { mockStudents } from "@/lib/mock/students";
 import { mockEducationTypes } from "@/lib/mock/education-types";
+import { useMockStore } from "@/lib/mock/store";
 import {
   buildTeacherEarningListItems,
   buildTeacherEarningOverviewItems,
@@ -132,10 +129,14 @@ const columns: Column<TeacherEarningListItem>[] = [
   {
     key: "action",
     header: "",
-    render: () => (
-      <button className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors">
+    render: (row) => (
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
         Detay
-      </button>
+      </Link>
     ),
     className: "text-right w-14",
     headerClassName: "text-right w-14",
@@ -190,6 +191,7 @@ function monthLabel(key: string): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TeacherEarningsPage() {
+  const store = useMockStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<EarningStatus | "all">("all");
   const [teacherFilter, setTeacherFilter] = useState("all");
@@ -202,48 +204,48 @@ export default function TeacherEarningsPage() {
   const currentMonth = now.getMonth() + 1;
   const thisMonthLabel = monthLabel(monthKey(now));
 
-  // Build enriched list items once
+  // Build enriched list items from store
   const allItems = useMemo(
     () =>
       buildTeacherEarningListItems(
-        mockTeacherEarnings,
-        mockSessions,
-        mockTeachers,
-        mockStudents,
+        store.teacherEarnings,
+        store.sessions,
+        store.teachers,
+        store.students,
         mockEducationTypes
       ),
-    []
+    [store.teacherEarnings, store.sessions, store.teachers, store.students]
   );
 
   // KPI stats — always current month for "Bu Ay", all-time for paid/pending
   const stats = useMemo(
     () =>
       buildTeacherEarningPageStats(
-        mockTeacherEarnings,
-        mockSessions,
+        store.teacherEarnings,
+        store.sessions,
         currentYear,
         currentMonth
       ),
-    [currentYear, currentMonth]
+    [store.teacherEarnings, store.sessions, currentYear, currentMonth]
   );
 
   // Teacher overview — all-time totals
   const overviewItems = useMemo(
-    () => buildTeacherEarningOverviewItems(mockTeacherEarnings, mockTeachers),
-    []
+    () => buildTeacherEarningOverviewItems(store.teacherEarnings, store.teachers),
+    [store.teacherEarnings, store.teachers]
   );
 
   // Monthly summary — always current month
   const monthlySummary = useMemo(
     () =>
       buildMonthlyTeacherEarningSummary(
-        mockTeacherEarnings,
-        mockSessions,
-        mockTeachers,
+        store.teacherEarnings,
+        store.sessions,
+        store.teachers,
         currentYear,
         currentMonth
       ),
-    [currentYear, currentMonth]
+    [store.teacherEarnings, store.sessions, store.teachers, currentYear, currentMonth]
   );
 
   // Derive available months from session dates in list items
@@ -529,7 +531,7 @@ export default function TeacherEarningsPage() {
             className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">Tüm Öğretmenler</option>
-            {mockTeachers.map((t) => (
+            {store.teachers.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.fullName}
               </option>

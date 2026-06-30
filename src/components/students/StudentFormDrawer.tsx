@@ -217,7 +217,7 @@ export function StudentFormDrawer({
         <div className="space-y-1.5">
           <Label>Veli</Label>
           <Select
-            value={form.guardianId || undefined}
+            value={form.guardianId || ""}
             onValueChange={(v) => { if (v) set("guardianId", v); }}
           >
             <SelectTrigger>

@@ -4,8 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/helpers/finance";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { TeacherEarning } from "@/types";
-import { mockTeachers } from "@/lib/mock/teachers";
+import type { Teacher, TeacherEarning } from "@/types";
 import {
   getTeacherTotalEarnings,
   getTeacherPendingEarnings,
@@ -13,10 +12,11 @@ import {
 
 interface TeacherEarningsCardProps {
   earnings: TeacherEarning[];
+  teachers: Teacher[];
 }
 
-export function TeacherEarningsCard({ earnings }: TeacherEarningsCardProps) {
-  const activeTeachers = mockTeachers.filter((t) => t.status === "active");
+export function TeacherEarningsCard({ earnings, teachers }: TeacherEarningsCardProps) {
+  const activeTeachers = teachers.filter((t) => t.status === "active");
 
   const summaries = activeTeachers
     .map((teacher) => ({

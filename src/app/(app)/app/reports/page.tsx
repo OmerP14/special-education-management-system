@@ -18,12 +18,8 @@ import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { mockSessions } from "@/lib/mock/sessions";
-import { mockPayments } from "@/lib/mock/payments";
-import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
-import { mockStudents, mockGuardians } from "@/lib/mock/students";
-import { mockTeachers } from "@/lib/mock/teachers";
 import { mockEducationTypes } from "@/lib/mock/education-types";
+import { useMockStore } from "@/lib/mock/store";
 import {
   filterSessionsByMonth,
   filterPaymentsByMonth,
@@ -407,6 +403,7 @@ const edTypeColumns: Column<EducationTypeReportRow>[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const store = useMockStore();
   const [monthFilter, setMonthFilter] = useState("all");
 
   // Derive available months from session dates
@@ -415,7 +412,7 @@ export default function ReportsPage() {
     const opts: { value: string; label: string }[] = [
       { value: "all", label: "Tüm Dönem" },
     ];
-    [...mockSessions]
+    [...store.sessions]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .forEach((s) => {
         const key = monthKey(new Date(s.date));
@@ -425,23 +422,23 @@ export default function ReportsPage() {
         }
       });
     return opts;
-  }, []);
+  }, [store.sessions]);
 
   // Parse the selected month filter
   const { year, month } = useMemo(() => parseMonthFilter(monthFilter), [monthFilter]);
 
   // Filtered data slices — computed once, shared by all report sections
   const filteredSessions = useMemo(
-    () => filterSessionsByMonth(mockSessions, year, month),
-    [year, month]
+    () => filterSessionsByMonth(store.sessions, year, month),
+    [store.sessions, year, month]
   );
   const filteredPayments = useMemo(
-    () => filterPaymentsByMonth(mockPayments, year, month),
-    [year, month]
+    () => filterPaymentsByMonth(store.payments, year, month),
+    [store.payments, year, month]
   );
   const filteredEarnings = useMemo(
-    () => filterEarningsByMonth(mockTeacherEarnings, mockSessions, year, month),
-    [year, month]
+    () => filterEarningsByMonth(store.teacherEarnings, store.sessions, year, month),
+    [store.teacherEarnings, store.sessions, year, month]
   );
 
   // Report data — all pure helpers, no computation in JSX
@@ -451,34 +448,34 @@ export default function ReportsPage() {
         filteredSessions,
         filteredPayments,
         filteredEarnings,
-        mockSessions,
-        mockPayments,
-        mockStudents
+        store.sessions,
+        store.payments,
+        store.students
       ),
-    [filteredSessions, filteredPayments, filteredEarnings]
+    [filteredSessions, filteredPayments, filteredEarnings, store.sessions, store.payments, store.students]
   );
 
   const studentRows = useMemo(
     () =>
       buildStudentReportRows(
-        mockStudents,
-        mockGuardians,
+        store.students,
+        store.guardians,
         filteredSessions,
         filteredPayments,
-        mockSessions,
-        mockPayments
+        store.sessions,
+        store.payments
       ),
-    [filteredSessions, filteredPayments]
+    [store.students, store.guardians, filteredSessions, filteredPayments, store.sessions, store.payments]
   );
 
   const teacherRows = useMemo(
-    () => buildTeacherReportRows(mockTeachers, filteredSessions, filteredEarnings),
-    [filteredSessions, filteredEarnings]
+    () => buildTeacherReportRows(store.teachers, filteredSessions, filteredEarnings),
+    [store.teachers, filteredSessions, filteredEarnings]
   );
 
   const edTypeRows = useMemo(
-    () => buildEducationTypeReportRows(mockEducationTypes, filteredSessions, mockStudents),
-    [filteredSessions]
+    () => buildEducationTypeReportRows(mockEducationTypes, filteredSessions, store.students),
+    [filteredSessions, store.students]
   );
 
   const financeStats = useMemo(
@@ -487,11 +484,11 @@ export default function ReportsPage() {
         filteredSessions,
         filteredPayments,
         filteredEarnings,
-        mockSessions,
-        mockPayments,
-        mockStudents
+        store.sessions,
+        store.payments,
+        store.students
       ),
-    [filteredSessions, filteredPayments, filteredEarnings]
+    [filteredSessions, filteredPayments, filteredEarnings, store.sessions, store.payments, store.students]
   );
 
   const periodLabel =

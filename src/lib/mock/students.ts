@@ -1,5 +1,7 @@
 import type { Student, Guardian } from "@/types";
 
+// ─── 3 Guardians ──────────────────────────────────────────────────────────────
+// guardian-1 has two children (student-1 + student-5 are siblings)
 export const mockGuardians: Guardian[] = [
   {
     id: "guardian-1",
@@ -8,7 +10,7 @@ export const mockGuardians: Guardian[] = [
     phone: "0530 100 10 10",
     email: "fatma.celik@example.com",
     relationship: "Anne",
-    studentIds: ["student-1"],
+    studentIds: ["student-1", "student-5"],
     createdAt: "2024-01-20T00:00:00Z",
   },
   {
@@ -30,17 +32,10 @@ export const mockGuardians: Guardian[] = [
     studentIds: ["student-3", "student-4"],
     createdAt: "2024-02-05T00:00:00Z",
   },
-  {
-    id: "guardian-4",
-    tenantId: "tenant-1",
-    fullName: "Hasan Doğan",
-    phone: "0533 400 40 40",
-    relationship: "Baba",
-    studentIds: ["student-5"],
-    createdAt: "2024-02-12T00:00:00Z",
-  },
 ];
 
+// ─── 5 Students ───────────────────────────────────────────────────────────────
+// Mix of statuses: 4 active + 1 on_hold (student-5 is Yusuf's younger sibling)
 export const mockStudents: Student[] = [
   {
     id: "student-1",
@@ -70,7 +65,7 @@ export const mockStudents: Student[] = [
     birthDate: "2015-11-08",
     status: "active",
     guardianIds: ["guardian-3"],
-    educationTypeIds: ["et-2", "et-4"],
+    educationTypeIds: ["et-2", "et-3"],
     notes: "Dikkate güçlük çekiyor.",
     createdAt: "2024-02-05T00:00:00Z",
   },
@@ -81,28 +76,18 @@ export const mockStudents: Student[] = [
     birthDate: "2018-04-03",
     status: "active",
     guardianIds: ["guardian-3"],
-    educationTypeIds: ["et-1"],
+    educationTypeIds: ["et-4"],
     createdAt: "2024-02-05T00:00:00Z",
   },
   {
     id: "student-5",
     tenantId: "tenant-1",
-    fullName: "Mert Doğan",
-    birthDate: "2016-09-17",
+    fullName: "Nisa Çelik",
+    birthDate: "2019-08-11",
     status: "on_hold",
-    guardianIds: ["guardian-4"],
+    guardianIds: ["guardian-1"],
     educationTypeIds: ["et-3"],
     notes: "Aile geçici olarak devamsızlık bildirdi.",
-    createdAt: "2024-02-12T00:00:00Z",
-  },
-  {
-    id: "student-6",
-    tenantId: "tenant-1",
-    fullName: "Zehra Aktaş",
-    birthDate: "2019-01-25",
-    status: "inactive",
-    guardianIds: [],
-    educationTypeIds: ["et-4"],
-    createdAt: "2024-03-01T00:00:00Z",
+    createdAt: "2024-03-10T00:00:00Z",
   },
 ];

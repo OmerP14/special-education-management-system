@@ -245,7 +245,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Öğrenci</Label>
           <Select
-            value={form.studentId || undefined}
+            value={form.studentId || ""}
             onValueChange={(val) => { if (val) set("studentId", val); }}
           >
             <SelectTrigger className="w-full">
@@ -289,7 +289,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Öğretmen</Label>
           <Select
-            value={form.teacherId || undefined}
+            value={form.teacherId || ""}
             onValueChange={(val) => { if (val) handleTeacherChange(val); }}
           >
             <SelectTrigger className="w-full">
@@ -309,7 +309,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Eğitim Türü</Label>
           <Select
-            value={form.educationTypeId || undefined}
+            value={form.educationTypeId || ""}
             onValueChange={(val) => { if (val) handleEducationTypeChange(val); }}
           >
             <SelectTrigger className="w-full">

@@ -3,17 +3,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatCurrency } from "@/lib/helpers/finance";
-import type { Payment, Session } from "@/types";
-import { mockStudents } from "@/lib/mock/students";
+import type { Payment, Session, Student } from "@/types";
 import { getStudentDebt, getStudentTotalPaid } from "@/lib/helpers/finance";
 
 interface PaymentSummaryCardProps {
   sessions: Session[];
   payments: Payment[];
+  students: Student[];
 }
 
-export function PaymentSummaryCard({ sessions, payments }: PaymentSummaryCardProps) {
-  const summaries = mockStudents
+export function PaymentSummaryCard({ sessions, payments, students }: PaymentSummaryCardProps) {
+  const summaries = students
     .filter((s) => s.status === "active")
     .map((student) => {
       const debt = getStudentDebt(student.id, sessions, payments);

@@ -14,17 +14,28 @@ import { RecentSessionsTable } from "@/components/dashboard/RecentSessionsTable"
 import { PaymentSummaryCard } from "@/components/dashboard/PaymentSummaryCard";
 import { TeacherEarningsCard } from "@/components/dashboard/TeacherEarningsCard";
 import { SessionStatusBreakdown } from "@/components/dashboard/SessionStatusBreakdown";
-import { mockSessions } from "@/lib/mock/sessions";
-import { mockPayments } from "@/lib/mock/payments";
-import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
+import { useMockStore } from "@/lib/mock/store";
 import { buildDashboardStats, formatCurrency } from "@/lib/helpers/finance";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const stats = buildDashboardStats(mockSessions, mockPayments, mockTeacherEarnings);
+  const store = useMockStore();
 
-  const recentSessions = [...mockSessions]
+  const currentMonthLabel = new Intl.DateTimeFormat("tr-TR", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+
+  const stats = buildDashboardStats(
+    store.sessions,
+    store.payments,
+    store.teacherEarnings,
+    store.students,
+    store.teachers
+  );
+
+  const recentSessions = [...store.sessions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 8);
 
@@ -63,7 +74,7 @@ export default function DashboardPage() {
           value={stats.sessionsThisMonth}
           icon={CalendarDays}
           variant="default"
-          description="Haziran 2026"
+          description={currentMonthLabel}
           className="xl:col-span-1"
         />
         <StatCard
@@ -94,9 +105,16 @@ export default function DashboardPage() {
 
       {/* Middle row: Payment + Earning + Status */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <PaymentSummaryCard sessions={mockSessions} payments={mockPayments} />
-        <TeacherEarningsCard earnings={mockTeacherEarnings} />
-        <SessionStatusBreakdown sessions={mockSessions} />
+        <PaymentSummaryCard
+          sessions={store.sessions}
+          payments={store.payments}
+          students={store.students}
+        />
+        <TeacherEarningsCard
+          earnings={store.teacherEarnings}
+          teachers={store.teachers}
+        />
+        <SessionStatusBreakdown sessions={store.sessions} />
       </div>
 
       {/* Recent Sessions */}
@@ -109,7 +127,11 @@ export default function DashboardPage() {
             </Button>
           </Link>
         </div>
-        <RecentSessionsTable sessions={recentSessions} />
+        <RecentSessionsTable
+          sessions={recentSessions}
+          students={store.students}
+          teachers={store.teachers}
+        />
       </div>
     </div>
   );

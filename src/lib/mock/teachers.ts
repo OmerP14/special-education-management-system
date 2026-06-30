@@ -1,5 +1,6 @@
 import type { Teacher } from "@/types";
 
+// ─── 3 Teachers (all active) ───────────────────────────────────────────────────
 export const mockTeachers: Teacher[] = [
   {
     id: "teacher-1",
@@ -30,15 +31,5 @@ export const mockTeachers: Teacher[] = [
     status: "active",
     specializations: ["et-4"],
     createdAt: "2024-02-01T00:00:00Z",
-  },
-  {
-    id: "teacher-4",
-    tenantId: "tenant-1",
-    fullName: "Can Şahin",
-    phone: "0541 444 55 66",
-    email: "can.sahin@example.com",
-    status: "inactive",
-    specializations: ["et-2", "et-3"],
-    createdAt: "2024-02-10T00:00:00Z",
   },
 ];

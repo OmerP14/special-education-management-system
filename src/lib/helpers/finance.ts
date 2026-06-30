@@ -35,8 +35,6 @@ import type {
   Teacher,
   EducationType,
 } from "@/types";
-import { mockStudents } from "@/lib/mock/students";
-import { mockTeachers } from "@/lib/mock/teachers";
 
 const BILLABLE_STATUSES: Session["status"][] = ["completed", "no_show", "makeup"];
 const EARNING_STATUSES: Session["status"][] = ["completed", "makeup"];
@@ -110,16 +108,18 @@ export function getMonthlySessionCount(sessions: Session[], year: number, month:
 export function buildDashboardStats(
   sessions: Session[],
   payments: Payment[],
-  earnings: TeacherEarning[]
+  earnings: TeacherEarning[],
+  students: Student[],
+  teachers: Teacher[]
 ): DashboardStats {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const activeStudents = mockStudents.filter((s) => s.status === "active").length;
-  const activeTeachers = mockTeachers.filter((t) => t.status === "active").length;
+  const activeStudents = students.filter((s) => s.status === "active").length;
+  const activeTeachers = teachers.filter((t) => t.status === "active").length;
 
-  const totalDebt = mockStudents.reduce(
+  const totalDebt = students.reduce(
     (sum, s) => sum + getStudentDebt(s.id, sessions, payments),
     0
   );
@@ -140,9 +140,10 @@ export function buildDashboardStats(
 
 export function buildStudentSummaries(
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  students: Student[]
 ): StudentSummary[] {
-  return mockStudents.map((student) => ({
+  return students.map((student) => ({
     ...student,
     totalDebt: getStudentDebt(student.id, sessions, payments),
     totalPaid: getStudentTotalPaid(student.id, payments),
@@ -152,9 +153,10 @@ export function buildStudentSummaries(
 
 export function buildTeacherSummaries(
   sessions: Session[],
-  earnings: TeacherEarning[]
+  earnings: TeacherEarning[],
+  teachers: Teacher[]
 ): TeacherSummary[] {
-  return mockTeachers.map((teacher) => ({
+  return teachers.map((teacher) => ({
     ...teacher,
     totalEarnings: getTeacherTotalEarnings(teacher.id, earnings),
     pendingEarnings: getTeacherPendingEarnings(teacher.id, earnings),

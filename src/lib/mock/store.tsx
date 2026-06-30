@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import type {
   Student,
   Guardian,
@@ -78,6 +78,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
     mockInstallmentPlans
   );
+  // Always-current ref so markInstallmentPaid / cancelInstallment never read
+  // a stale closure snapshot when called from memoised event handlers.
+  const installmentPlansRef = useRef(installmentPlans);
+  installmentPlansRef.current = installmentPlans;
   const [cashMovements, setCashMovements] = useState<CashMovement[]>(mockCashMovements);
 
   const value: MockStore = {
@@ -137,14 +141,15 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     markInstallmentPaid: (planId, installmentId) => {
       const today = new Date().toISOString().split("T")[0]!;
 
-      // Find the plan and record from current state to build the payment
-      const plan = installmentPlans.find((p) => p.id === planId);
+      // Read from the ref so we always get the latest value even when this
+      // function was captured in a memoised handler from an earlier render.
+      const plan = installmentPlansRef.current.find((p) => p.id === planId);
       const record = plan?.installments.find((i) => i.id === installmentId);
 
-      // Guard: only proceed if the installment exists and is not already paid
+      // Guard: only proceed if the installment exists and is not already paid.
       if (!plan || !record || record.status === "paid") return;
 
-      // 1. Mark the installment record as paid
+      // 1. Mark the installment record as paid (functional updater = always fresh).
       setInstallmentPlans((prev) =>
         prev.map((p) => {
           if (p.id !== planId) return p;
@@ -159,7 +164,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         })
       );
 
-      // 2. Create a linked Payment record (idempotent: skip if one already exists)
+      // 2. Create a linked Payment record (idempotent: skip if one already exists).
+      // `plan` and `record` come from the ref read above — same snapshot that
+      // setInstallmentPlans receives as `prev`, so the data is consistent.
       setPayments((prev) => {
         const alreadyExists = prev.some(
           (p) =>
@@ -180,8 +187,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setCashMovements((prev) => prev.filter((x) => x.id !== id)),
 
     cancelInstallment: (planId, installmentId) => {
-      // Guard: never cancel a paid installment (payment already created)
-      const plan = installmentPlans.find((p) => p.id === planId);
+      // Guard: never cancel a paid installment (payment already created).
+      // Read from ref for the same reason as markInstallmentPaid.
+      const plan = installmentPlansRef.current.find((p) => p.id === planId);
       const record = plan?.installments.find((i) => i.id === installmentId);
       if (!plan || !record || record.status === "paid") return;
 
