@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -12,9 +13,14 @@ import {
   GraduationCap,
   Tag,
   TrendingUp,
+  Pencil,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
+import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
+import { TeacherPaymentHistoryTab } from "@/components/teachers/TeacherPaymentHistoryTab";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
@@ -24,17 +30,21 @@ import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildTeacherDetail,
+  calculateTeacherMonthlyPayable,
+  getTeacherIncludedQuotaUsage,
+  getTeacherExtraSessionCount,
+  getTeacherPaymentModelLabel,
   formatCurrency,
   formatDate,
   formatTime,
 } from "@/lib/helpers/finance";
+import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type {
   Session,
   TeacherEarning,
   TeacherStudentRow,
   TeacherPriceRow,
 } from "@/types";
-import { cn } from "@/lib/utils";
 
 // ─── Enriched earning row for display ─────────────────────────────────────────
 
@@ -300,6 +310,8 @@ interface TeacherDetailViewProps {
 
 export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   const store = useMockStore();
+  const [editOpen, setEditOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.students);
   const detail = buildTeacherDetail(
     teacherId,
@@ -309,6 +321,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     store.guardians,
     store.sessions,
     store.teacherEarnings,
+    store.teacherPayments,
     store.teacherCustomPrices
   );
 
@@ -413,6 +426,24 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
           }
         />
         <InfoRow
+          icon={TrendingUp}
+          label="Hakediş Modeli"
+          value={
+            <span>
+              {getTeacherPaymentModelLabel(detail)}
+              {detail.earningType === "monthly_salary" && (
+                <> — <span className="font-semibold">{formatCurrency(detail.monthlySalary ?? 0)}</span></>
+              )}
+              {detail.earningType === "salary_plus_quota" && (
+                <> — <span className="font-semibold">{formatCurrency(detail.monthlySalary ?? 0)}</span> + kota üstü ₺{detail.extraSessionEarning ?? 0}/seans</>
+              )}
+              {detail.earningType === "percentage" && (
+                <> — <span className="font-semibold">%{detail.earningPercentage ?? 0}</span></>
+              )}
+            </span>
+          }
+        />
+        <InfoRow
           icon={GraduationCap}
           label="Durum"
           value={<StatusBadge status={detail.status} />}
@@ -456,85 +487,155 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     />
   );
 
-  const pricesContent = (
-    <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">
-        Öğretmene ait özel fiyat tanımları. Tanımsız satırlar kurum varsayılanını kullanır.
-      </p>
-      <div className="rounded-lg border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-muted/40 border-b border-border">
-              <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Eğitim Türü
-              </th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Varsayılan
-              </th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Bu Öğretmen
-              </th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground hidden md:table-cell">
-                Fark
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60">
-            {detail.priceRows.map((row: TeacherPriceRow) => {
-              const effectiveEarning = row.customEarning ?? row.defaultEarning;
-              const diff = effectiveEarning - row.defaultEarning;
+  const pricesContent = (() => {
+    if (detail.earningType === "monthly_salary") {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Bu öğretmen aylık maaş modelinde çalışmaktadır. Seans başı ayrıca hakediş hesaplanmaz.
+          </p>
+          <div className="rounded-lg border border-border bg-muted/30 px-5 py-4 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">Aylık Maaş</span>
+            <span className="text-lg font-bold text-foreground tabular-nums">
+              {formatCurrency(detail.monthlySalary ?? 0)}
+            </span>
+          </div>
+        </div>
+      );
+    }
 
-              return (
-                <tr key={row.educationTypeId} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-foreground">{row.educationTypeName}</p>
-                    {row.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{row.description}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                    {formatCurrency(row.defaultEarning)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <span
-                        className={cn(
-                          "tabular-nums font-semibold",
-                          row.isCustom ? "text-primary" : "text-muted-foreground"
-                        )}
-                      >
-                        {formatCurrency(effectiveEarning)}
-                      </span>
-                      {row.isCustom && (
-                        <span className="inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary leading-none">
-                          Özel
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right hidden md:table-cell">
-                    {diff !== 0 ? (
-                      <span
-                        className={cn(
-                          "tabular-nums text-xs font-medium",
-                          diff > 0 ? "text-emerald-600" : "text-destructive"
-                        )}
-                      >
-                        {diff > 0 ? "+" : ""}
-                        {formatCurrency(diff)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground/40 text-xs">—</span>
-                    )}
+    if (detail.earningType === "salary_plus_quota") {
+      const now = new Date();
+      const yr = now.getFullYear();
+      const mo = now.getMonth() + 1;
+      const rawTeacherObj = store.teachers.find((t) => t.id === teacherId)!;
+      const totalPayable = calculateTeacherMonthlyPayable(rawTeacherObj, store.sessions, yr, mo);
+      const quotaUsed = getTeacherIncludedQuotaUsage(rawTeacherObj, store.sessions, yr, mo);
+      const extraCount = getTeacherExtraSessionCount(rawTeacherObj, store.sessions, yr, mo);
+      const quota = detail.includedSessionQuota ?? 0;
+      const extraRate = detail.extraSessionEarning ?? 0;
+
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Bu öğretmen sabit maaş + kota üstü modelinde çalışmaktadır. Maaşa dahil
+            kota aşıldığında ek seans hakedişi eklenir.
+          </p>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-border/60">
+                <tr className="bg-muted/20">
+                  <td className="px-4 py-3 text-sm text-muted-foreground">Aylık Maaş</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                    {formatCurrency(detail.monthlySalary ?? 0)}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                <tr>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">Maaşa Dahil Kota</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                    {quota} seans
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">Kota Üstü Seans Hakedişi</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                    {formatCurrency(extraRate)} / seans
+                  </td>
+                </tr>
+                <tr className="border-t-2 border-border">
+                  <td className="px-4 py-3 text-sm text-muted-foreground">Bu Ay — Kota Kullanımı</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                    {quotaUsed} / {quota} seans
+                  </td>
+                </tr>
+                {extraCount > 0 && (
+                  <tr>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">Bu Ay — Kota Üstü</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-primary font-medium">
+                      {extraCount} seans × {formatCurrency(extraRate)} = {formatCurrency(extraCount * extraRate)}
+                    </td>
+                  </tr>
+                )}
+                <tr className="bg-muted/30">
+                  <td className="px-4 py-3 text-sm font-semibold text-foreground">Bu Ay Toplam Ödenecek</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-lg font-bold text-foreground">
+                    {formatCurrency(totalPayable)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    if (detail.earningType === "percentage") {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Bu öğretmen yüzde hakediş modelinde çalışmaktadır. Seans ücreti üzerinden
+            belirlenen oran kadar ödeme yapılır.
+          </p>
+          <div className="rounded-lg border border-border bg-muted/30 px-5 py-4 flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">Hakediş Yüzdesi</span>
+            <span className="text-lg font-bold text-foreground tabular-nums">
+              %{detail.earningPercentage ?? 0}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // per_session (default)
+    if (detail.priceRows.length === 0) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          Bu öğretmen için uzmanlık alanı tanımlanmamış; özel fiyat gösterilemiyor.
+        </p>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Bu öğretmenin uzmanlık alanlarına göre geçerli hakediş tutarları.
+        </p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Eğitim Türü
+                </th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Hakediş
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {detail.priceRows.map((row: TeacherPriceRow) => {
+                const effectiveEarning = row.customEarning ?? row.defaultEarning;
+
+                return (
+                  <tr key={row.educationTypeId} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-foreground">{row.educationTypeName}</p>
+                      {row.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{row.description}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">
+                      {formatCurrency(effectiveEarning)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  );
+    );
+  })();
 
   const tabs: TabItem[] = [
     { key: "general", label: "Genel Bilgiler", content: generalInfoContent },
@@ -556,99 +657,138 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
       badge: detail.earnings.length,
       content: earningsContent,
     },
-    { key: "prices", label: "Özel Fiyatlar", content: pricesContent },
+    { key: "prices", label: "Hakediş", content: pricesContent },
+    {
+      key: "payments",
+      label: "Ödeme Geçmişi",
+      badge: store.teacherPayments.filter((p) => p.teacherId === teacherId).length,
+      content: <TeacherPaymentHistoryTab teacherId={teacherId} />,
+    },
   ];
 
-  return (
-    <div className="space-y-6">
-      {/* Back link */}
-      <Link
-        href="/app/teachers"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Öğretmenler
-      </Link>
+  const rawTeacher = store.teachers.find((t) => t.id === teacherId);
 
-      {/* Header card */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <Avatar className="h-14 w-14">
-                <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
-                  <StatusBadge status={detail.status} />
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Phone className="h-3 w-3" />
-                    {detail.phone}
-                  </span>
-                  {detail.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      {detail.email}
-                    </span>
-                  )}
-                </div>
-                {detail.specializationNames.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {detail.specializationNames.map((name) => (
-                      <span
-                        key={name}
-                        className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                      >
-                        {name}
-                      </span>
-                    ))}
+  return (
+    <>
+      <div className="space-y-6">
+        {/* Back link */}
+        <Link
+          href="/app/teachers"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Öğretmenler
+        </Link>
+
+        {/* Header card */}
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-14 w-14">
+                  <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
+                    <StatusBadge status={detail.status} />
                   </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Phone className="h-3 w-3" />
+                      {detail.phone}
+                    </span>
+                    {detail.email && (
+                      <span className="flex items-center gap-1">
+                        <Mail className="h-3 w-3" />
+                        {detail.email}
+                      </span>
+                    )}
+                  </div>
+                  {detail.specializationNames.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {detail.specializationNames.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <DetailHeaderMeta createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {detail.pendingEarnings > 0 && (
+                  <Button size="sm" onClick={() => setPayOpen(true)}>
+                    Ödeme Yap
+                  </Button>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditOpen(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Düzenle
+                </Button>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* KPI stat cards */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Toplam Seans"
-          value={detail.totalSessions}
-          description="Tüm zamanlar"
-          icon={CalendarDays}
-          variant="default"
-        />
-        <StatCard
-          title="Tamamlanan Seans"
-          value={detail.completedSessions}
-          description="Kazanç yaratan"
-          icon={CheckCircle2}
-          variant="default"
-        />
-        <StatCard
-          title="Aylık Hakediş"
-          value={formatCurrency(detail.monthlyEarnings)}
-          description="Bu ay"
-          icon={TrendingUp}
-          variant="success"
-        />
-        <StatCard
-          title="Bekleyen Hakediş"
-          value={formatCurrency(detail.pendingEarnings)}
-          description="Ödenmemiş"
-          icon={AlertCircle}
-          variant={detail.pendingEarnings > 0 ? "warning" : "success"}
-        />
+        {/* KPI stat cards */}
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Toplam Seans"
+            value={detail.totalSessions}
+            description="Tüm zamanlar"
+            icon={CalendarDays}
+            variant="default"
+          />
+          <StatCard
+            title="Tamamlanan Seans"
+            value={detail.completedSessions}
+            description="Kazanç yaratan"
+            icon={CheckCircle2}
+            variant="default"
+          />
+          <StatCard
+            title="Aylık Hakediş"
+            value={formatCurrency(detail.monthlyEarnings)}
+            description="Bu ay"
+            icon={TrendingUp}
+            variant="success"
+          />
+          <StatCard
+            title="Bekleyen Hakediş"
+            value={formatCurrency(detail.pendingEarnings)}
+            description="Ödenmemiş"
+            icon={AlertCircle}
+            variant={detail.pendingEarnings > 0 ? "warning" : "success"}
+          />
+        </div>
+
+        {/* Tabs */}
+        <Tabs tabs={tabs} defaultTab="general" />
       </div>
 
-      {/* Tabs */}
-      <Tabs tabs={tabs} defaultTab="general" />
-    </div>
+      {rawTeacher && (
+        <TeacherFormDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          initialData={rawTeacher}
+        />
+      )}
+      <TeacherPaymentFormDrawer
+        open={payOpen}
+        onOpenChange={setPayOpen}
+        preselectedTeacherId={teacherId}
+      />
+    </>
   );
 }

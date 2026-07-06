@@ -14,11 +14,16 @@ import {
   StickyNote,
   Check,
   BookOpen,
+  Pencil,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
+import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansTab";
 import { StatCard } from "@/components/shared/StatCard";
+import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -32,6 +37,7 @@ import {
   formatDateTime,
   formatTime,
   getPaymentMethodLabel,
+  getStudentPlannedSummary,
 } from "@/lib/helpers/finance";
 import {
   getInstallmentDisplayStatus,
@@ -39,6 +45,7 @@ import {
   getIntervalLabel,
 } from "@/lib/helpers/installments";
 import { buildStudentCurrentAccount } from "@/lib/helpers/current-account";
+import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type { Session, Payment, PaymentMethod, InstallmentPlan } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -301,6 +308,7 @@ interface StudentDetailViewProps {
 
 export function StudentDetailView({ studentId }: StudentDetailViewProps) {
   const store = useMockStore();
+  const [editOpen, setEditOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.teachers);
   const detail = buildStudentDetail(
     studentId,
@@ -330,6 +338,7 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
     caYear,
     caMonth
   );
+  const plannedSummary = getStudentPlannedSummary(studentId, store.sessions);
 
   if (!detail) {
     return (
@@ -416,7 +425,7 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
                   ))}
                 </div>
               ) : (
-                "Henüz atanmamış"
+                "Henüz seans atanmadığı için öğretmen görünmüyor."
               )
             }
           />
@@ -718,6 +727,8 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
     </div>
   );
 
+  const weeklyPlanCount = store.weeklySessionPlans.filter((p) => p.studentId === studentId).length;
+
   const tabs: TabItem[] = [
     { key: "general", label: "Genel Bilgiler", content: generalInfoContent },
     {
@@ -725,6 +736,12 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
       label: "Seanslar",
       badge: detail.sessions.length,
       content: sessionsContent,
+    },
+    {
+      key: "plan",
+      label: "Seans Planı",
+      badge: weeklyPlanCount > 0 ? weeklyPlanCount : undefined,
+      content: <StudentWeeklyPlansTab studentId={studentId} />,
     },
     {
       key: "payments",
@@ -736,99 +753,126 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
     { key: "notes", label: "Notlar", content: notesContent },
   ];
 
+  const rawStudent = store.students.find((s) => s.id === studentId);
+
   return (
-    <div className="space-y-6">
-      {/* Back link */}
-      <Link
-        href="/app/students"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Öğrenciler
-      </Link>
+    <>
+      <div className="space-y-6">
+        {/* Back link */}
+        <Link
+          href="/app/students"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Öğrenciler
+        </Link>
 
-      {/* Header card */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <Avatar className="h-14 w-14">
-                <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
-                  <StatusBadge status={detail.status} />
-                </div>
-                {detail.primaryGuardian && (
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                    <Link
-                      href={`/app/guardians/${detail.primaryGuardian.id}`}
-                      className="flex items-center gap-1 hover:text-primary transition-colors"
-                    >
-                      <User className="h-3 w-3" />
-                      {detail.primaryGuardian.fullName} · {detail.primaryGuardian.relationship}
-                    </Link>
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      {detail.primaryGuardian.phone}
-                    </span>
+        {/* Header card */}
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-14 w-14">
+                  <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
+                    <StatusBadge status={detail.status} />
                   </div>
-                )}
-                {detail.educationTypeNames.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {detail.educationTypeNames.map((name) => (
-                      <span
-                        key={name}
-                        className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  {detail.primaryGuardian && (
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                      <Link
+                        href={`/app/guardians/${detail.primaryGuardian.id}`}
+                        className="flex items-center gap-1 hover:text-primary transition-colors"
                       >
-                        {name}
+                        <User className="h-3 w-3" />
+                        {detail.primaryGuardian.fullName} · {detail.primaryGuardian.relationship}
+                      </Link>
+                      <span className="flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {detail.primaryGuardian.phone}
                       </span>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  )}
+                  {detail.educationTypeNames.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {detail.educationTypeNames.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <DetailHeaderMeta createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
+                </div>
               </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditOpen(true)}
+                className="shrink-0"
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                Düzenle
+              </Button>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      {/* KPI stat cards */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Toplam Seans"
-          value={detail.totalSessions}
-          description="Tüm zamanlar"
-          icon={CalendarDays}
-          variant="default"
-        />
-        <StatCard
-          title="Toplam Tutar"
-          value={formatCurrency(detail.totalBilled)}
-          description="Tahakkuk eden"
-          icon={TrendingUp}
-          variant="default"
-        />
-        <StatCard
-          title="Alınan Ödeme"
-          value={formatCurrency(detail.totalPaid)}
-          description="Tahsil edilen"
-          icon={CreditCard}
-          variant="success"
-        />
-        <StatCard
-          title="Kalan Borç"
-          value={formatCurrency(detail.totalDebt)}
-          description="Ödenmemiş"
-          icon={AlertCircle}
-          variant={detail.totalDebt > 0 ? "danger" : "success"}
-        />
+        {/* KPI stat cards */}
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Toplam Seans"
+            value={detail.totalSessions}
+            description="Tüm zamanlar"
+            icon={CalendarDays}
+            variant="default"
+          />
+          <StatCard
+            title="Toplam Tutar"
+            value={formatCurrency(detail.totalBilled)}
+            description="Tahakkuk eden"
+            icon={TrendingUp}
+            variant="default"
+          />
+          <StatCard
+            title="Alınan Ödeme"
+            value={formatCurrency(detail.totalPaid)}
+            description="Tahsil edilen"
+            icon={CreditCard}
+            variant="success"
+          />
+          <StatCard
+            title="Kalan Borç"
+            value={formatCurrency(detail.totalDebt)}
+            description="Ödenmemiş"
+            icon={AlertCircle}
+            variant={detail.totalDebt > 0 ? "danger" : "success"}
+          />
+        </div>
+
+        {/* Planned sessions — informational only, never billed */}
+        {plannedSummary.count > 0 && (
+          <PlannedSessionsCard count={plannedSummary.count} totalValue={plannedSummary.totalValue} />
+        )}
+
+        {/* Tabs */}
+        <Tabs tabs={tabs} defaultTab="general" />
       </div>
 
-      {/* Tabs */}
-      <Tabs tabs={tabs} defaultTab="general" />
-    </div>
+      {rawStudent && (
+        <StudentFormDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          initialData={rawStudent}
+        />
+      )}
+    </>
   );
 }

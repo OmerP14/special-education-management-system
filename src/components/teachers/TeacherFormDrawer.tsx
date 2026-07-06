@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -18,21 +19,30 @@ import type { Teacher, TeacherStatus, TeacherEarningType } from "@/types";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const EARNING_TYPE_OPTIONS: { value: TeacherEarningType; label: string; description: string }[] = [
+const EARNING_TYPE_OPTIONS: {
+  value: TeacherEarningType;
+  label: string;
+  description: string;
+}[] = [
   {
     value: "per_session",
-    label: "Seans Başına",
-    description: "Her seans için sabit veya özel fiyat",
+    label: "Seans Başı",
+    description: "Her seans için uzmanlık alanına göre özel hakediş",
   },
   {
     value: "monthly_salary",
-    label: "Aylık Maaş",
-    description: "Sabit aylık maaş",
+    label: "Sabit Maaş",
+    description: "Sabit aylık maaş; seans başı ayrıca hakediş oluşmaz",
+  },
+  {
+    value: "salary_plus_quota",
+    label: "Sabit Maaş + Kota Üstü Hakediş",
+    description: "Maaşa dahil kota aşıldığında ek seans hakedişi oluşur",
   },
   {
     value: "percentage",
     label: "Yüzde Hakediş",
-    description: "Öğrenci ücretinin yüzdesi",
+    description: "Öğrenci ücretinin yüzdesi kadar hakediş",
   },
 ];
 
@@ -48,8 +58,10 @@ interface FormState {
   customBranch: string;
   earningType: TeacherEarningType;
   monthlySalary: number;
+  monthlySessionQuota: number;
+  extraSessionRate: number;
   earningPercentage: number;
-  customPrices: Record<string, string>; // educationTypeId → amount string
+  customPrices: Record<string, number | undefined>; // educationTypeId → amount (undefined = not set)
   notes: string;
 }
 
@@ -64,6 +76,8 @@ function buildEmptyForm(): FormState {
     customBranch: "",
     earningType: "per_session",
     monthlySalary: 0,
+    monthlySessionQuota: 0,
+    extraSessionRate: 0,
     earningPercentage: 0,
     customPrices: {},
     notes: "",
@@ -72,7 +86,7 @@ function buildEmptyForm(): FormState {
 
 function buildFormFromTeacher(
   teacher: Teacher,
-  existingCustomPrices: Record<string, string>
+  existingCustomPrices: Record<string, number | undefined>
 ): FormState {
   const hasCustomBranch =
     !!teacher.customBranch && !mockEducationTypes.some((et) => et.id === teacher.customBranch);
@@ -86,6 +100,8 @@ function buildFormFromTeacher(
     customBranch: teacher.customBranch ?? "",
     earningType: teacher.earningType ?? "per_session",
     monthlySalary: teacher.monthlySalary ?? 0,
+    monthlySessionQuota: teacher.includedSessionQuota ?? 0,
+    extraSessionRate: teacher.extraSessionEarning ?? 0,
     earningPercentage: teacher.earningPercentage ?? 0,
     customPrices: existingCustomPrices,
     notes: teacher.notes ?? "",
@@ -110,31 +126,25 @@ export function TeacherFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
-  // Build existing custom prices map for the teacher being edited
-  const existingPricesMap: Record<string, string> = {};
-  if (initialData) {
-    store.teacherCustomPrices
-      .filter((tcp) => tcp.teacherId === initialData.id)
-      .forEach((tcp) => {
-        existingPricesMap[tcp.educationTypeId] = String(tcp.customEarning);
-      });
-  }
+  const buildExistingPricesMap = (): Record<string, number | undefined> => {
+    const map: Record<string, number | undefined> = {};
+    if (initialData) {
+      store.teacherCustomPrices
+        .filter((tcp) => tcp.teacherId === initialData.id)
+        .forEach((tcp) => {
+          map[tcp.educationTypeId] = tcp.customEarning;
+        });
+    }
+    return map;
+  };
 
   const [form, setForm] = useState<FormState>(() =>
-    initialData ? buildFormFromTeacher(initialData, existingPricesMap) : buildEmptyForm()
+    initialData ? buildFormFromTeacher(initialData, buildExistingPricesMap()) : buildEmptyForm()
   );
 
-  // Re-sync when initialData changes (e.g., opening a different teacher's edit drawer)
   useEffect(() => {
     if (open) {
-      const map: Record<string, string> = {};
-      if (initialData) {
-        store.teacherCustomPrices
-          .filter((tcp) => tcp.teacherId === initialData.id)
-          .forEach((tcp) => {
-            map[tcp.educationTypeId] = String(tcp.customEarning);
-          });
-      }
+      const map = buildExistingPricesMap();
       setForm(
         initialData ? buildFormFromTeacher(initialData, map) : buildEmptyForm()
       );
@@ -160,11 +170,6 @@ export function TeacherFormDrawer({
     const tenantId = initialData?.tenantId ?? "tenant-1";
     const id = initialData?.id ?? `teacher-${Date.now()}`;
 
-    const specializations = [
-      ...form.specializationIds,
-      ...(form.hasCustomBranch && form.customBranch.trim() ? [] : []),
-    ];
-
     const teacher: Teacher = {
       id,
       tenantId,
@@ -172,11 +177,20 @@ export function TeacherFormDrawer({
       phone: form.phone.trim(),
       email: form.email.trim() || undefined,
       status: form.status,
-      specializations,
+      specializations: form.specializationIds,
       earningType: form.earningType,
-      monthlySalary: form.earningType === "monthly_salary" ? form.monthlySalary : undefined,
-      earningPercentage: form.earningType === "percentage" ? form.earningPercentage : undefined,
-      customBranch: form.hasCustomBranch && form.customBranch.trim() ? form.customBranch.trim() : undefined,
+      monthlySalary:
+        form.earningType === "monthly_salary" || form.earningType === "salary_plus_quota"
+          ? form.monthlySalary
+          : undefined,
+      includedSessionQuota:
+        form.earningType === "salary_plus_quota" ? form.monthlySessionQuota : undefined,
+      extraSessionEarning:
+        form.earningType === "salary_plus_quota" ? form.extraSessionRate : undefined,
+      earningPercentage:
+        form.earningType === "percentage" ? form.earningPercentage : undefined,
+      customBranch:
+        form.hasCustomBranch && form.customBranch.trim() ? form.customBranch.trim() : undefined,
       notes: form.notes.trim() || undefined,
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
     };
@@ -187,12 +201,12 @@ export function TeacherFormDrawer({
       store.addTeacher(teacher);
     }
 
-    // Upsert custom prices for per_session
+    // Per-session teachers: persist configured custom prices
     if (form.earningType === "per_session") {
       const prices = Object.entries(form.customPrices)
         .map(([educationTypeId, amt]) => ({
           educationTypeId,
-          amount: parseFloat(amt) || 0,
+          amount: amt ?? 0,
         }))
         .filter((p) => p.amount > 0);
       store.upsertTeacherCustomPricesForTeacher(id, tenantId, prices);
@@ -211,7 +225,7 @@ export function TeacherFormDrawer({
       open={open}
       onOpenChange={onOpenChange}
       title={title}
-      description="Öğretmen bilgilerini doldurun. Özel fiyatlar eğitim türüne göre ayarlanabilir."
+      description="Öğretmen bilgilerini doldurun. Hakediş modeli seans kaydına yansır."
       onSave={handleSave}
       saveLabel={saveLabel}
     >
@@ -311,7 +325,6 @@ export function TeacherFormDrawer({
                 placeholder="Branş adını girin…"
                 value={form.customBranch}
                 onChange={(e) => set("customBranch", e.target.value)}
-                className="ml-0"
               />
             )}
           </div>
@@ -319,9 +332,9 @@ export function TeacherFormDrawer({
 
         <Separator />
 
-        {/* Hakediş Tipi */}
+        {/* Hakediş Modeli */}
         <div className="space-y-2">
-          <Label>Hakediş Tipi</Label>
+          <Label>Hakediş Modeli</Label>
           <div className="space-y-2">
             {EARNING_TYPE_OPTIONS.map((opt) => (
               <label
@@ -345,37 +358,73 @@ export function TeacherFormDrawer({
           </div>
         </div>
 
-        {/* Monthly salary field */}
-        {form.earningType === "monthly_salary" && (
+        {/* Sabit Maaş alanı */}
+        {(form.earningType === "monthly_salary" ||
+          form.earningType === "salary_plus_quota") && (
           <div className="space-y-1.5">
             <Label htmlFor="monthly-salary">Aylık Maaş (₺)</Label>
-            <Input
+            <NumericInput
               id="monthly-salary"
-              type="number"
               min={0}
               step={500}
               placeholder="0"
-              value={form.monthlySalary || ""}
-              onChange={(e) => set("monthlySalary", parseFloat(e.target.value) || 0)}
+              value={form.monthlySalary}
+              onValueChange={(v) => set("monthlySalary", v ?? 0)}
             />
           </div>
         )}
 
-        {/* Percentage field */}
+        {/* Kota alanları */}
+        {form.earningType === "salary_plus_quota" && (
+          <div className="space-y-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Kota Üstü Ayarları
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="session-quota">Maaşa Dahil Aylık Seans Sayısı</Label>
+              <NumericInput
+                id="session-quota"
+                min={0}
+                step={1}
+                integer
+                placeholder="0"
+                value={form.monthlySessionQuota}
+                onValueChange={(v) => set("monthlySessionQuota", v ?? 0)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Bu kadara kadar yapılan seanslar maaşa dahildir.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="extra-session-rate">Kota Üstü Seans Hakedişi (₺)</Label>
+              <NumericInput
+                id="extra-session-rate"
+                min={0}
+                step={50}
+                placeholder="0"
+                value={form.extraSessionRate}
+                onValueChange={(v) => set("extraSessionRate", v ?? 0)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Kotayı aşan her seans için ek ödeme miktarı.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Yüzde alanı */}
         {form.earningType === "percentage" && (
           <div className="space-y-1.5">
             <Label htmlFor="earning-pct">Hakediş Yüzdesi (%)</Label>
-            <Input
+            <NumericInput
               id="earning-pct"
-              type="number"
               min={0}
               max={100}
               step={1}
               placeholder="0"
-              value={form.earningPercentage || ""}
-              onChange={(e) =>
-                set("earningPercentage", Math.min(100, parseFloat(e.target.value) || 0))
-              }
+              value={form.earningPercentage}
+              transform={(v) => Math.min(100, v)}
+              onValueChange={(v) => set("earningPercentage", v ?? 0)}
             />
             <p className="text-xs text-muted-foreground">
               Öğrenci seans ücretinin bu yüzdesi öğretmene ödenir.
@@ -383,40 +432,50 @@ export function TeacherFormDrawer({
           </div>
         )}
 
-        {/* Per-session custom prices */}
+        {/* Seans Başı fiyatları — yalnızca seçili uzmanlıklara göre */}
         {form.earningType === "per_session" && (
           <div className="space-y-2">
-            <Label>Eğitim Türü Başına Hakediş (₺)</Label>
-            <p className="text-xs text-muted-foreground">
-              Boş bırakılırsa eğitim türünün varsayılan hakedişi kullanılır.
-            </p>
-            <div className="space-y-2">
-              {mockEducationTypes.map((et) => (
-                <div key={et.id} className="flex items-center gap-3">
-                  <span className="flex-1 text-sm text-foreground truncate">{et.name}</span>
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    Varsayılan: ₺{et.defaultTeacherEarning}
-                  </span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={25}
-                    placeholder={String(et.defaultTeacherEarning)}
-                    value={form.customPrices[et.id] ?? ""}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        customPrices: {
-                          ...prev.customPrices,
-                          [et.id]: e.target.value,
-                        },
-                      }))
-                    }
-                    className="w-24 shrink-0"
-                  />
+            <Label>Uzmanlık Alanına Göre Seans Hakedişi (₺)</Label>
+            {form.specializationIds.length === 0 ? (
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border px-3 py-2.5">
+                Hakediş tanımlamak için önce uzmanlık alanı seçiniz.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Her uzmanlık için özel hakediş girin. Girilmezse o eğitim türüne özel
+                  fiyat tanımsız kalır ve seans kaydında uyarı gösterilir.
+                </p>
+                <div className="space-y-2">
+                  {mockEducationTypes
+                    .filter((et) => form.specializationIds.includes(et.id))
+                    .map((et) => (
+                      <div key={et.id} className="flex items-center gap-3">
+                        <span className="flex-1 text-sm text-foreground truncate">
+                          {et.name}
+                        </span>
+                        <NumericInput
+                          min={0}
+                          step={25}
+                          placeholder="Tanımsız"
+                          value={form.customPrices[et.id]}
+                          allowUndefined
+                          onValueChange={(v) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              customPrices: {
+                                ...prev.customPrices,
+                                [et.id]: v,
+                              },
+                            }))
+                          }
+                          className="w-28 shrink-0"
+                        />
+                      </div>
+                    ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         )}
 

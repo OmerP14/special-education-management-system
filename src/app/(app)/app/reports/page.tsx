@@ -3,113 +3,102 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import {
-  Users,
-  CalendarDays,
-  CheckCircle2,
   ReceiptText,
   BanknoteIcon,
   AlertCircle,
-  TrendingUp,
-  BookOpen,
   GraduationCap,
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  CheckCircle2,
+  CalendarDays,
+  Clock,
+  XCircle,
+  UserX,
+  Repeat,
+  Users,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { DataTable, type Column } from "@/components/shared/DataTable";
-import { Tabs, type TabItem } from "@/components/shared/Tabs";
+import { ReportViewer, type ReportSummaryCard } from "@/components/reports/ReportViewer";
+import { ReportFilterBar } from "@/components/reports/ReportFilterBar";
+import type { Column } from "@/components/shared/DataTable";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
-  filterSessionsByMonth,
-  filterPaymentsByMonth,
-  filterEarningsByMonth,
-  buildGeneralReportStats,
-  buildStudentReportRows,
+  buildStudentDebtItems,
+  buildPaymentListItems,
+  buildTeacherPaymentListItems,
+  buildSessionListItems,
+  buildSessionStatusBreakdown,
+  buildStudentAttendanceRows,
+  buildTeacherSessionCountRows,
   buildTeacherReportRows,
-  buildEducationTypeReportRows,
-  buildFinanceReportStats,
+  getTeacherEarningTotalsForRange,
+  getTeacherMonthAccountSummary,
+  getMonthKey,
+  getMonthLabel,
   formatCurrency,
   formatDate,
 } from "@/lib/helpers/finance";
+import { buildCashMovementRows } from "@/lib/helpers/cash";
+import { buildStudentMonthlyAccountRows } from "@/lib/helpers/current-account";
+import {
+  EMPTY_REPORT_FILTERS,
+  resolveReportDateRange,
+  filterSessionsByReportFilters,
+  filterPaymentsByReportFilters,
+  filterTeacherPaymentsByReportFilters,
+  isWithinReportRange,
+  REPORT_CATALOG,
+  REPORT_CATEGORY_LABELS,
+  type ReportFilters,
+  type ReportCategory,
+} from "@/lib/helpers/reports";
 import type {
-  StudentReportRow,
+  StudentDebtItem,
+  StudentMonthlyAccountRow,
+  PaymentListItem,
+  TeacherPaymentReportRow,
+  CashMovementRow,
+  SessionListItem,
+  StudentAttendanceRow,
+  TeacherSessionCountRow,
   TeacherReportRow,
-  EducationTypeReportRow,
+  TeacherMonthAccountSummary,
 } from "@/types";
 import { cn } from "@/lib/utils";
 
-// ─── Month helpers ────────────────────────────────────────────────────────────
+// ─── Small local badges (avoid StatusBadge collisions with unrelated status enums) ──
 
-function monthKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(key: string): string {
-  const [y, m] = key.split("-");
-  return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(
-    new Date(Number(y), Number(m) - 1, 1)
-  );
-}
-
-function parseMonthFilter(value: string): { year: number | null; month: number | null } {
-  if (value === "all") return { year: null, month: null };
-  const [y, m] = value.split("-");
-  return { year: Number(y), month: Number(m) };
-}
-
-// ─── Finance row helper ───────────────────────────────────────────────────────
-
-function FinanceRow({
-  label,
-  value,
-  variant = "neutral",
-  bold,
-  indent,
-}: {
-  label: string;
-  value: string;
-  variant?: "neutral" | "success" | "warning" | "danger" | "primary";
-  bold?: boolean;
-  indent?: boolean;
-}) {
+function CashTypeBadge({ type }: { type: "income" | "expense" }) {
   return (
-    <div
+    <span
       className={cn(
-        "flex items-center justify-between py-2.5",
-        indent ? "pl-4" : ""
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+        type === "income"
+          ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+          : "bg-red-100 text-red-700 border-red-200"
       )}
     >
-      <span
-        className={cn(
-          "text-sm",
-          indent ? "text-muted-foreground" : "font-medium text-foreground"
-        )}
-      >
-        {label}
-      </span>
-      <span
-        className={cn(
-          "tabular-nums text-sm",
-          bold ? "text-base font-bold" : "font-semibold",
-          variant === "neutral" && "text-foreground",
-          variant === "success" && "text-emerald-600",
-          variant === "warning" && "text-amber-600",
-          variant === "danger" && "text-destructive",
-          variant === "primary" && "text-primary"
-        )}
-      >
-        {value}
-      </span>
-    </div>
+      {type === "income" ? "Gelir" : "Gider"}
+    </span>
   );
 }
 
-// ─── Student report columns ───────────────────────────────────────────────────
+function PaymentTypeBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+      {label}
+    </span>
+  );
+}
 
-const studentColumns: Column<StudentReportRow>[] = [
+// ─── Column definitions (one per report row shape) ────────────────────────────
+
+const debtColumns: Column<StudentDebtItem>[] = [
   {
-    key: "name",
+    key: "student",
     header: "Öğrenci",
     render: (row) => (
       <Link
@@ -124,62 +113,25 @@ const studentColumns: Column<StudentReportRow>[] = [
   {
     key: "guardian",
     header: "Veli",
-    render: (row) =>
-      row.guardianName && row.guardianId ? (
-        <Link
-          href={`/app/guardians/${row.guardianId}`}
-          className="text-muted-foreground hover:text-primary transition-colors text-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {row.guardianName}
-        </Link>
-      ) : row.guardianName ? (
-        <span className="text-muted-foreground text-sm">{row.guardianName}</span>
-      ) : (
-        <span className="text-muted-foreground/40">—</span>
-      ),
+    render: (row) => row.guardianName ?? <span className="text-muted-foreground/40">—</span>,
     className: "hidden sm:table-cell",
     headerClassName: "hidden sm:table-cell",
   },
   {
-    key: "totalSessions",
-    header: "Toplam Seans",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.totalSessions}
-      </span>
-    ),
-    className: "hidden md:table-cell text-center",
-    headerClassName: "hidden md:table-cell text-center",
-  },
-  {
-    key: "completedSessions",
-    header: "Tamamlanan",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.completedSessions}
-      </span>
-    ),
-    className: "hidden lg:table-cell text-center",
-    headerClassName: "hidden lg:table-cell text-center",
-  },
-  {
     key: "totalBilled",
-    header: "Toplam Tutar",
+    header: "Tahakkuk",
     render: (row) => (
-      <span className="tabular-nums font-medium text-right block">
-        {formatCurrency(row.totalBilled)}
-      </span>
+      <span className="tabular-nums text-right block">{formatCurrency(row.totalBilled)}</span>
     ),
-    className: "hidden sm:table-cell text-right",
-    headerClassName: "hidden sm:table-cell text-right",
+    className: "text-right",
+    headerClassName: "text-right",
   },
   {
-    key: "totalCollected",
-    header: "Alınan Ödeme",
+    key: "totalPaid",
+    header: "Tahsilat",
     render: (row) => (
-      <span className="tabular-nums text-emerald-600 font-medium text-right block">
-        {formatCurrency(row.totalCollected)}
+      <span className="tabular-nums text-emerald-600 text-right block">
+        {formatCurrency(row.totalPaid)}
       </span>
     ),
     className: "text-right",
@@ -187,7 +139,7 @@ const studentColumns: Column<StudentReportRow>[] = [
   },
   {
     key: "remainingDebt",
-    header: "Kalan Borç",
+    header: "Kalan",
     render: (row) => (
       <span
         className={cn(
@@ -198,34 +150,93 @@ const studentColumns: Column<StudentReportRow>[] = [
         {formatCurrency(row.remainingDebt)}
       </span>
     ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+];
+
+// Month-scoped variant — Önceki Devir / Bu Ay Tahakkuk / Bu Ay Tahsilat / Güncel Bakiye,
+// shown instead of debtColumns when a single month filter is active.
+const monthlyAccountColumns: Column<StudentMonthlyAccountRow>[] = [
+  {
+    key: "student",
+    header: "Öğrenci",
+    render: (row) => (
+      <Link
+        href={`/app/students/${row.studentId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.studentName}
+      </Link>
+    ),
+  },
+  {
+    key: "guardian",
+    header: "Veli",
+    render: (row) => row.guardianName ?? <span className="text-muted-foreground/40">—</span>,
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+  {
+    key: "previousBalance",
+    header: "Önceki Devir",
+    render: (row) => (
+      <span
+        className={cn(
+          "tabular-nums text-right block",
+          row.previousBalance > 0 ? "text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {formatCurrency(Math.abs(row.previousBalance))}
+      </span>
+    ),
     className: "hidden md:table-cell text-right",
     headerClassName: "hidden md:table-cell text-right",
   },
   {
-    key: "lastSession",
-    header: "Son Seans",
+    key: "currentMonthBilled",
+    header: "Bu Ay Tahakkuk",
     render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-xs">
-        {row.lastSessionDate ? formatDate(row.lastSessionDate) : "—"}
+      <span className="tabular-nums text-right block">
+        {formatCurrency(row.currentMonthBilled)}
       </span>
     ),
-    className: "hidden lg:table-cell text-right",
-    headerClassName: "hidden lg:table-cell text-right",
+    className: "text-right",
+    headerClassName: "text-right",
   },
   {
-    key: "status",
-    header: "Durum",
-    render: (row) => <StatusBadge status={row.status} />,
-    className: "hidden sm:table-cell",
-    headerClassName: "hidden sm:table-cell",
+    key: "currentMonthPaid",
+    header: "Bu Ay Tahsilat",
+    render: (row) => (
+      <span className="tabular-nums text-emerald-600 text-right block">
+        {formatCurrency(row.currentMonthPaid)}
+      </span>
+    ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "currentBalance",
+    header: "Güncel Bakiye",
+    render: (row) => (
+      <span
+        className={cn(
+          "tabular-nums font-semibold text-right block",
+          row.currentBalance > 0 ? "text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {formatCurrency(row.currentBalance)}
+      </span>
+    ),
+    className: "text-right",
+    headerClassName: "text-right",
   },
 ];
 
-// ─── Teacher report columns ───────────────────────────────────────────────────
-
-const teacherColumns: Column<TeacherReportRow>[] = [
+const teacherPaymentColumns: Column<TeacherPaymentReportRow>[] = [
   {
-    key: "name",
+    key: "teacher",
     header: "Öğretmen",
     render: (row) => (
       <Link
@@ -238,46 +249,271 @@ const teacherColumns: Column<TeacherReportRow>[] = [
     ),
   },
   {
-    key: "totalSessions",
-    header: "Toplam Seans",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.totalSessions}
-      </span>
-    ),
-    className: "hidden md:table-cell text-center",
-    headerClassName: "hidden md:table-cell text-center",
+    key: "paymentType",
+    header: "Ödeme Türü",
+    render: (row) => <PaymentTypeBadge label={row.paymentTypeLabel} />,
   },
   {
-    key: "completedSessions",
-    header: "Tamamlanan",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.completedSessions}
-      </span>
-    ),
-    className: "hidden lg:table-cell text-center",
-    headerClassName: "hidden lg:table-cell text-center",
-  },
-  {
-    key: "totalEarning",
-    header: "Toplam Hakediş",
+    key: "amount",
+    header: "Tutar",
     render: (row) => (
       <span className="tabular-nums font-semibold text-right block">
-        {formatCurrency(row.totalEarning)}
+        {formatCurrency(row.amount)}
       </span>
     ),
     className: "text-right",
     headerClassName: "text-right",
   },
   {
-    key: "paidEarning",
-    header: "Ödenen",
+    key: "method",
+    header: "Yöntem",
+    render: (row) => row.methodLabel,
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
+  },
+  {
+    key: "description",
+    header: "Açıklama",
+    render: (row) =>
+      row.description ?? <span className="text-muted-foreground/40">—</span>,
+    className: "hidden md:table-cell",
+    headerClassName: "hidden md:table-cell",
+  },
+];
+
+const cashColumns: Column<CashMovementRow>[] = [
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
+  },
+  {
+    key: "type",
+    header: "Tür",
+    render: (row) => <CashTypeBadge type={row.type} />,
+  },
+  {
+    key: "description",
+    header: "Açıklama",
     render: (row) => (
-      <span className="tabular-nums text-emerald-600 text-right block">
-        {formatCurrency(row.paidEarning)}
+      <div>
+        <p className="text-sm">{row.description ?? "—"}</p>
+        {row.teacherPaymentTypeLabel && (
+          <PaymentTypeBadge label={row.teacherPaymentTypeLabel} />
+        )}
+      </div>
+    ),
+  },
+  {
+    key: "amount",
+    header: "Tutar",
+    render: (row) => (
+      <span
+        className={cn(
+          "tabular-nums font-semibold text-right block",
+          row.type === "income" ? "text-emerald-600" : "text-destructive"
+        )}
+      >
+        {row.type === "income" ? "+" : "-"}
+        {formatCurrency(row.amount)}
       </span>
     ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+];
+
+const sessionColumns: Column<SessionListItem>[] = [
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
+  },
+  {
+    key: "student",
+    header: "Öğrenci",
+    render: (row) => (
+      <Link
+        href={`/app/students/${row.studentId}`}
+        className="text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.studentName}
+      </Link>
+    ),
+  },
+  {
+    key: "teacher",
+    header: "Öğretmen",
+    render: (row) => (
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="text-muted-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.teacherName}
+      </Link>
+    ),
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+  {
+    key: "educationType",
+    header: "Eğitim Türü",
+    render: (row) => row.educationTypeName,
+    className: "hidden md:table-cell",
+    headerClassName: "hidden md:table-cell",
+  },
+  {
+    key: "status",
+    header: "Durum",
+    render: (row) => <StatusBadge status={row.status} />,
+  },
+  {
+    key: "amount",
+    header: "Tutar",
+    render: (row) => (
+      <span className="tabular-nums text-right block">{formatCurrency(row.totalAmount)}</span>
+    ),
+    className: "hidden sm:table-cell text-right",
+    headerClassName: "hidden sm:table-cell text-right",
+  },
+];
+
+const paymentColumns: Column<PaymentListItem>[] = [
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
+  },
+  {
+    key: "student",
+    header: "Öğrenci",
+    render: (row) => (
+      <Link
+        href={`/app/students/${row.studentId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.studentName}
+      </Link>
+    ),
+  },
+  {
+    key: "guardian",
+    header: "Veli",
+    render: (row) => row.guardianName ?? <span className="text-muted-foreground/40">—</span>,
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+  {
+    key: "amount",
+    header: "Tutar",
+    render: (row) => (
+      <span className="tabular-nums font-semibold text-right block">
+        {formatCurrency(row.amount)}
+      </span>
+    ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "method",
+    header: "Yöntem",
+    render: (row) => row.methodLabel,
+    className: "hidden md:table-cell",
+    headerClassName: "hidden md:table-cell",
+  },
+  {
+    key: "notes",
+    header: "Not",
+    render: (row) => row.notes ?? <span className="text-muted-foreground/40">—</span>,
+    className: "hidden lg:table-cell",
+    headerClassName: "hidden lg:table-cell",
+  },
+];
+
+const attendanceColumns: Column<StudentAttendanceRow>[] = [
+  {
+    key: "student",
+    header: "Öğrenci",
+    render: (row) => (
+      <Link
+        href={`/app/students/${row.studentId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.studentName}
+      </Link>
+    ),
+  },
+  { key: "total", header: "Toplam", render: (row) => <span className="tabular-nums text-right block">{row.total}</span>, className: "text-right", headerClassName: "text-right" },
+  { key: "completed", header: "Tamamlanan", render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{row.completed}</span>, className: "text-right", headerClassName: "text-right" },
+  { key: "planned", header: "Planlanan", render: (row) => <span className="tabular-nums text-right block">{row.planned}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
+  { key: "cancelled", header: "İptal", render: (row) => <span className="tabular-nums text-right block">{row.cancelled}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "noShow", header: "Gelmedi", render: (row) => <span className="tabular-nums text-right block">{row.noShow}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "makeup", header: "Telafi", render: (row) => <span className="tabular-nums text-right block">{row.makeup}</span>, className: "hidden lg:table-cell text-right", headerClassName: "hidden lg:table-cell text-right" },
+];
+
+const teacherSessionCountColumns: Column<TeacherSessionCountRow>[] = [
+  {
+    key: "teacher",
+    header: "Öğretmen",
+    render: (row) => (
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.teacherName}
+      </Link>
+    ),
+  },
+  { key: "total", header: "Toplam", render: (row) => <span className="tabular-nums text-right block">{row.total}</span>, className: "text-right", headerClassName: "text-right" },
+  { key: "completed", header: "Tamamlanan", render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{row.completed}</span>, className: "text-right", headerClassName: "text-right" },
+  { key: "planned", header: "Planlanan", render: (row) => <span className="tabular-nums text-right block">{row.planned}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
+  { key: "cancelled", header: "İptal", render: (row) => <span className="tabular-nums text-right block">{row.cancelled}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "noShow", header: "Gelmedi", render: (row) => <span className="tabular-nums text-right block">{row.noShow}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "makeup", header: "Telafi", render: (row) => <span className="tabular-nums text-right block">{row.makeup}</span>, className: "hidden lg:table-cell text-right", headerClassName: "hidden lg:table-cell text-right" },
+];
+
+const teacherEarningsColumns: Column<TeacherReportRow>[] = [
+  {
+    key: "teacher",
+    header: "Öğretmen",
+    render: (row) => (
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.teacherName}
+      </Link>
+    ),
+  },
+  {
+    key: "sessions",
+    header: "Seans",
+    render: (row) => <span className="tabular-nums text-right block">{row.totalSessions}</span>,
+    className: "hidden sm:table-cell text-right",
+    headerClassName: "hidden sm:table-cell text-right",
+  },
+  {
+    key: "totalEarning",
+    header: "Toplam Hakediş",
+    render: (row) => <span className="tabular-nums font-semibold text-right block">{formatCurrency(row.totalEarning)}</span>,
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "paidEarning",
+    header: "Ödenen",
+    render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{formatCurrency(row.paidEarning)}</span>,
     className: "hidden md:table-cell text-right",
     headerClassName: "hidden md:table-cell text-right",
   },
@@ -285,28 +521,12 @@ const teacherColumns: Column<TeacherReportRow>[] = [
     key: "pendingEarning",
     header: "Bekleyen",
     render: (row) => (
-      <span
-        className={cn(
-          "tabular-nums font-medium text-right block",
-          row.pendingEarning > 0 ? "text-amber-600" : "text-muted-foreground"
-        )}
-      >
+      <span className={cn("tabular-nums font-medium text-right block", row.pendingEarning > 0 ? "text-amber-600" : "text-muted-foreground")}>
         {formatCurrency(row.pendingEarning)}
       </span>
     ),
     className: "hidden md:table-cell text-right",
     headerClassName: "hidden md:table-cell text-right",
-  },
-  {
-    key: "students",
-    header: "Öğrenci Sayısı",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.uniqueStudentCount}
-      </span>
-    ),
-    className: "hidden sm:table-cell text-center",
-    headerClassName: "hidden sm:table-cell text-center",
   },
   {
     key: "status",
@@ -317,464 +537,835 @@ const teacherColumns: Column<TeacherReportRow>[] = [
   },
 ];
 
-// ─── Education type report columns ───────────────────────────────────────────
+const teacherPerformanceColumns: Column<TeacherReportRow>[] = [
+  {
+    key: "teacher",
+    header: "Öğretmen",
+    render: (row) => (
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.teacherName}
+      </Link>
+    ),
+  },
+  { key: "totalSessions", header: "Toplam Seans", render: (row) => <span className="tabular-nums text-right block">{row.totalSessions}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
+  { key: "completedSessions", header: "Tamamlanan", render: (row) => <span className="tabular-nums text-right block">{row.completedSessions}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "students", header: "Öğrenci Sayısı", render: (row) => <span className="tabular-nums text-right block">{row.uniqueStudentCount}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
+  { key: "totalEarning", header: "Toplam Hakediş", render: (row) => <span className="tabular-nums font-semibold text-right block">{formatCurrency(row.totalEarning)}</span>, className: "text-right", headerClassName: "text-right" },
+  { key: "paidEarning", header: "Ödenen", render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{formatCurrency(row.paidEarning)}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "pendingEarning", header: "Bekleyen", render: (row) => <span className={cn("tabular-nums font-medium text-right block", row.pendingEarning > 0 ? "text-amber-600" : "text-muted-foreground")}>{formatCurrency(row.pendingEarning)}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
+  { key: "status", header: "Durum", render: (row) => <StatusBadge status={row.status} />, className: "hidden sm:table-cell", headerClassName: "hidden sm:table-cell" },
+];
 
-const edTypeColumns: Column<EducationTypeReportRow>[] = [
+// Month-scoped variant for Teacher Earnings/Performance — shown instead of the columns
+// above when a single month filter is active, so carryover is explicit instead of hidden.
+const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
   {
-    key: "name",
-    header: "Eğitim Türü",
+    key: "teacher",
+    header: "Öğretmen",
     render: (row) => (
-      <span className="font-medium text-foreground">{row.educationTypeName}</span>
+      <Link
+        href={`/app/teachers/${row.teacherId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.teacherName}
+      </Link>
     ),
   },
   {
-    key: "totalSessions",
-    header: "Toplam Seans",
+    key: "previousBalance",
+    header: "Önceki Devir",
     render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.totalSessions}
-      </span>
-    ),
-    className: "hidden md:table-cell text-center",
-    headerClassName: "hidden md:table-cell text-center",
-  },
-  {
-    key: "completedSessions",
-    header: "Tamamlanan",
-    render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.completedSessions}
-      </span>
-    ),
-    className: "hidden lg:table-cell text-center",
-    headerClassName: "hidden lg:table-cell text-center",
-  },
-  {
-    key: "totalRevenue",
-    header: "Toplam Gelir",
-    render: (row) => (
-      <span className="tabular-nums font-semibold text-right block">
-        {formatCurrency(row.totalRevenue)}
-      </span>
-    ),
-    className: "text-right",
-    headerClassName: "text-right",
-  },
-  {
-    key: "teacherEarnings",
-    header: "Öğretmen Hakedişi",
-    render: (row) => (
-      <span className="tabular-nums text-amber-600 text-right block">
-        {formatCurrency(row.teacherEarnings)}
+      <span className={cn("tabular-nums text-right block", row.previousBalance > 0 ? "text-destructive" : "text-muted-foreground")}>
+        {formatCurrency(row.previousBalance)}
       </span>
     ),
     className: "hidden md:table-cell text-right",
     headerClassName: "hidden md:table-cell text-right",
   },
   {
-    key: "centerProfit",
-    header: "Merkez Kârı",
+    key: "thisMonthEarning",
+    header: "Bu Ay Hakediş",
+    render: (row) => <span className="tabular-nums text-right block">{formatCurrency(row.thisMonthEarning)}</span>,
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "thisMonthPaid",
+    header: "Bu Ay Ödeme",
+    render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{formatCurrency(row.thisMonthPaid)}</span>,
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "thisMonthDeducted",
+    header: "Bu Ay Kesinti",
     render: (row) => (
-      <span
-        className={cn(
-          "tabular-nums font-semibold text-right block",
-          row.centerProfit >= 0 ? "text-emerald-600" : "text-destructive"
-        )}
-      >
-        {formatCurrency(row.centerProfit)}
+      <span className={cn("tabular-nums text-right block", row.thisMonthDeducted > 0 ? "text-amber-600" : "text-muted-foreground")}>
+        {formatCurrency(row.thisMonthDeducted)}
       </span>
     ),
     className: "hidden sm:table-cell text-right",
     headerClassName: "hidden sm:table-cell text-right",
   },
   {
-    key: "activeStudents",
-    header: "Aktif Öğrenci",
+    key: "currentBalance",
+    header: "Güncel Bakiye",
     render: (row) => (
-      <span className="tabular-nums text-muted-foreground text-center block">
-        {row.activeStudentCount}
+      <span className={cn("tabular-nums font-semibold text-right block", row.currentBalance > 0 ? "text-destructive" : "text-muted-foreground")}>
+        {formatCurrency(row.currentBalance)}
       </span>
     ),
-    className: "hidden sm:table-cell text-center",
-    headerClassName: "hidden sm:table-cell text-center",
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "totalPending",
+    header: "Toplam Bekleyen",
+    render: (row) => (
+      <span className={cn("tabular-nums text-right block", row.totalPending > 0 ? "text-amber-600" : "text-muted-foreground")}>
+        {formatCurrency(row.totalPending)}
+      </span>
+    ),
+    className: "hidden lg:table-cell text-right",
+    headerClassName: "hidden lg:table-cell text-right",
   },
 ];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const CATEGORIES: ReportCategory[] = ["financial", "education", "students", "teachers"];
+
 export default function ReportsPage() {
   const store = useMockStore();
-  const [monthFilter, setMonthFilter] = useState("all");
+  const [category, setCategory] = useState<ReportCategory>("financial");
+  const [reportId, setReportId] = useState<string>(REPORT_CATALOG.financial[0]!.id);
+  const [filters, setFilters] = useState<ReportFilters>({ ...EMPTY_REPORT_FILTERS });
 
-  // Derive available months from session dates
+  const selectCategory = (cat: ReportCategory) => {
+    setCategory(cat);
+    setReportId(REPORT_CATALOG[cat][0]!.id);
+  };
+
+  // ─── Shared filter inputs ────────────────────────────────────────────────
   const monthOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [
-      { value: "all", label: "Tüm Dönem" },
-    ];
+    const opts: { value: string; label: string }[] = [{ value: "all", label: "Tüm Aylar" }];
     [...store.sessions]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .forEach((s) => {
-        const key = monthKey(new Date(s.date));
+        const key = getMonthKey(new Date(s.date));
         if (!seen.has(key)) {
           seen.add(key);
-          opts.push({ value: key, label: monthLabel(key) });
+          opts.push({ value: key, label: getMonthLabel(key) });
         }
       });
     return opts;
   }, [store.sessions]);
 
-  // Parse the selected month filter
-  const { year, month } = useMemo(() => parseMonthFilter(monthFilter), [monthFilter]);
+  const teacherOptions = useMemo(
+    () => store.teachers.map((t) => ({ id: t.id, label: t.fullName })),
+    [store.teachers]
+  );
+  const studentOptions = useMemo(
+    () => store.students.map((s) => ({ id: s.id, label: s.fullName })),
+    [store.students]
+  );
+  const edTypeOptions = useMemo(
+    () => mockEducationTypes.map((et) => ({ id: et.id, label: et.name })),
+    []
+  );
 
-  // Filtered data slices — computed once, shared by all report sections
+  const { start, end } = useMemo(() => resolveReportDateRange(filters), [filters]);
+
+  // A single whole calendar month picked from the Ay dropdown (not a custom date range)
+  // switches Income/Student Debt/Teacher Earnings/Teacher Payment reports into their
+  // carryover-aware view — Önceki Devir explicit, never lifetime totals disguised as
+  // month-scoped ones. A custom date range keeps the existing all-time/range behavior.
+  const isSingleMonthMode = !!filters.monthKey && !filters.startDate && !filters.endDate;
+  const [singleMonthYear, singleMonthMonth] = isSingleMonthMode
+    ? (filters.monthKey!.split("-").map(Number) as [number, number])
+    : [0, 0];
+
+  const filterSummaryText = useMemo(() => {
+    const parts: string[] = [];
+    if (filters.monthKey) parts.push(getMonthLabel(filters.monthKey));
+    else if (start || end)
+      parts.push(`${start ? formatDate(start) : "…"} – ${end ? formatDate(end) : "…"}`);
+    else parts.push("Tüm Zamanlar");
+    if (filters.teacherId) {
+      const t = store.teachers.find((x) => x.id === filters.teacherId);
+      if (t) parts.push(`Öğretmen: ${t.fullName}`);
+    }
+    if (filters.studentId) {
+      const s = store.students.find((x) => x.id === filters.studentId);
+      if (s) parts.push(`Öğrenci: ${s.fullName}`);
+    }
+    if (filters.educationTypeId) {
+      const et = mockEducationTypes.find((x) => x.id === filters.educationTypeId);
+      if (et) parts.push(`Eğitim Türü: ${et.name}`);
+    }
+    return parts.join(" · ");
+  }, [filters, start, end, store.teachers, store.students]);
+
+  // ─── Filtered entity slices — shared by every report below ───────────────
   const filteredSessions = useMemo(
-    () => filterSessionsByMonth(store.sessions, year, month),
-    [store.sessions, year, month]
+    () => filterSessionsByReportFilters(store.sessions, filters),
+    [store.sessions, filters]
   );
   const filteredPayments = useMemo(
-    () => filterPaymentsByMonth(store.payments, year, month),
-    [store.payments, year, month]
+    () => filterPaymentsByReportFilters(store.payments, filters),
+    [store.payments, filters]
   );
-  const filteredEarnings = useMemo(
-    () => filterEarningsByMonth(store.teacherEarnings, store.sessions, year, month),
-    [store.teacherEarnings, store.sessions, year, month]
+  const filteredTeacherPayments = useMemo(
+    () => filterTeacherPaymentsByReportFilters(store.teacherPayments, filters),
+    [store.teacherPayments, filters]
   );
-
-  // Report data — all pure helpers, no computation in JSX
-  const generalStats = useMemo(
-    () =>
-      buildGeneralReportStats(
-        filteredSessions,
-        filteredPayments,
-        filteredEarnings,
-        store.sessions,
-        store.payments,
-        store.students
-      ),
-    [filteredSessions, filteredPayments, filteredEarnings, store.sessions, store.payments, store.students]
+  const teachersToShow = useMemo(
+    () => (filters.teacherId ? store.teachers.filter((t) => t.id === filters.teacherId) : store.teachers),
+    [store.teachers, filters.teacherId]
+  );
+  const studentsToShow = useMemo(
+    () => (filters.studentId ? store.students.filter((s) => s.id === filters.studentId) : store.students),
+    [store.students, filters.studentId]
   );
 
-  const studentRows = useMemo(
-    () =>
-      buildStudentReportRows(
-        store.students,
+  // ─── Report bodies ─────────────────────────────────────────────────────────
+
+  function renderIncomeStyleReport(idSuffix: string) {
+    // A single month selected → carryover-aware view (Önceki Devir explicit, never
+    // hidden inside a lifetime total). Reuses buildStudentCurrentAccount under the hood
+    // via buildStudentMonthlyAccountRows, same as Student/Guardian Detail's Cari Hesap.
+    if (isSingleMonthMode) {
+      const rows = buildStudentMonthlyAccountRows(
+        filters.studentId ? studentsToShow : store.students,
         store.guardians,
-        filteredSessions,
-        filteredPayments,
-        store.sessions,
-        store.payments
-      ),
-    [store.students, store.guardians, filteredSessions, filteredPayments, store.sessions, store.payments]
-  );
-
-  const teacherRows = useMemo(
-    () => buildTeacherReportRows(store.teachers, filteredSessions, filteredEarnings),
-    [store.teachers, filteredSessions, filteredEarnings]
-  );
-
-  const edTypeRows = useMemo(
-    () => buildEducationTypeReportRows(mockEducationTypes, filteredSessions, store.students),
-    [filteredSessions, store.students]
-  );
-
-  const financeStats = useMemo(
-    () =>
-      buildFinanceReportStats(
-        filteredSessions,
-        filteredPayments,
-        filteredEarnings,
         store.sessions,
         store.payments,
-        store.students
-      ),
-    [filteredSessions, filteredPayments, filteredEarnings, store.sessions, store.payments, store.students]
-  );
+        singleMonthYear,
+        singleMonthMonth
+      );
 
-  const periodLabel =
-    monthFilter === "all" ? "Tüm dönem" : monthLabel(monthFilter);
+      const totalPrevious = rows.reduce((s, r) => s + r.previousBalance, 0);
+      const totalBilledThisMonth = rows.reduce((s, r) => s + r.currentMonthBilled, 0);
+      const totalPaidThisMonth = rows.reduce((s, r) => s + r.currentMonthPaid, 0);
+      const totalCurrentBalance = rows.reduce((s, r) => s + r.currentBalance, 0);
 
-  // ─── Tab contents ───────────────────────────────────────────────────────────
+      const summaryCards: ReportSummaryCard[] = [
+        { title: "Önceki Devir", value: formatCurrency(totalPrevious), icon: AlertCircle, variant: totalPrevious > 0 ? "warning" : "default" },
+        { title: "Bu Ay Tahakkuk", value: formatCurrency(totalBilledThisMonth), icon: ReceiptText, variant: "default" },
+        { title: "Bu Ay Tahsilat", value: formatCurrency(totalPaidThisMonth), icon: BanknoteIcon, variant: "success" },
+        { title: "Güncel Bakiye", value: formatCurrency(totalCurrentBalance), icon: AlertCircle, variant: totalCurrentBalance > 0 ? "warning" : "success" },
+      ];
 
-  const generalContent = (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground mb-4">{periodLabel} verileri</p>
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3">
-        <StatCard
-          title="Toplam Öğrenci"
-          value={generalStats.totalStudents}
-          description="Tüm kayıtlar"
-          icon={Users}
-          variant="default"
+      return (
+        <ReportViewer<StudentMonthlyAccountRow>
+          note={filterSummaryText}
+          summaryCards={summaryCards}
+          columns={monthlyAccountColumns}
+          rows={rows}
+          keyExtractor={(r) => r.studentId}
+          emptyTitle="Bu ayda hareket bulunamadı"
+          csv={{
+            filename: `gelir-raporu-${idSuffix}-${filters.monthKey}.csv`,
+            headers: ["Öğrenci", "Veli", "Önceki Devir", "Bu Ay Tahakkuk", "Bu Ay Tahsilat", "Güncel Bakiye"],
+            rowMapper: (r) => [r.studentName, r.guardianName ?? "", r.previousBalance, r.currentMonthBilled, r.currentMonthPaid, r.currentBalance],
+          }}
+          pdf={{
+            title: "Gelir Raporu",
+            subtitle: filterSummaryText,
+            columns: [
+              { header: "Öğrenci" },
+              { header: "Veli" },
+              { header: "Önceki Devir", align: "right" },
+              { header: "Bu Ay Tahakkuk", align: "right" },
+              { header: "Bu Ay Tahsilat", align: "right" },
+              { header: "Güncel Bakiye", align: "right" },
+            ],
+            rowMapper: (r) => [
+              r.studentName,
+              r.guardianName ?? "—",
+              formatCurrency(r.previousBalance),
+              formatCurrency(r.currentMonthBilled),
+              formatCurrency(r.currentMonthPaid),
+              formatCurrency(r.currentBalance),
+            ],
+          }}
         />
-        <StatCard
-          title="Aktif Öğrenci"
-          value={generalStats.activeStudents}
-          description="Devam edenler"
-          icon={Users}
-          variant="success"
-        />
-        <StatCard
-          title="Toplam Seans"
-          value={generalStats.totalSessions}
-          description={periodLabel}
-          icon={CalendarDays}
-          variant="default"
-        />
-        <StatCard
-          title="Tamamlanan Seans"
-          value={generalStats.completedSessions}
-          description={periodLabel}
-          icon={CheckCircle2}
-          variant="success"
-        />
-        <StatCard
-          title="Toplam Tahakkuk"
-          value={formatCurrency(generalStats.totalBilled)}
-          description={periodLabel}
-          icon={ReceiptText}
-          variant="default"
-        />
-        <StatCard
-          title="Alınan Ödeme"
-          value={formatCurrency(generalStats.totalCollected)}
-          description={periodLabel}
-          icon={BanknoteIcon}
-          variant="success"
-        />
-        <StatCard
-          title="Kalan Alacak"
-          value={formatCurrency(generalStats.totalRemaining)}
-          description="Genel bakiye"
-          icon={AlertCircle}
-          variant={generalStats.totalRemaining > 0 ? "warning" : "success"}
-        />
-        <StatCard
-          title="Öğretmen Hakedişi"
-          value={formatCurrency(generalStats.totalTeacherEarnings)}
-          description={periodLabel}
-          icon={GraduationCap}
-          variant="default"
-        />
-        <StatCard
-          title="Merkez Kârı"
-          value={formatCurrency(generalStats.centerProfit)}
-          description={periodLabel}
-          icon={TrendingUp}
-          variant={generalStats.centerProfit >= 0 ? "success" : "danger"}
-        />
-      </div>
-    </div>
-  );
+      );
+    }
 
-  const studentContent = (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {periodLabel} · {studentRows.filter((r) => r.totalSessions > 0).length} öğrencinin seansı var · Kalan borç her zaman güncel bakiyeyi gösterir
-      </p>
-      <DataTable
-        data={studentRows}
-        columns={studentColumns}
+    // No single month selected (all-time, or a custom date range) — lifetime totals,
+    // honestly presented as lifetime (never disguised as period-scoped). The date-range/
+    // teacher/education-type filters only narrow down *which* students appear (activity
+    // in that window), never the all-time totals themselves, since "remaining debt" isn't
+    // a period-scoped concept.
+    const allDebtItems = buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments);
+    // Activity in the filtered window can come from sessions (billing) OR payments
+    // (collection) — a student who only paid (no billed session yet, e.g. an advance
+    // payment) must still count as "active" here, otherwise they'd silently vanish.
+    const relevantIds = filters.studentId
+      ? new Set([filters.studentId])
+      : start || end || filters.teacherId || filters.educationTypeId
+        ? new Set([
+            ...filteredSessions.map((s) => s.studentId),
+            ...filteredPayments.map((p) => p.studentId),
+          ])
+        : null;
+    const rows = relevantIds ? allDebtItems.filter((item) => relevantIds.has(item.studentId)) : allDebtItems;
+
+    const totalBilled = rows.reduce((s, r) => s + r.totalBilled, 0);
+    const totalPaid = rows.reduce((s, r) => s + r.totalPaid, 0);
+    const totalRemaining = rows.reduce((s, r) => s + r.remainingDebt, 0);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Toplam Tahakkuk", value: formatCurrency(totalBilled), icon: ReceiptText, variant: "default" },
+      { title: "Toplam Tahsilat", value: formatCurrency(totalPaid), icon: BanknoteIcon, variant: "success" },
+      { title: "Kalan Borç", value: formatCurrency(totalRemaining), icon: AlertCircle, variant: totalRemaining > 0 ? "warning" : "success" },
+    ];
+
+    return (
+      <ReportViewer<StudentDebtItem>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={debtColumns}
+        rows={rows}
         keyExtractor={(r) => r.studentId}
-        emptyTitle="Veri bulunamadı"
-        emptyDescription="Seçilen dönemde öğrenci verisi mevcut değil."
+        emptyTitle="Borç kaydı bulunamadı"
+        csv={{
+          filename: `gelir-raporu-${idSuffix}.csv`,
+          headers: ["Öğrenci", "Veli", "Tahakkuk", "Tahsilat", "Kalan"],
+          rowMapper: (r) => [r.studentName, r.guardianName ?? "", r.totalBilled, r.totalPaid, r.remainingDebt],
+        }}
+        pdf={{
+          title: "Gelir Raporu",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Öğrenci" },
+            { header: "Veli" },
+            { header: "Tahakkuk", align: "right" },
+            { header: "Tahsilat", align: "right" },
+            { header: "Kalan", align: "right" },
+          ],
+          rowMapper: (r) => [
+            r.studentName,
+            r.guardianName ?? "—",
+            formatCurrency(r.totalBilled),
+            formatCurrency(r.totalPaid),
+            formatCurrency(r.remainingDebt),
+          ],
+        }}
       />
-    </div>
-  );
+    );
+  }
 
-  const teacherContent = (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {periodLabel} · Hakediş tutarları kayıtlı hakedişlerden hesaplanmaktadır
-      </p>
-      <DataTable
-        data={teacherRows}
-        columns={teacherColumns}
+  function renderTeacherPaymentReport(idSuffix: string) {
+    // Table stays activity-based (a flat list of payment events) regardless of mode —
+    // only the summary cards switch to explicit carryover when a single month is active,
+    // so a July-only balance never silently disappears while viewing August.
+    const rows = buildTeacherPaymentListItems(filteredTeacherPayments, store.teachers);
+
+    const summaryCards: ReportSummaryCard[] = isSingleMonthMode
+      ? (() => {
+          const monthSummaries = teachersToShow.map((t) =>
+            getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth)
+          );
+          const totalPrevious = monthSummaries.reduce((s, m) => s + m.previousBalance, 0);
+          const totalEarning = monthSummaries.reduce((s, m) => s + m.thisMonthEarning, 0);
+          const totalPaidThisMonth = monthSummaries.reduce((s, m) => s + m.thisMonthPaid, 0);
+          const totalDeducted = monthSummaries.reduce((s, m) => s + m.thisMonthDeducted, 0);
+          const totalBalance = monthSummaries.reduce((s, m) => s + m.currentBalance, 0);
+          return [
+            { title: "Önceki Devir", value: formatCurrency(totalPrevious), icon: AlertCircle, variant: totalPrevious > 0 ? "warning" : "default" },
+            { title: "Bu Ay Hakediş", value: formatCurrency(totalEarning), icon: TrendingUp, variant: "default" },
+            { title: "Bu Ay Ödeme", value: formatCurrency(totalPaidThisMonth), icon: CheckCircle2, variant: "success" },
+            { title: "Bu Ay Kesinti", value: formatCurrency(totalDeducted), icon: Clock, variant: totalDeducted > 0 ? "warning" : "default" },
+            { title: "Güncel Bakiye", value: formatCurrency(totalBalance), icon: AlertCircle, variant: totalBalance > 0 ? "warning" : "success" },
+          ];
+        })()
+      : (() => {
+          const totals = teachersToShow.map((t) => getTeacherEarningTotalsForRange(t, store.sessions, store.teacherPayments, start, end));
+          const totalEarned = totals.reduce((s, t) => s + t.totalEarning, 0);
+          const totalPaid = totals.reduce((s, t) => s + t.paidEarning, 0);
+          const totalPending = totals.reduce((s, t) => s + t.pendingEarning, 0);
+          return [
+            { title: "Toplam Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
+            { title: "Toplam Ödenen", value: formatCurrency(totalPaid), icon: CheckCircle2, variant: "success" },
+            { title: "Bekleyen", value: formatCurrency(totalPending), icon: Clock, variant: totalPending > 0 ? "warning" : "success" },
+          ];
+        })();
+
+    return (
+      <ReportViewer<TeacherPaymentReportRow>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={teacherPaymentColumns}
+        rows={rows}
+        keyExtractor={(r) => r.id}
+        emptyTitle="Ödeme kaydı bulunamadı"
+        csv={{
+          filename: `ogretmen-odeme-raporu-${idSuffix}.csv`,
+          headers: ["Öğretmen", "Ödeme Türü", "Tutar", "Yöntem", "Tarih", "Açıklama"],
+          rowMapper: (r) => [r.teacherName, r.paymentTypeLabel, r.amount, r.methodLabel, formatDate(r.date), r.description ?? ""],
+        }}
+        pdf={{
+          title: "Öğretmen Ödeme Raporu",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Öğretmen" },
+            { header: "Ödeme Türü" },
+            { header: "Tutar", align: "right" },
+            { header: "Yöntem" },
+            { header: "Tarih" },
+            { header: "Açıklama" },
+          ],
+          rowMapper: (r) => [r.teacherName, r.paymentTypeLabel, formatCurrency(r.amount), r.methodLabel, formatDate(r.date), r.description ?? "—"],
+        }}
+      />
+    );
+  }
+
+  function renderDailyCashReport() {
+    const allRows = buildCashMovementRows(
+      store.cashMovements,
+      store.payments,
+      store.students,
+      store.teacherPayments,
+      store.teachers
+    );
+    const rows = allRows.filter((r) => isWithinReportRange(r.date, filters));
+    const income = rows.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
+    const expense = rows.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Gelir", value: formatCurrency(income), icon: TrendingUp, variant: "success" },
+      { title: "Gider", value: formatCurrency(expense), icon: TrendingDown, variant: "danger" },
+      { title: "Bakiye", value: formatCurrency(income - expense), icon: Wallet, variant: income - expense >= 0 ? "success" : "danger" },
+    ];
+
+    return (
+      <ReportViewer<CashMovementRow>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={cashColumns}
+        rows={rows}
+        keyExtractor={(r) => r.id}
+        emptyTitle="Kasa hareketi bulunamadı"
+        csv={{
+          filename: "gunluk-kasa-raporu.csv",
+          headers: ["Tarih", "Tür", "Açıklama", "Tutar"],
+          rowMapper: (r) => [formatDate(r.date), r.typeLabel, r.description ?? "", r.type === "income" ? r.amount : -r.amount],
+        }}
+        pdf={{
+          title: "Günlük Kasa Raporu",
+          subtitle: filterSummaryText,
+          columns: [{ header: "Tarih" }, { header: "Tür" }, { header: "Açıklama" }, { header: "Tutar", align: "right" }],
+          rowMapper: (r) => [
+            formatDate(r.date),
+            r.typeLabel,
+            r.description ?? "—",
+            `${r.type === "income" ? "+" : "-"}${formatCurrency(r.amount)}`,
+          ],
+        }}
+      />
+    );
+  }
+
+  function renderSessionStatusReport() {
+    const breakdown = buildSessionStatusBreakdown(filteredSessions);
+    const rows = buildSessionListItems(filteredSessions, store.students, store.teachers, mockEducationTypes);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Tamamlanan", value: breakdown.completed, icon: CheckCircle2, variant: "success" },
+      { title: "Planlanan", value: breakdown.planned, icon: CalendarDays, variant: "default" },
+      { title: "İptal", value: breakdown.cancelled, icon: XCircle, variant: "danger" },
+      { title: "Gelmedi", value: breakdown.noShow, icon: UserX, variant: "warning" },
+      { title: "Telafi", value: breakdown.makeup, icon: Repeat, variant: "default" },
+    ];
+
+    return (
+      <ReportViewer<SessionListItem>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={sessionColumns}
+        rows={rows}
+        keyExtractor={(r) => r.id}
+        emptyTitle="Seans bulunamadı"
+        csv={{
+          filename: "seans-durum-raporu.csv",
+          headers: ["Tarih", "Öğrenci", "Öğretmen", "Eğitim Türü", "Durum", "Tutar"],
+          rowMapper: (r) => [formatDate(r.date), r.studentName, r.teacherName, r.educationTypeName, r.status, r.totalAmount],
+        }}
+        pdf={{
+          title: "Seans Durum Raporu",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Tarih" },
+            { header: "Öğrenci" },
+            { header: "Öğretmen" },
+            { header: "Eğitim Türü" },
+            { header: "Durum" },
+            { header: "Tutar", align: "right" },
+          ],
+          rowMapper: (r) => [formatDate(r.date), r.studentName, r.teacherName, r.educationTypeName, r.status, formatCurrency(r.totalAmount)],
+        }}
+      />
+    );
+  }
+
+  function renderStudentPaymentReport() {
+    const rows = buildPaymentListItems(filteredPayments, store.students, store.guardians, store.sessions);
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    const uniqueStudents = new Set(rows.map((r) => r.studentId)).size;
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Toplam Tahsilat", value: formatCurrency(total), icon: BanknoteIcon, variant: "success" },
+      { title: "Ödeme Sayısı", value: rows.length, icon: ReceiptText, variant: "default" },
+      { title: "Öğrenci Sayısı", value: uniqueStudents, icon: Users, variant: "default" },
+    ];
+
+    return (
+      <ReportViewer<PaymentListItem>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={paymentColumns}
+        rows={rows}
+        keyExtractor={(r) => r.id}
+        emptyTitle="Ödeme kaydı bulunamadı"
+        csv={{
+          filename: "ogrenci-odeme-raporu.csv",
+          headers: ["Tarih", "Öğrenci", "Veli", "Tutar", "Yöntem", "Not"],
+          rowMapper: (r) => [formatDate(r.date), r.studentName, r.guardianName ?? "", r.amount, r.methodLabel, r.notes ?? ""],
+        }}
+        pdf={{
+          title: "Öğrenci Ödeme Raporu",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Tarih" },
+            { header: "Öğrenci" },
+            { header: "Veli" },
+            { header: "Tutar", align: "right" },
+            { header: "Yöntem" },
+            { header: "Not" },
+          ],
+          rowMapper: (r) => [formatDate(r.date), r.studentName, r.guardianName ?? "—", formatCurrency(r.amount), r.methodLabel, r.notes ?? "—"],
+        }}
+      />
+    );
+  }
+
+  function renderAttendanceReport() {
+    const breakdown = buildSessionStatusBreakdown(filteredSessions);
+    const rows = buildStudentAttendanceRows(studentsToShow, filteredSessions);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Tamamlanan", value: breakdown.completed, icon: CheckCircle2, variant: "success" },
+      { title: "Planlanan", value: breakdown.planned, icon: CalendarDays, variant: "default" },
+      { title: "İptal / Gelmedi", value: breakdown.cancelled + breakdown.noShow, icon: XCircle, variant: "warning" },
+      { title: "Telafi", value: breakdown.makeup, icon: Repeat, variant: "default" },
+    ];
+
+    return (
+      <ReportViewer<StudentAttendanceRow>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={attendanceColumns}
+        rows={rows}
+        keyExtractor={(r) => r.studentId}
+        emptyTitle="Devam kaydı bulunamadı"
+        csv={{
+          filename: "devam-ozeti.csv",
+          headers: ["Öğrenci", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
+          rowMapper: (r) => [r.studentName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
+        }}
+        pdf={{
+          title: "Devam Özeti",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Öğrenci" },
+            { header: "Toplam", align: "right" },
+            { header: "Tamamlanan", align: "right" },
+            { header: "Planlanan", align: "right" },
+            { header: "İptal", align: "right" },
+            { header: "Gelmedi", align: "right" },
+            { header: "Telafi", align: "right" },
+          ],
+          rowMapper: (r) => [r.studentName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
+        }}
+      />
+    );
+  }
+
+  function renderTeacherSessionCountsReport() {
+    const breakdown = buildSessionStatusBreakdown(filteredSessions);
+    const rows = buildTeacherSessionCountRows(teachersToShow, filteredSessions);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Tamamlanan", value: breakdown.completed, icon: CheckCircle2, variant: "success" },
+      { title: "Planlanan", value: breakdown.planned, icon: CalendarDays, variant: "default" },
+      { title: "İptal / Gelmedi", value: breakdown.cancelled + breakdown.noShow, icon: XCircle, variant: "warning" },
+      { title: "Telafi", value: breakdown.makeup, icon: Repeat, variant: "default" },
+    ];
+
+    return (
+      <ReportViewer<TeacherSessionCountRow>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={teacherSessionCountColumns}
+        rows={rows}
         keyExtractor={(r) => r.teacherId}
-        emptyTitle="Veri bulunamadı"
-        emptyDescription="Seçilen dönemde öğretmen verisi mevcut değil."
+        emptyTitle="Seans kaydı bulunamadı"
+        csv={{
+          filename: "ogretmen-seans-sayilari.csv",
+          headers: ["Öğretmen", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
+          rowMapper: (r) => [r.teacherName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
+        }}
+        pdf={{
+          title: "Öğretmen Seans Sayıları",
+          subtitle: filterSummaryText,
+          columns: [
+            { header: "Öğretmen" },
+            { header: "Toplam", align: "right" },
+            { header: "Tamamlanan", align: "right" },
+            { header: "Planlanan", align: "right" },
+            { header: "İptal", align: "right" },
+            { header: "Gelmedi", align: "right" },
+            { header: "Telafi", align: "right" },
+          ],
+          rowMapper: (r) => [r.teacherName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
+        }}
       />
-    </div>
-  );
+    );
+  }
 
-  const edTypeContent = (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {periodLabel} · Eğitim türlerine göre gelir ve kâr dağılımı
-      </p>
-      <DataTable
-        data={edTypeRows}
-        columns={edTypeColumns}
-        keyExtractor={(r) => r.educationTypeId}
-        emptyTitle="Veri bulunamadı"
-        emptyDescription="Seçilen dönemde eğitim türü verisi mevcut değil."
+  function renderTeacherEarningsReport(mode: "earnings" | "performance") {
+    const isPerformance = mode === "performance";
+
+    // A single month selected → carryover-aware table (Önceki Devir/Bu Ay Hakediş/
+    // Bu Ay Ödeme/Bu Ay Kesinti/Güncel Bakiye/Toplam Bekleyen) for both earnings and
+    // performance modes — session-count columns aren't part of the carryover story.
+    if (isSingleMonthMode) {
+      const rows = teachersToShow.map((t) =>
+        getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth)
+      );
+      const totalPrevious = rows.reduce((s, r) => s + r.previousBalance, 0);
+      const totalEarning = rows.reduce((s, r) => s + r.thisMonthEarning, 0);
+      const totalPaidThisMonth = rows.reduce((s, r) => s + r.thisMonthPaid, 0);
+      const totalDeducted = rows.reduce((s, r) => s + r.thisMonthDeducted, 0);
+      const totalBalance = rows.reduce((s, r) => s + r.currentBalance, 0);
+
+      const summaryCards: ReportSummaryCard[] = [
+        { title: "Önceki Devir", value: formatCurrency(totalPrevious), icon: AlertCircle, variant: totalPrevious > 0 ? "warning" : "default" },
+        { title: "Bu Ay Hakediş", value: formatCurrency(totalEarning), icon: TrendingUp, variant: "default" },
+        { title: "Bu Ay Ödeme", value: formatCurrency(totalPaidThisMonth), icon: CheckCircle2, variant: "success" },
+        { title: "Bu Ay Kesinti", value: formatCurrency(totalDeducted), icon: Clock, variant: totalDeducted > 0 ? "warning" : "default" },
+        { title: "Güncel Bakiye", value: formatCurrency(totalBalance), icon: AlertCircle, variant: totalBalance > 0 ? "warning" : "success" },
+      ];
+
+      return (
+        <ReportViewer<TeacherMonthAccountSummary>
+          note={filterSummaryText}
+          summaryCards={summaryCards}
+          columns={teacherMonthAccountColumns}
+          rows={rows}
+          keyExtractor={(r) => r.teacherId}
+          emptyTitle="Öğretmen verisi bulunamadı"
+          csv={{
+            filename: `${isPerformance ? "ogretmen-performansi" : "ogretmen-hakedisleri"}-${filters.monthKey}.csv`,
+            headers: ["Öğretmen", "Önceki Devir", "Bu Ay Hakediş", "Bu Ay Ödeme", "Bu Ay Kesinti", "Güncel Bakiye", "Toplam Bekleyen"],
+            rowMapper: (r) => [r.teacherName, r.previousBalance, r.thisMonthEarning, r.thisMonthPaid, r.thisMonthDeducted, r.currentBalance, r.totalPending],
+          }}
+          pdf={{
+            title: isPerformance ? "Öğretmen Performansı" : "Öğretmen Hakedişleri",
+            subtitle: filterSummaryText,
+            columns: [
+              { header: "Öğretmen" },
+              { header: "Önceki Devir", align: "right" },
+              { header: "Bu Ay Hakediş", align: "right" },
+              { header: "Bu Ay Ödeme", align: "right" },
+              { header: "Bu Ay Kesinti", align: "right" },
+              { header: "Güncel Bakiye", align: "right" },
+              { header: "Toplam Bekleyen", align: "right" },
+            ],
+            rowMapper: (r) => [
+              r.teacherName,
+              formatCurrency(r.previousBalance),
+              formatCurrency(r.thisMonthEarning),
+              formatCurrency(r.thisMonthPaid),
+              formatCurrency(r.thisMonthDeducted),
+              formatCurrency(r.currentBalance),
+              formatCurrency(r.totalPending),
+            ],
+          }}
+        />
+      );
+    }
+
+    const rows = buildTeacherReportRows(teachersToShow, filteredSessions, store.sessions, store.teacherPayments, start, end);
+    const totalEarned = rows.reduce((s, r) => s + r.totalEarning, 0);
+    const totalPaid = rows.reduce((s, r) => s + r.paidEarning, 0);
+    const totalPending = rows.reduce((s, r) => s + r.pendingEarning, 0);
+
+    const summaryCards: ReportSummaryCard[] = [
+      { title: "Toplam Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
+      { title: "Toplam Ödenen", value: formatCurrency(totalPaid), icon: CheckCircle2, variant: "success" },
+      { title: "Bekleyen", value: formatCurrency(totalPending), icon: Clock, variant: totalPending > 0 ? "warning" : "success" },
+      { title: "Öğretmen Sayısı", value: rows.length, icon: GraduationCap, variant: "default" },
+    ];
+
+    return (
+      <ReportViewer<TeacherReportRow>
+        note={filterSummaryText}
+        summaryCards={summaryCards}
+        columns={isPerformance ? teacherPerformanceColumns : teacherEarningsColumns}
+        rows={rows}
+        keyExtractor={(r) => r.teacherId}
+        emptyTitle="Öğretmen verisi bulunamadı"
+        csv={{
+          filename: isPerformance ? "ogretmen-performansi.csv" : "ogretmen-hakedisleri.csv",
+          headers: isPerformance
+            ? ["Öğretmen", "Toplam Seans", "Tamamlanan", "Öğrenci Sayısı", "Toplam Hakediş", "Ödenen", "Bekleyen", "Durum"]
+            : ["Öğretmen", "Seans", "Toplam Hakediş", "Ödenen", "Bekleyen", "Durum"],
+          rowMapper: (r) =>
+            isPerformance
+              ? [r.teacherName, r.totalSessions, r.completedSessions, r.uniqueStudentCount, r.totalEarning, r.paidEarning, r.pendingEarning, r.status]
+              : [r.teacherName, r.totalSessions, r.totalEarning, r.paidEarning, r.pendingEarning, r.status],
+        }}
+        pdf={{
+          title: isPerformance ? "Öğretmen Performansı" : "Öğretmen Hakedişleri",
+          subtitle: filterSummaryText,
+          columns: isPerformance
+            ? [
+                { header: "Öğretmen" },
+                { header: "Toplam Seans", align: "right" },
+                { header: "Tamamlanan", align: "right" },
+                { header: "Öğrenci Sayısı", align: "right" },
+                { header: "Toplam Hakediş", align: "right" },
+                { header: "Ödenen", align: "right" },
+                { header: "Bekleyen", align: "right" },
+                { header: "Durum" },
+              ]
+            : [
+                { header: "Öğretmen" },
+                { header: "Seans", align: "right" },
+                { header: "Toplam Hakediş", align: "right" },
+                { header: "Ödenen", align: "right" },
+                { header: "Bekleyen", align: "right" },
+                { header: "Durum" },
+              ],
+          rowMapper: (r) =>
+            isPerformance
+              ? [
+                  r.teacherName,
+                  String(r.totalSessions),
+                  String(r.completedSessions),
+                  String(r.uniqueStudentCount),
+                  formatCurrency(r.totalEarning),
+                  formatCurrency(r.paidEarning),
+                  formatCurrency(r.pendingEarning),
+                  r.status,
+                ]
+              : [r.teacherName, String(r.totalSessions), formatCurrency(r.totalEarning), formatCurrency(r.paidEarning), formatCurrency(r.pendingEarning), r.status],
+        }}
       />
-    </div>
-  );
+    );
+  }
 
-  const financeContent = (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        {periodLabel} · Kalan alacak tüm dönem genel bakiyesidir
-      </p>
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Revenue section */}
-        <div className="rounded-lg border border-border bg-card">
-          <div className="border-b border-border/60 px-4 py-3">
-            <p className="text-sm font-semibold text-foreground">Öğrenci Geliri</p>
-          </div>
-          <div className="divide-y divide-border/60 px-4">
-            <FinanceRow
-              label="Toplam Tahakkuk"
-              value={formatCurrency(financeStats.totalBilled)}
-            />
-            <FinanceRow
-              label="Alınan Ödeme"
-              value={formatCurrency(financeStats.totalCollected)}
-              variant="success"
-              indent
-            />
-            <FinanceRow
-              label="Kalan Alacak"
-              value={formatCurrency(financeStats.remainingReceivable)}
-              variant={financeStats.remainingReceivable > 0 ? "warning" : "success"}
-              indent
-            />
-          </div>
-        </div>
+  function renderActiveReport() {
+    switch (reportId) {
+      case "income":
+        return renderIncomeStyleReport("gelir");
+      case "teacher-payments":
+        return renderTeacherPaymentReport("finansal");
+      case "daily-cash":
+        return renderDailyCashReport();
+      case "session-status":
+        return renderSessionStatusReport();
+      case "student-debt":
+        return renderIncomeStyleReport("ogrenci-borc");
+      case "student-payments":
+        return renderStudentPaymentReport();
+      case "attendance":
+        return renderAttendanceReport();
+      case "teacher-earnings":
+        return renderTeacherEarningsReport("earnings");
+      case "teacher-session-counts":
+        return renderTeacherSessionCountsReport();
+      case "teacher-performance":
+        return renderTeacherEarningsReport("performance");
+      default:
+        return null;
+    }
+  }
 
-        {/* Teacher earnings section */}
-        <div className="rounded-lg border border-border bg-card">
-          <div className="border-b border-border/60 px-4 py-3">
-            <p className="text-sm font-semibold text-foreground">Öğretmen Gideri</p>
-          </div>
-          <div className="divide-y divide-border/60 px-4">
-            <FinanceRow
-              label="Toplam Hakediş"
-              value={formatCurrency(financeStats.totalTeacherEarnings)}
-            />
-            <FinanceRow
-              label="Ödenen Hakediş"
-              value={formatCurrency(financeStats.paidTeacherEarnings)}
-              variant="success"
-              indent
-            />
-            <FinanceRow
-              label="Bekleyen Hakediş"
-              value={formatCurrency(financeStats.pendingTeacherEarnings)}
-              variant={financeStats.pendingTeacherEarnings > 0 ? "warning" : "success"}
-              indent
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Net profit — full width, prominent */}
-      <div className="rounded-lg border-2 border-primary/20 bg-primary/5 px-5 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Merkez Brüt Kârı</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Toplam Tahakkuk − Toplam Öğretmen Hakedişi
-            </p>
-          </div>
-          <span
-            className={cn(
-              "text-2xl font-bold tabular-nums",
-              financeStats.centerGrossProfit >= 0 ? "text-emerald-600" : "text-destructive"
-            )}
-          >
-            {formatCurrency(financeStats.centerGrossProfit)}
-          </span>
-        </div>
-        {financeStats.totalBilled > 0 && (
-          <div className="mt-3">
-            <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>Kâr Marjı</span>
-              <span>
-                {Math.round((financeStats.centerGrossProfit / financeStats.totalBilled) * 100)}%
-              </span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-primary/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all"
-                style={{
-                  width: `${Math.max(0, Math.min(100, Math.round((financeStats.centerGrossProfit / financeStats.totalBilled) * 100)))}%`,
-                }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Detailed breakdown table */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="border-b border-border/60 px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Ayrıntılı Finans Özeti</p>
-        </div>
-        <table className="w-full text-sm">
-          <tbody className="divide-y divide-border/60">
-            {[
-              { label: "Toplam Tahakkuk", value: formatCurrency(financeStats.totalBilled), variant: "neutral" },
-              { label: "Alınan Ödeme", value: formatCurrency(financeStats.totalCollected), variant: "success" },
-              { label: "Kalan Alacak", value: formatCurrency(financeStats.remainingReceivable), variant: financeStats.remainingReceivable > 0 ? "warning" : "success" },
-              { label: "Toplam Öğretmen Hakedişi", value: formatCurrency(financeStats.totalTeacherEarnings), variant: "neutral" },
-              { label: "Ödenen Öğretmen Hakedişi", value: formatCurrency(financeStats.paidTeacherEarnings), variant: "success" },
-              { label: "Bekleyen Öğretmen Hakedişi", value: formatCurrency(financeStats.pendingTeacherEarnings), variant: financeStats.pendingTeacherEarnings > 0 ? "warning" : "success" },
-              { label: "Merkez Brüt Kârı", value: formatCurrency(financeStats.centerGrossProfit), variant: financeStats.centerGrossProfit >= 0 ? "success" : "danger" },
-            ].map(({ label, value, variant }) => (
-              <tr key={label} className="hover:bg-muted/20 transition-colors">
-                <td className="px-4 py-3 font-medium text-foreground">{label}</td>
-                <td
-                  className={cn(
-                    "px-4 py-3 text-right tabular-nums font-semibold",
-                    variant === "neutral" && "text-foreground",
-                    variant === "success" && "text-emerald-600",
-                    variant === "warning" && "text-amber-600",
-                    variant === "danger" && "text-destructive"
-                  )}
-                >
-                  {value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
-  const tabs: TabItem[] = [
-    { key: "general", label: "Genel Özet", content: generalContent },
-    { key: "students", label: "Öğrenci Raporu", badge: studentRows.length, content: studentContent },
-    { key: "teachers", label: "Öğretmen Raporu", badge: teacherRows.length, content: teacherContent },
-    { key: "edtypes", label: "Eğitim Türü Raporu", badge: edTypeRows.length, content: edTypeContent },
-    { key: "finance", label: "Finans Raporu", content: financeContent },
-  ];
+  const showTeacherFilter = category !== "students" || reportId === "attendance";
+  const showStudentFilter = category !== "teachers";
+  const showEducationTypeFilter = category === "education" || category === "financial";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Raporlar"
-        description="Dönemsel performans ve finansal analiz"
-        actions={
-          <div className="flex items-center gap-2">
-            <select
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {monthOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        }
+        description="Mevcut verilerden üretilen finansal, eğitim, öğrenci ve öğretmen raporları"
       />
 
-      <Tabs tabs={tabs} defaultTab="general" />
+      {/* Category selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => selectCategory(cat)}
+            className={cn(
+              "rounded-full px-4 py-1.5 text-sm font-medium transition-colors border",
+              category === cat
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+            )}
+          >
+            {REPORT_CATEGORY_LABELS[cat]}
+          </button>
+        ))}
+      </div>
+
+      {/* Report selector within category */}
+      <div className="flex flex-wrap gap-1.5">
+        {REPORT_CATALOG[category].map((r) => (
+          <button
+            key={r.id}
+            onClick={() => setReportId(r.id)}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border",
+              reportId === r.id
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+            )}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-lg border border-border bg-card p-3">
+        <ReportFilterBar
+          filters={filters}
+          onChange={setFilters}
+          monthOptions={monthOptions}
+          teachers={teacherOptions}
+          students={studentOptions}
+          educationTypes={edTypeOptions}
+          showTeacherFilter={showTeacherFilter}
+          showStudentFilter={showStudentFilter}
+          showEducationTypeFilter={showEducationTypeFilter}
+        />
+      </div>
+
+      {/* Active report */}
+      {renderActiveReport()}
     </div>
   );
 }

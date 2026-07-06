@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -248,14 +249,13 @@ export function CashMovementFormDrawer({
         {/* Amount */}
         <div className="space-y-1.5">
           <Label htmlFor="cm-amount">Tutar (₺)</Label>
-          <Input
+          <NumericInput
             id="cm-amount"
-            type="number"
             min={0}
             step={10}
-            value={form.amount || ""}
+            value={form.amount}
             placeholder="0"
-            onChange={(e) => set("amount", parseFloat(e.target.value) || 0)}
+            onValueChange={(v) => set("amount", v ?? 0)}
           />
           {form.amount > 0 && (
             <p className="text-xs text-muted-foreground">

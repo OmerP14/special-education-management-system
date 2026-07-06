@@ -6,8 +6,14 @@ import type {
   DailyCashSummary,
   Payment,
   Student,
+  Teacher,
+  TeacherPayment,
 } from "@/types";
-import { getPaymentMethodLabel } from "@/lib/helpers/finance";
+import {
+  getPaymentMethodLabel,
+  getTeacherPaymentTypeLabel,
+  isDeductionPaymentType,
+} from "@/lib/helpers/finance";
 
 // ─── Label helpers ─────────────────────────────────────────────────────────────
 
@@ -32,14 +38,19 @@ export function getCashCategoryLabel(category: CashCategory): string {
 // ─── Row builder ───────────────────────────────────────────────────────────────
 
 /**
- * Combines manual CashMovements with student Payment records into a unified
- * list of CashMovementRows. Student payments count as income with category
- * "guardian_payment". Only manual movements are editable.
+ * Combines manual CashMovements, student Payment records, and TeacherPayment records
+ * into a unified list of CashMovementRows. Student payments count as income with
+ * category "guardian_payment"; teacher payments count as an expense with category
+ * "salary" — Günlük Kasa always reflects a real cash/bank teacher payment as an outgoing
+ * payment. Kesinti (deduction) payments are excluded entirely — a Kesinti is not a cash
+ * transaction, so it never creates a Günlük Kasa row. Only manual movements are editable.
  */
 export function buildCashMovementRows(
   movements: CashMovement[],
   payments: Payment[],
-  students: Student[]
+  students: Student[],
+  teacherPayments: TeacherPayment[] = [],
+  teachers: Teacher[] = []
 ): CashMovementRow[] {
   const paymentRows: CashMovementRow[] = payments.map((p) => {
     const student = students.find((s) => s.id === p.studentId);
@@ -64,6 +75,32 @@ export function buildCashMovementRows(
     };
   });
 
+  const teacherPaymentRows: CashMovementRow[] = teacherPayments
+    .filter((p) => !isDeductionPaymentType(p.paymentType))
+    .map((p) => {
+      const teacher = teachers.find((t) => t.id === p.teacherId);
+      return {
+        id: `tpmt-${p.id}`,
+        date: p.date,
+        type: "expense" as const,
+        typeLabel: "Gider",
+        category: "salary" as const,
+        categoryLabel: "Maaş",
+        amount: p.amount,
+        method: p.method,
+        methodLabel: getPaymentMethodLabel(p.method),
+        description:
+          p.description ??
+          (teacher ? `${teacher.fullName} hakediş ödemesi` : "Öğretmen ödemesi"),
+        teacherId: p.teacherId,
+        teacherName: teacher?.fullName,
+        teacherPaymentId: p.id,
+        teacherPaymentTypeLabel: getTeacherPaymentTypeLabel(p.paymentType),
+        source: "teacher_payment" as const,
+        isEditable: false,
+      };
+    });
+
   const movementRows: CashMovementRow[] = movements.map((m) => {
     const student = m.studentId
       ? students.find((s) => s.id === m.studentId)
@@ -87,7 +124,7 @@ export function buildCashMovementRows(
     };
   });
 
-  return [...movementRows, ...paymentRows].sort(
+  return [...movementRows, ...paymentRows, ...teacherPaymentRows].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 }
@@ -105,12 +142,14 @@ export function getCashMovementsForDate(
 
 /**
  * Cumulative cash position through `upToDate` (inclusive, YYYY-MM-DD).
- * = all income (manual incomes + student payments) minus all manual expenses.
+ * = all income (manual incomes + student payments) minus all expenses
+ * (manual expenses + teacher payments).
  */
 export function calculateCashBalance(
   movements: CashMovement[],
   payments: Payment[],
-  upToDate: string
+  upToDate: string,
+  teacherPayments: TeacherPayment[] = []
 ): number {
   const cutoff = new Date(upToDate);
   cutoff.setHours(23, 59, 59, 999);
@@ -126,7 +165,12 @@ export function calculateCashBalance(
     .filter((p) => new Date(p.date) <= cutoff)
     .reduce((sum, p) => sum + p.amount, 0);
 
-  return manualNet + paymentIncome;
+  // Kesinti (deduction) payments are excluded — they're not a cash outflow.
+  const teacherExpense = teacherPayments
+    .filter((p) => !isDeductionPaymentType(p.paymentType) && new Date(p.date) <= cutoff)
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  return manualNet + paymentIncome - teacherExpense;
 }
 
 // ─── Daily summary ─────────────────────────────────────────────────────────────
@@ -134,10 +178,15 @@ export function calculateCashBalance(
 export function buildDailyCashSummary(
   movements: CashMovement[],
   payments: Payment[],
-  date: string
+  date: string,
+  teacherPayments: TeacherPayment[] = []
 ): DailyCashSummary {
   const dayMovements = movements.filter((m) => m.date === date);
   const dayPayments = payments.filter((p) => p.date === date);
+  // Kesinti (deduction) payments never appear in Günlük Kasa — not a cash transaction.
+  const dayTeacherPayments = teacherPayments.filter(
+    (p) => p.date === date && !isDeductionPaymentType(p.paymentType)
+  );
 
   const totalIncome =
     dayMovements
@@ -145,15 +194,17 @@ export function buildDailyCashSummary(
       .reduce((s, m) => s + m.amount, 0) +
     dayPayments.reduce((s, p) => s + p.amount, 0);
 
-  const totalExpense = dayMovements
-    .filter((m) => m.type === "expense")
-    .reduce((s, m) => s + m.amount, 0);
+  const totalExpense =
+    dayMovements
+      .filter((m) => m.type === "expense")
+      .reduce((s, m) => s + m.amount, 0) +
+    dayTeacherPayments.reduce((s, p) => s + p.amount, 0);
 
   // Opening balance: cumulative through day before
   const prevDay = new Date(date);
   prevDay.setDate(prevDay.getDate() - 1);
   const prevDateStr = prevDay.toISOString().split("T")[0]!;
-  const openingBalance = calculateCashBalance(movements, payments, prevDateStr);
+  const openingBalance = calculateCashBalance(movements, payments, prevDateStr, teacherPayments);
 
   const netMovement = totalIncome - totalExpense;
 
@@ -164,6 +215,6 @@ export function buildDailyCashSummary(
     totalExpense,
     netMovement,
     closingBalance: openingBalance + netMovement,
-    movementCount: dayMovements.length + dayPayments.length,
+    movementCount: dayMovements.length + dayPayments.length + dayTeacherPayments.length,
   };
 }

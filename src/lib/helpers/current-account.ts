@@ -1,4 +1,11 @@
-import type { Session, Payment, StudentCurrentAccount } from "@/types";
+import type {
+  Session,
+  Payment,
+  Student,
+  Guardian,
+  StudentCurrentAccount,
+  StudentMonthlyAccountRow,
+} from "@/types";
 
 // Must match BILLABLE_STATUSES in finance.ts
 const BILLABLE: Session["status"][] = ["completed", "no_show", "makeup"];
@@ -110,6 +117,49 @@ export function buildStudentCurrentAccount(
   };
 }
 
+// ─── Report row builder ────────────────────────────────────────────────────────
+
+/**
+ * Month-scoped account rows for every student with activity relevant to `year/month`
+ * — the same Önceki Devir / Bu Ay Tahakkuk / Bu Ay Tahsilat / Güncel Bakiye split
+ * Student Detail already shows, reused here (via buildStudentCurrentAccount) so Reports
+ * never re-derives the carryover math. A student is included if they carry a balance
+ * into the month, or have billing/collection activity within it.
+ */
+export function buildStudentMonthlyAccountRows(
+  students: Student[],
+  guardians: Guardian[],
+  sessions: Session[],
+  payments: Payment[],
+  year: number,
+  month: number
+): StudentMonthlyAccountRow[] {
+  return students
+    .map((student) => {
+      const guardian = guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
+      const account = buildStudentCurrentAccount(student.id, sessions, payments, year, month);
+      return {
+        studentId: student.id,
+        studentName: student.fullName,
+        guardianId: guardian?.id ?? null,
+        guardianName: guardian?.fullName ?? null,
+        previousBalance: account.previousBalance,
+        currentMonthBilled: account.currentMonthBilled,
+        currentMonthPaid: account.currentMonthPaid,
+        // A receivables report shows "how much is owed", never a negative number —
+        // an advance/overpayment is a credit, not debt, and floors at 0 here. Student/
+        // Guardian Detail's own Cari Hesap keeps the signed value (with an explicit
+        // "Alacak devri" label) since that view is a full running statement, not a
+        // debt report; this wrapper is the only place the two diverge on purpose.
+        currentBalance: Math.max(0, account.currentBalance),
+      } satisfies StudentMonthlyAccountRow;
+    })
+    .filter(
+      (row) => row.previousBalance !== 0 || row.currentMonthBilled > 0 || row.currentMonthPaid > 0
+    )
+    .sort((a, b) => b.currentBalance - a.currentBalance);
+}
+
 // ─── Guardian aggregate ────────────────────────────────────────────────────────
 
 export function buildGuardianCurrentAccountSummary(
@@ -150,4 +200,74 @@ export function buildGuardianCurrentAccountSummary(
     currentBalance: previousBalance + currentMonthBilled - currentMonthPaid,
     totalDebt: Math.max(0, totalBilled - totalPaid),
   };
+}
+
+// ─── Monthly movements ─────────────────────────────────────────────────────────
+
+export type MovementType = "session" | "payment" | "installment_payment";
+
+export interface CurrentAccountMovement {
+  id: string;
+  date: string;
+  type: MovementType;
+  description: string;
+  /** Positive = debit (billed). Negative = credit (payment). */
+  amount: number;
+  studentName?: string;
+}
+
+/**
+ * Returns individual debit/credit movements for a guardian's students in
+ * the given year/month, sorted newest-first.
+ */
+export function buildGuardianCurrentAccountMovements(
+  guardianStudentIds: string[],
+  students: { id: string; fullName: string }[],
+  sessions: Session[],
+  payments: Payment[],
+  year: number,
+  month: number
+): CurrentAccountMovement[] {
+  const movements: CurrentAccountMovement[] = [];
+
+  for (const studentId of guardianStudentIds) {
+    const studentName =
+      students.find((s) => s.id === studentId)?.fullName ?? undefined;
+
+    // Billable sessions this month → debit
+    sessions
+      .filter(
+        (s) =>
+          s.studentId === studentId &&
+          BILLABLE.includes(s.status) &&
+          isInMonth(s.date, year, month)
+      )
+      .forEach((s) => {
+        movements.push({
+          id: `session-${s.id}`,
+          date: s.date,
+          type: "session",
+          description: "Seans tahakkuku",
+          amount: s.studentPrice * s.sessionCount,
+          studentName,
+        });
+      });
+
+    // Payments this month → credit
+    payments
+      .filter((p) => p.studentId === studentId && isInMonth(p.date, year, month))
+      .forEach((p) => {
+        const isInstallment = p.paymentSource === "installment";
+        movements.push({
+          id: `payment-${p.id}`,
+          date: p.date,
+          type: isInstallment ? "installment_payment" : "payment",
+          description: isInstallment ? "Taksit ödemesi" : "Ödeme",
+          amount: -p.amount,
+          studentName,
+        });
+      });
+  }
+
+  return movements.sort((a, b) => b.date.localeCompare(a.date));
 }

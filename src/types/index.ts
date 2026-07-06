@@ -45,6 +45,7 @@ export interface Student {
   assignedTeacherIds?: string[];
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── Guardian ──────────────────────────────────────────────────────────────────
@@ -59,11 +60,16 @@ export interface Guardian {
   address?: string;
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── Teacher ───────────────────────────────────────────────────────────────────
 export type TeacherStatus = "active" | "inactive";
-export type TeacherEarningType = "per_session" | "monthly_salary" | "percentage";
+export type TeacherEarningType =
+  | "per_session"
+  | "monthly_salary"
+  | "salary_plus_quota"
+  | "percentage";
 
 export interface Teacher {
   id: string;
@@ -75,10 +81,15 @@ export interface Teacher {
   specializations: string[];
   earningType?: TeacherEarningType;
   monthlySalary?: number;
+  /** For salary_plus_quota: monthly sessions included in the base salary. */
+  includedSessionQuota?: number;
+  /** For salary_plus_quota: extra earning per session above the quota. */
+  extraSessionEarning?: number;
   earningPercentage?: number;
   customBranch?: string;
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── Session ───────────────────────────────────────────────────────────────────
@@ -103,6 +114,32 @@ export interface Session {
   status: SessionStatus;
   notes?: string;
   createdAt: string;
+  recurringGroupId?: string;
+  weeklyPlanId?: string;
+}
+
+// ─── Weekly Session Plan ───────────────────────────────────────────────────────
+
+export interface WeeklyScheduleSlot {
+  dayOfWeek: number; // 0 = Sunday, 1 = Monday … 6 = Saturday
+  time: string;      // "HH:MM"
+}
+
+export interface WeeklySessionPlan {
+  id: string;
+  tenantId: string;
+  studentId: string;
+  teacherId: string;
+  educationTypeId: string;
+  studentPrice: number;
+  teacherEarning: number;
+  startDate: string;  // "YYYY-MM-DD"
+  endDate: string;    // "YYYY-MM-DD"
+  weeklySchedule: WeeklyScheduleSlot[];
+  isActive: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── Payment ───────────────────────────────────────────────────────────────────
@@ -207,6 +244,30 @@ export interface TeacherEarning {
   createdAt: string;
 }
 
+// ─── Teacher Payment ────────────────────────────────────────────────────────────
+export type TeacherPaymentType =
+  | "salary"
+  | "advance"
+  | "partial"
+  | "bonus"
+  | "deduction"
+  | "other";
+
+// Records an actual payment made to a teacher, independent of student/guardian
+// payments. This is the source of truth for how much of a teacher's earnings
+// have been paid — never the TeacherEarning ledger above.
+export interface TeacherPayment {
+  id: string;
+  tenantId: string;
+  teacherId: string;
+  amount: number;
+  method: PaymentMethod;
+  paymentType: TeacherPaymentType;
+  date: string;
+  description?: string;
+  createdAt: string;
+}
+
 // ─── Derived / UI Models ───────────────────────────────────────────────────────
 export interface StudentSummary extends Student {
   totalDebt: number;
@@ -302,9 +363,18 @@ export interface DashboardStats {
   activeStudents: number;
   activeTeachers: number;
   sessionsThisMonth: number;
+  /** Ciro — this month's accrual from completed/no_show/makeup sessions. Never cash. */
   revenueThisMonth: number;
+  /** Tahsilat — this month's actual guardian payments received. Never accrual. */
+  collectedThisMonth: number;
   pendingPayments: number;
   pendingEarnings: number;
+}
+
+/** Informational only — planned sessions are not billed until completed/no_show/makeup. */
+export interface PlannedSessionsSummary {
+  count: number;
+  totalValue: number;
 }
 
 export interface SessionListItem {
@@ -371,6 +441,23 @@ export interface StudentDebtItem {
   totalPaid: number;
   remainingDebt: number;
   debtStatus: DebtStatus;
+  /** Latest payment date, or latest billed session date if no payment exists. Display only. */
+  lastActivityDate: string | null;
+}
+
+/** Month-scoped account row for a student — Önceki Devir / Bu Ay Tahakkuk / Bu Ay
+ *  Tahsilat / Güncel Bakiye, mirroring StudentCurrentAccount but enriched for report tables. */
+export interface StudentMonthlyAccountRow {
+  studentId: string;
+  studentName: string;
+  guardianId: string | null;
+  guardianName: string | null;
+  previousBalance: number;
+  currentMonthBilled: number;
+  currentMonthPaid: number;
+  currentBalance: number;
+  /** Latest payment date, or latest billed session date if no payment exists. Display only. */
+  lastActivityDate: string | null;
 }
 
 export interface PaymentPageStats {
@@ -421,39 +508,20 @@ export interface TeacherEarningPageStats {
 export interface MonthlyTeacherEarningSummary {
   teacherId: string;
   teacherName: string;
+  earningType?: TeacherEarningType;
   sessionCount: number;
   totalEarning: number;
   paidEarning: number;
   pendingEarning: number;
+  /** salary_plus_quota breakdown */
+  salaryComponent?: number;
+  includedQuota?: number;
+  quotaUsed?: number;
+  extraSessions?: number;
+  extraEarning?: number;
 }
 
 // ─── Report models ─────────────────────────────────────────────────────────────
-
-export interface GeneralReportStats {
-  totalStudents: number;
-  activeStudents: number;
-  totalSessions: number;
-  completedSessions: number;
-  totalBilled: number;
-  totalCollected: number;
-  totalRemaining: number;
-  totalTeacherEarnings: number;
-  centerProfit: number;
-}
-
-export interface StudentReportRow {
-  studentId: string;
-  studentName: string;
-  guardianId: string | null;
-  guardianName: string | null;
-  totalSessions: number;
-  completedSessions: number;
-  totalBilled: number;
-  totalCollected: number;
-  remainingDebt: number;
-  lastSessionDate: string | null;
-  status: StudentStatus;
-}
 
 export interface TeacherReportRow {
   teacherId: string;
@@ -467,25 +535,60 @@ export interface TeacherReportRow {
   status: TeacherStatus;
 }
 
-export interface EducationTypeReportRow {
-  educationTypeId: string;
-  educationTypeName: string;
-  totalSessions: number;
-  completedSessions: number;
-  totalRevenue: number;
-  teacherEarnings: number;
-  centerProfit: number;
-  activeStudentCount: number;
+export interface TeacherPaymentReportRow {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  paymentType: TeacherPaymentType;
+  paymentTypeLabel: string;
+  amount: number;
+  method: PaymentMethod;
+  methodLabel: string;
+  date: string;
+  description?: string;
 }
 
-export interface FinanceReportStats {
-  totalBilled: number;
-  totalCollected: number;
-  remainingReceivable: number;
-  totalTeacherEarnings: number;
-  paidTeacherEarnings: number;
-  pendingTeacherEarnings: number;
-  centerGrossProfit: number;
+/**
+ * Month-scoped account summary for a teacher — the teacher-side equivalent of
+ * StudentCurrentAccount. Mirrors the same previous-balance/this-month/current-balance
+ * shape so both sides of the ledger read the same way.
+ */
+export interface TeacherMonthAccountSummary {
+  teacherId: string;
+  teacherName: string;
+  year: number;
+  month: number;
+  /** Unpaid teacher earnings from every month before the selected one. */
+  previousBalance: number;
+  /** Hakediş generated in the selected month only (calculateTeacherMonthlyPayable). */
+  thisMonthEarning: number;
+  /** Cash/bank payments dated within the selected month (never Kesinti). */
+  thisMonthPaid: number;
+  /** Kesinti dated within the selected month. */
+  thisMonthDeducted: number;
+  /** previousBalance + thisMonthEarning − thisMonthPaid − thisMonthDeducted, clamped ≥ 0. */
+  currentBalance: number;
+  /** All-time pending across every month — same figure as getTeacherEarningTotals. */
+  totalPending: number;
+}
+
+export interface SessionStatusBreakdown {
+  total: number;
+  completed: number;
+  planned: number;
+  cancelled: number;
+  noShow: number;
+  makeup: number;
+}
+
+export interface StudentAttendanceRow extends SessionStatusBreakdown {
+  studentId: string;
+  studentName: string;
+}
+
+export interface TeacherSessionCountRow extends SessionStatusBreakdown {
+  teacherId: string;
+  teacherName: string;
 }
 
 // ─── Cari Hesap (Current Account) ─────────────────────────────────────────────
@@ -544,7 +647,12 @@ export interface CashMovementRow {
   studentId?: string;
   studentName?: string;
   paymentId?: string;
-  source: "manual" | "payment";
+  teacherId?: string;
+  teacherName?: string;
+  teacherPaymentId?: string;
+  /** Human-readable payment type (Maaş / Avans / …) — only set for teacher_payment rows. */
+  teacherPaymentTypeLabel?: string;
+  source: "manual" | "payment" | "teacher_payment";
   isEditable: boolean;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
+import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
@@ -197,6 +199,7 @@ export default function TeacherEarningsPage() {
   const [teacherFilter, setTeacherFilter] = useState("all");
   const [edTypeFilter, setEdTypeFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
+  const [payTeacherId, setPayTeacherId] = useState<string | null>(null);
 
   // Current month — fixed reference for KPI cards and monthly summary
   const now = new Date();
@@ -221,31 +224,32 @@ export default function TeacherEarningsPage() {
   const stats = useMemo(
     () =>
       buildTeacherEarningPageStats(
-        store.teacherEarnings,
+        store.teachers,
         store.sessions,
+        store.teacherPayments,
         currentYear,
         currentMonth
       ),
-    [store.teacherEarnings, store.sessions, currentYear, currentMonth]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth]
   );
 
   // Teacher overview — all-time totals
   const overviewItems = useMemo(
-    () => buildTeacherEarningOverviewItems(store.teacherEarnings, store.teachers),
-    [store.teacherEarnings, store.teachers]
+    () => buildTeacherEarningOverviewItems(store.teachers, store.sessions, store.teacherPayments),
+    [store.teachers, store.sessions, store.teacherPayments]
   );
 
   // Monthly summary — always current month
   const monthlySummary = useMemo(
     () =>
       buildMonthlyTeacherEarningSummary(
-        store.teacherEarnings,
-        store.sessions,
         store.teachers,
+        store.sessions,
+        store.teacherPayments,
         currentYear,
         currentMonth
       ),
-    [store.teacherEarnings, store.sessions, store.teachers, currentYear, currentMonth]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth]
   );
 
   // Derive available months from session dates in list items
@@ -392,7 +396,7 @@ export default function TeacherEarningsPage() {
                     <span className="text-[10px] text-muted-foreground">{pct}% ödendi</span>
                   </div>
 
-                  {/* Pending + link */}
+                  {/* Pending + action */}
                   <div className="flex flex-col items-end gap-1 shrink-0 min-w-[90px]">
                     {item.pendingEarning > 0 ? (
                       <span className="tabular-nums text-sm font-semibold text-amber-600">
@@ -403,6 +407,16 @@ export default function TeacherEarningsPage() {
                     )}
                     <span className="text-[10px] text-muted-foreground">bekliyor</span>
                   </div>
+                  {item.pendingEarning > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => setPayTeacherId(item.teacherId)}
+                    >
+                      Ödeme Yap
+                    </Button>
+                  )}
                 </div>
               );
             })}
@@ -439,40 +453,83 @@ export default function TeacherEarningsPage() {
                 <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Durum
                 </th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {""}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {monthlySummary.map((row) => (
-                <tr key={row.teacherId} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/app/teachers/${row.teacherId}`}
-                      className="font-medium text-foreground hover:text-primary transition-colors"
+                <React.Fragment key={row.teacherId}>
+                  <tr className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/app/teachers/${row.teacherId}`}
+                        className="font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        {row.teacherName}
+                      </Link>
+                      {row.earningType && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {row.earningType === "per_session" && "Seans Başı"}
+                          {row.earningType === "monthly_salary" && "Sabit Maaş"}
+                          {row.earningType === "salary_plus_quota" && "Sabit Maaş + Kota Üstü"}
+                          {row.earningType === "percentage" && "Yüzde"}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">
+                      {row.sessionCount}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                      {formatCurrency(row.totalEarning)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-emerald-600 hidden md:table-cell">
+                      {formatCurrency(row.paidEarning)}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-4 py-3 text-right tabular-nums hidden md:table-cell",
+                        row.pendingEarning > 0 ? "text-amber-600 font-medium" : "text-muted-foreground"
+                      )}
                     >
-                      {row.teacherName}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">
-                    {row.sessionCount}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-semibold">
-                    {formatCurrency(row.totalEarning)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-600 hidden md:table-cell">
-                    {formatCurrency(row.paidEarning)}
-                  </td>
-                  <td
-                    className={cn(
-                      "px-4 py-3 text-right tabular-nums hidden md:table-cell",
-                      row.pendingEarning > 0 ? "text-amber-600 font-medium" : "text-muted-foreground"
-                    )}
-                  >
-                    {formatCurrency(row.pendingEarning)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <MonthlySummaryStatusBadge summary={row} />
-                  </td>
-                </tr>
+                      {formatCurrency(row.pendingEarning)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <MonthlySummaryStatusBadge summary={row} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {row.pendingEarning > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setPayTeacherId(row.teacherId)}
+                        >
+                          Ödeme Yap
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                  {row.earningType === "salary_plus_quota" && (
+                    <tr className="bg-muted/10">
+                      <td colSpan={7} className="px-6 pb-2.5 pt-1">
+                        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            Maaş: <span className="font-medium text-foreground">{formatCurrency(row.salaryComponent ?? 0)}</span>
+                          </span>
+                          <span>
+                            Kota: <span className="font-medium text-foreground">{row.quotaUsed ?? 0}/{row.includedQuota ?? 0} seans</span>
+                          </span>
+                          {(row.extraSessions ?? 0) > 0 && (
+                            <span>
+                              Kota Üstü: <span className="font-medium text-primary">{row.extraSessions} seans × ek = {formatCurrency(row.extraEarning ?? 0)}</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
@@ -582,6 +639,12 @@ export default function TeacherEarningsPage() {
           gösteriliyor
         </p>
       )}
+
+      <TeacherPaymentFormDrawer
+        open={!!payTeacherId}
+        onOpenChange={(open) => { if (!open) setPayTeacherId(null); }}
+        preselectedTeacherId={payTeacherId ?? undefined}
+      />
     </div>
   );
 }

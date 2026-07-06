@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import type { Session, Student, Teacher } from "@/types";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -13,6 +14,12 @@ interface RecentSessionsTableProps {
 }
 
 export function RecentSessionsTable({ sessions, students, teachers }: RecentSessionsTableProps) {
+  const router = useRouter();
+
+  // No dedicated session detail route exists in this app (sessions are edited via a
+  // drawer on the Sessions list page, not a /app/sessions/[id] page) — so a row click
+  // navigates to Sessions with ?sessionId=, which that page reads to auto-open the
+  // matching session's edit drawer.
   const columns: Column<Session>[] = [
     {
       key: "student",
@@ -80,6 +87,7 @@ export function RecentSessionsTable({ sessions, students, teachers }: RecentSess
       data={sessions}
       columns={columns}
       keyExtractor={(s) => s.id}
+      onRowClick={(row) => router.push(`/app/sessions?sessionId=${row.id}`)}
       emptyTitle="Seans bulunamadı"
       emptyDescription="Henüz seans kaydı oluşturulmamış."
     />

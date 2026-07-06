@@ -405,6 +405,13 @@ export default function PaymentsPage() {
   const currentMonth = now.getMonth() + 1;
   const thisMonthLabel = monthLabel(monthKey(now));
 
+  // The "Bu Ay Alınan Ödeme" card must track whatever month the user has selected in the
+  // filter above — falling back to the real current month only when "Tümü" (all) is picked,
+  // never silently pinned to "now" while the user is looking at a different month.
+  const [statsYear, statsMonth] =
+    monthFilter === "all" ? [currentYear, currentMonth] : (monthFilter.split("-").map(Number) as [number, number]);
+  const statsMonthLabel = monthFilter === "all" ? thisMonthLabel : monthLabel(monthFilter);
+
   const allItems = useMemo(
     () =>
       buildPaymentListItems(
@@ -422,10 +429,10 @@ export default function PaymentsPage() {
         store.payments,
         store.sessions,
         store.students,
-        currentYear,
-        currentMonth
+        statsYear,
+        statsMonth
       ),
-    [store.payments, store.sessions, store.students, currentYear, currentMonth]
+    [store.payments, store.sessions, store.students, statsYear, statsMonth]
   );
 
   const debtItems = useMemo(
@@ -553,12 +560,12 @@ export default function PaymentsPage() {
           }
         />
 
-        {/* KPI cards — always current month */}
+        {/* KPI cards — "Bu Ay Alınan Ödeme" follows the month filter below, not just "now" */}
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="Bu Ay Alınan Ödeme"
+            title={monthFilter === "all" ? "Bu Ay Alınan Ödeme" : "Seçili Ay Alınan Ödeme"}
             value={formatCurrency(stats.collectedThisMonth)}
-            description={thisMonthLabel}
+            description={statsMonthLabel}
             icon={BanknoteIcon}
             variant="success"
           />

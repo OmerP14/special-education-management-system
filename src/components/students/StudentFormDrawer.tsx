@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Lock } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -16,6 +18,14 @@ import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import type { Student, StudentStatus } from "@/types";
 
+// ─── Status labels ─────────────────────────────────────────────────────────────
+
+const STATUS_LABELS: Record<StudentStatus, string> = {
+  active: "Aktif",
+  on_hold: "Beklemede",
+  inactive: "Pasif",
+};
+
 // ─── Form state ────────────────────────────────────────────────────────────────
 
 interface FormState {
@@ -25,7 +35,6 @@ interface FormState {
   guardianId: string;
   educationTypeIds: string[];
   weeklySessionCount: number;
-  assignedTeacherIds: string[];
   notes: string;
 }
 
@@ -36,8 +45,7 @@ function buildEmpty(): FormState {
     status: "active",
     guardianId: "",
     educationTypeIds: [],
-    weeklySessionCount: 1,
-    assignedTeacherIds: [],
+    weeklySessionCount: 0,
     notes: "",
   };
 }
@@ -49,8 +57,7 @@ function buildFromStudent(student: Student): FormState {
     status: student.status,
     guardianId: student.guardianIds[0] ?? "",
     educationTypeIds: student.educationTypeIds,
-    weeklySessionCount: student.weeklySessionCount ?? 1,
-    assignedTeacherIds: student.assignedTeacherIds ?? [],
+    weeklySessionCount: student.weeklySessionCount ?? 0,
     notes: student.notes ?? "",
   };
 }
@@ -61,6 +68,8 @@ interface StudentFormDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialData?: Student;
+  /** When set, pre-selects and locks this guardian so the student is always linked. */
+  defaultGuardianId?: string;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -69,20 +78,28 @@ export function StudentFormDrawer({
   open,
   onOpenChange,
   initialData,
+  defaultGuardianId,
 }: StudentFormDrawerProps) {
   const store = useMockStore();
   const isEditing = !!initialData;
 
-  const [form, setForm] = useState<FormState>(() =>
-    initialData ? buildFromStudent(initialData) : buildEmpty()
-  );
+  const buildInitial = (): FormState => {
+    if (initialData) return buildFromStudent(initialData);
+    const empty = buildEmpty();
+    if (defaultGuardianId) empty.guardianId = defaultGuardianId;
+    return empty;
+  };
+
+  const [form, setForm] = useState<FormState>(buildInitial);
 
   useEffect(() => {
     if (open) {
-      setForm(initialData ? buildFromStudent(initialData) : buildEmpty());
+      const f = initialData ? buildFromStudent(initialData) : buildEmpty();
+      if (!initialData && defaultGuardianId) f.guardianId = defaultGuardianId;
+      setForm(f);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }, [open, initialData?.id, defaultGuardianId]);
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -93,15 +110,6 @@ export function StudentFormDrawer({
       educationTypeIds: prev.educationTypeIds.includes(id)
         ? prev.educationTypeIds.filter((x) => x !== id)
         : [...prev.educationTypeIds, id],
-    }));
-  };
-
-  const toggleTeacher = (id: string) => {
-    setForm((prev) => ({
-      ...prev,
-      assignedTeacherIds: prev.assignedTeacherIds.includes(id)
-        ? prev.assignedTeacherIds.filter((x) => x !== id)
-        : [...prev.assignedTeacherIds, id],
     }));
   };
 
@@ -120,15 +128,14 @@ export function StudentFormDrawer({
       status: form.status,
       guardianIds,
       educationTypeIds: form.educationTypeIds,
-      weeklySessionCount: form.weeklySessionCount,
-      assignedTeacherIds: form.assignedTeacherIds,
+      weeklySessionCount: form.weeklySessionCount > 0 ? form.weeklySessionCount : undefined,
+      assignedTeacherIds: initialData?.assignedTeacherIds ?? [],
       notes: form.notes.trim() || undefined,
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
     };
 
     if (isEditing) {
       store.updateStudent(student);
-      // Sync guardian's studentIds
       if (form.guardianId) {
         const guardian = store.guardians.find((g) => g.id === form.guardianId);
         if (guardian && !guardian.studentIds.includes(id)) {
@@ -137,7 +144,6 @@ export function StudentFormDrawer({
       }
     } else {
       store.addStudent(student);
-      // Sync guardian's studentIds
       if (form.guardianId) {
         const guardian = store.guardians.find((g) => g.id === form.guardianId);
         if (guardian) {
@@ -149,7 +155,10 @@ export function StudentFormDrawer({
     onOpenChange(false);
   };
 
-  const activeTeachers = store.teachers.filter((t) => t.status === "active");
+  // Guardian display name for SelectValue
+  const guardianDisplayName = form.guardianId
+    ? (store.guardians.find((g) => g.id === form.guardianId)?.fullName ?? null)
+    : null;
 
   return (
     <FormDrawer
@@ -188,7 +197,7 @@ export function StudentFormDrawer({
           <Label>Durum</Label>
           <Select value={form.status} onValueChange={(v) => set("status", v as StudentStatus)}>
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue>{STATUS_LABELS[form.status]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="active">Aktif</SelectItem>
@@ -198,43 +207,49 @@ export function StudentFormDrawer({
           </Select>
         </div>
 
-        {/* Haftalık Seans Sayısı */}
-        <div className="space-y-1.5">
-          <Label htmlFor="weekly-session">Haftalık Seans Sayısı</Label>
-          <Input
-            id="weekly-session"
-            type="number"
-            min={1}
-            max={20}
-            value={form.weeklySessionCount}
-            onChange={(e) =>
-              set("weeklySessionCount", Math.max(1, parseInt(e.target.value) || 1))
-            }
-          />
-        </div>
-
         {/* Veli */}
         <div className="space-y-1.5">
           <Label>Veli</Label>
-          <Select
-            value={form.guardianId || ""}
-            onValueChange={(v) => { if (v) set("guardianId", v); }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Veli seçin" />
-            </SelectTrigger>
-            <SelectContent>
-              {store.guardians.map((g) => (
-                <SelectItem key={g.id} value={g.id}>
-                  {g.fullName}
-                  <span className="ml-1 text-muted-foreground text-xs">({g.relationship})</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Veliler sekmesinden yeni veli kaydı oluşturabilirsiniz.
-          </p>
+          {defaultGuardianId && !isEditing ? (
+            (() => {
+              const g = store.guardians.find((x) => x.id === defaultGuardianId);
+              return (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{g?.fullName ?? "—"}</p>
+                    {g?.relationship && (
+                      <p className="text-xs text-muted-foreground">{g.relationship}</p>
+                    )}
+                  </div>
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+              );
+            })()
+          ) : (
+            <Select
+              value={form.guardianId || ""}
+              onValueChange={(v) => { if (v) set("guardianId", v); }}
+            >
+              <SelectTrigger>
+                <SelectValue className={!form.guardianId ? "text-muted-foreground" : ""}>
+                  {guardianDisplayName ?? "Veli seçin"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {store.guardians.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.fullName}
+                    <span className="ml-1 text-muted-foreground text-xs">({g.relationship})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {(!defaultGuardianId || isEditing) && (
+            <p className="text-xs text-muted-foreground">
+              Veliler sekmesinden yeni veli kaydı oluşturabilirsiniz.
+            </p>
+          )}
         </div>
 
         <Separator />
@@ -265,42 +280,25 @@ export function StudentFormDrawer({
           </div>
         </div>
 
-        {/* Atanan Öğretmenler */}
-        {activeTeachers.length > 0 && (
-          <div className="space-y-2">
-            <Label>Atanan Öğretmenler</Label>
-            <div className="space-y-2">
-              {activeTeachers.map((t) => (
-                <label
-                  key={t.id}
-                  className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded"
-                    checked={form.assignedTeacherIds.includes(t.id)}
-                    onChange={() => toggleTeacher(t.id)}
-                  />
-                  <div>
-                    <p className="text-sm font-medium">{t.fullName}</p>
-                    {t.specializations.length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {t.specializations
-                          .map(
-                            (sid) =>
-                              mockEducationTypes.find((e) => e.id === sid)?.name ?? sid
-                          )
-                          .join(", ")}
-                      </p>
-                    )}
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
         <Separator />
+
+        {/* Planlanan Haftalık Seans (bilgi amaçlı) */}
+        <div className="space-y-1.5">
+          <Label htmlFor="weekly-session">Planlanan Haftalık Seans</Label>
+          <NumericInput
+            id="weekly-session"
+            min={0}
+            max={20}
+            integer
+            placeholder="0"
+            value={form.weeklySessionCount}
+            transform={(v) => Math.max(0, v)}
+            onValueChange={(v) => set("weeklySessionCount", v ?? 0)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Bilgilendirme amaçlıdır. Gerçek seans programı Seanslar bölümünden oluşturulur.
+          </p>
+        </div>
 
         {/* Notlar */}
         <div className="space-y-1.5">

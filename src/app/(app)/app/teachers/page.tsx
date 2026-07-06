@@ -38,9 +38,9 @@ export default function TeachersPage() {
         store.teachers,
         mockEducationTypes,
         store.sessions,
-        store.teacherEarnings
+        store.teacherPayments
       ),
-    [store.teachers, store.sessions, store.teacherEarnings]
+    [store.teachers, store.sessions, store.teacherPayments]
   );
 
   const filtered = useMemo(() => {

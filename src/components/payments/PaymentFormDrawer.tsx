@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, User, CalendarDays } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -441,14 +442,13 @@ function SinglePaymentForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="payment-amount">Tutar (₺)</Label>
-        <Input
+        <NumericInput
           id="payment-amount"
-          type="number"
           min={0}
           step={50}
-          value={form.amount || ""}
+          value={form.amount}
           placeholder="0"
-          onChange={(e) => set("amount", parseFloat(e.target.value) || 0)}
+          onValueChange={(v) => set("amount", v ?? 0)}
         />
       </div>
 
@@ -592,14 +592,13 @@ function InstallmentPlanForm({
       {/* Toplam tutar */}
       <div className="space-y-1.5">
         <Label htmlFor="inst-total">Toplam Taksit Tutarı (₺)</Label>
-        <Input
+        <NumericInput
           id="inst-total"
-          type="number"
           min={0}
           step={100}
-          value={form.totalAmount || ""}
+          value={form.totalAmount}
           placeholder="0"
-          onChange={(e) => set("totalAmount", parseFloat(e.target.value) || 0)}
+          onValueChange={(v) => set("totalAmount", v ?? 0)}
         />
       </div>
 
@@ -607,18 +606,15 @@ function InstallmentPlanForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="inst-count">Taksit Sayısı</Label>
-          <Input
+          <NumericInput
             id="inst-count"
-            type="number"
             min={2}
             max={36}
+            integer
             value={form.installmentCount}
-            onChange={(e) =>
-              set(
-                "installmentCount",
-                Math.min(36, Math.max(2, parseInt(e.target.value) || 2))
-              )
-            }
+            emptyValue={2}
+            transform={(v) => Math.min(36, Math.max(2, v))}
+            onValueChange={(v) => set("installmentCount", v ?? 2)}
           />
         </div>
         <div className="space-y-1.5">
@@ -653,17 +649,14 @@ function InstallmentPlanForm({
         {form.interval === "custom" && (
           <div className="flex items-center gap-2 mt-2">
             <span className="text-sm text-muted-foreground shrink-0">Her</span>
-            <Input
-              type="number"
+            <NumericInput
               min={1}
               max={365}
+              integer
               value={form.customIntervalDays}
-              onChange={(e) =>
-                set(
-                  "customIntervalDays",
-                  Math.min(365, Math.max(1, parseInt(e.target.value) || 30))
-                )
-              }
+              emptyValue={30}
+              transform={(v) => Math.min(365, Math.max(1, v))}
+              onValueChange={(v) => set("customIntervalDays", v ?? 30)}
               className="w-20"
             />
             <span className="text-sm text-muted-foreground shrink-0">günde bir</span>

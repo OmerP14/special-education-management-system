@@ -14,6 +14,8 @@ interface StatCardProps {
     label: string;
   };
   variant?: "default" | "success" | "warning" | "danger";
+  /** Override the value paragraph's classes. Replaces the default text-2xl truncate style. */
+  valueClassName?: string;
   className?: string;
 }
 
@@ -31,8 +33,10 @@ export function StatCard({
   icon: Icon,
   trend,
   variant = "default",
+  valueClassName,
   className,
 }: StatCardProps) {
+  const valueCls = valueClassName ?? "text-2xl font-bold tracking-tight text-foreground truncate";
   return (
     <Card className={cn("overflow-hidden", className)}>
       <CardContent className="p-5">
@@ -41,7 +45,7 @@ export function StatCard({
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {title}
             </p>
-            <p className="mt-1.5 text-2xl font-bold tracking-tight text-foreground truncate">
+            <p className={cn("mt-1.5", valueCls)}>
               {value}
             </p>
             {description && (

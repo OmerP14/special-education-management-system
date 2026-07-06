@@ -4,25 +4,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/helpers/finance";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Teacher, TeacherEarning } from "@/types";
+import type { Session, Teacher, TeacherPayment } from "@/types";
 import {
   getTeacherTotalEarnings,
   getTeacherPendingEarnings,
 } from "@/lib/helpers/finance";
 
 interface TeacherEarningsCardProps {
-  earnings: TeacherEarning[];
+  teacherPayments: TeacherPayment[];
   teachers: Teacher[];
+  sessions: Session[];
 }
 
-export function TeacherEarningsCard({ earnings, teachers }: TeacherEarningsCardProps) {
+export function TeacherEarningsCard({ teacherPayments, teachers, sessions }: TeacherEarningsCardProps) {
   const activeTeachers = teachers.filter((t) => t.status === "active");
 
   const summaries = activeTeachers
     .map((teacher) => ({
       teacher,
-      total: getTeacherTotalEarnings(teacher.id, earnings),
-      pending: getTeacherPendingEarnings(teacher.id, earnings),
+      total: getTeacherTotalEarnings(teacher, sessions, teacherPayments),
+      pending: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
     }))
     .filter((s) => s.total > 0)
     .sort((a, b) => b.pending - a.pending);

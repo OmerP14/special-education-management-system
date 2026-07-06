@@ -11,6 +11,7 @@ import type {
 
 type AnyStatus =
   | SessionStatus
+  | "in_progress"
   | StudentStatus
   | TeacherStatus
   | EarningStatus
@@ -18,6 +19,10 @@ type AnyStatus =
 
 const STATUS_CONFIG: Record<AnyStatus, { label: string; className: string }> = {
   // Session
+  in_progress: {
+    label: "Devam Ediyor",
+    className: "bg-orange-100 text-orange-700 border-orange-200",
+  },
   planned: {
     label: "Planlandı",
     className: "bg-blue-100 text-blue-700 border-blue-200",

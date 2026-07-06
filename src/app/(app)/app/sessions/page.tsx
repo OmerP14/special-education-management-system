@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   CalendarDays,
+  CalendarClock,
   CheckCircle2,
   Clock,
   XCircle,
@@ -18,6 +20,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
+import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
@@ -26,6 +29,7 @@ import {
   formatCurrency,
   formatDate,
   formatTime,
+  getSessionDisplayStatus,
 } from "@/lib/helpers/finance";
 import type { Session, SessionListItem, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -137,7 +141,7 @@ const columns: Column<SessionListItem>[] = [
   {
     key: "status",
     header: "Durum",
-    render: (row) => <StatusBadge status={row.status} />,
+    render: (row) => <StatusBadge status={getSessionDisplayStatus(row)} />,
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -201,10 +205,24 @@ function StatBarItem({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// useSearchParams requires a Suspense boundary around any static page that calls it,
+// otherwise production builds fail — the actual page content lives in the inner
+// component below, wrapped by the default export.
 export default function SessionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SessionsPageContent />
+    </Suspense>
+  );
+}
+
+function SessionsPageContent() {
   const store = useMockStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [weeklyPlanOpen, setWeeklyPlanOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<SessionStatus | "all">("all");
   const [monthFilter, setMonthFilter] = useState("all");
@@ -243,6 +261,21 @@ export default function SessionsPage() {
     setDrawerOpen(open);
     if (!open) setEditingSession(null);
   };
+
+  // Deep-link support: "Son Seanslar" on the Dashboard links here with ?sessionId=,
+  // since there's no dedicated /app/sessions/[id] route — this opens that session's
+  // edit drawer directly, then strips the param so it doesn't re-trigger on refresh.
+  useEffect(() => {
+    const sessionId = searchParams.get("sessionId");
+    if (!sessionId) return;
+    const session = store.sessions.find((s) => s.id === sessionId);
+    if (session) {
+      setEditingSession(session);
+      setDrawerOpen(true);
+    }
+    router.replace("/app/sessions");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const editColumnEntry: Column<SessionListItem> = {
     key: "action",
@@ -327,10 +360,20 @@ export default function SessionsPage() {
           title="Seanslar"
           description={`${allItems.length} toplam seans · ${thisMonthLabel}`}
           actions={
-            <Button size="sm" onClick={() => { setEditingSession(null); setDrawerOpen(true); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Seans Ekle
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWeeklyPlanOpen(true)}
+              >
+                <CalendarClock className="h-3.5 w-3.5 mr-1" />
+                Haftalık Plan
+              </Button>
+              <Button size="sm" onClick={() => { setEditingSession(null); setDrawerOpen(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Seans Ekle
+              </Button>
+            </div>
           }
         />
 
@@ -522,6 +565,10 @@ export default function SessionsPage() {
         open={drawerOpen}
         onOpenChange={handleDrawerClose}
         initialData={editingSession ?? undefined}
+      />
+      <WeeklyPlanFormDrawer
+        open={weeklyPlanOpen}
+        onOpenChange={setWeeklyPlanOpen}
       />
     </>
   );

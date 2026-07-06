@@ -80,6 +80,13 @@ function SourceBadge({ source }: { source: CashMovementRow["source"] }) {
       </span>
     );
   }
+  if (source === "teacher_payment") {
+    return (
+      <span className="inline-flex rounded-full bg-orange-100 border border-orange-200 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+        Öğretmen Ödemesi
+      </span>
+    );
+  }
   return (
     <span className="inline-flex rounded-full bg-muted border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
       Manuel
@@ -106,13 +113,26 @@ export default function CashRegisterPage() {
   const [typeFilter, setTypeFilter] = useState<CashMovementType | "all">("all");
 
   const allRows = useMemo(
-    () => buildCashMovementRows(store.cashMovements, store.payments, store.students),
-    [store.cashMovements, store.payments, store.students]
+    () =>
+      buildCashMovementRows(
+        store.cashMovements,
+        store.payments,
+        store.students,
+        store.teacherPayments,
+        store.teachers
+      ),
+    [store.cashMovements, store.payments, store.students, store.teacherPayments, store.teachers]
   );
 
   const dailySummary = useMemo(
-    () => buildDailyCashSummary(store.cashMovements, store.payments, selectedDate),
-    [store.cashMovements, store.payments, selectedDate]
+    () =>
+      buildDailyCashSummary(
+        store.cashMovements,
+        store.payments,
+        selectedDate,
+        store.teacherPayments
+      ),
+    [store.cashMovements, store.payments, selectedDate, store.teacherPayments]
   );
 
   const dayRows = useMemo(
@@ -351,6 +371,19 @@ export default function CashRegisterPage() {
                             className="text-xs text-primary hover:underline"
                           >
                             {row.studentName}
+                          </Link>
+                        )}
+                        {row.teacherPaymentTypeLabel && (
+                          <span className="mt-0.5 inline-flex rounded-full bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            {row.teacherPaymentTypeLabel}
+                          </span>
+                        )}
+                        {row.teacherId && row.teacherName && (
+                          <Link
+                            href={`/app/teachers/${row.teacherId}`}
+                            className="block text-xs text-primary hover:underline"
+                          >
+                            {row.teacherName}
                           </Link>
                         )}
                       </td>

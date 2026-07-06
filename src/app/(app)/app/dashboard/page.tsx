@@ -7,6 +7,7 @@ import {
   TrendingUp,
   AlertCircle,
   Banknote,
+  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
@@ -30,7 +31,7 @@ export default function DashboardPage() {
   const stats = buildDashboardStats(
     store.sessions,
     store.payments,
-    store.teacherEarnings,
+    store.teacherPayments,
     store.students,
     store.teachers
   );
@@ -51,15 +52,15 @@ export default function DashboardPage() {
         }
       />
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* KPI Cards — Ciro (accrual) and Tahsilat (cash collected) are deliberately
+          separate cards; a payment-only month must move Tahsilat without touching Ciro. */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <StatCard
           title="Aktif Öğrenci"
           value={stats.activeStudents}
           icon={Users}
           variant="default"
           description="Kayıtlı aktif öğrenci"
-          className="xl:col-span-1"
         />
         <StatCard
           title="Aktif Öğretmen"
@@ -67,40 +68,57 @@ export default function DashboardPage() {
           icon={GraduationCap}
           variant="default"
           description="Çalışan öğretmen"
-          className="xl:col-span-1"
         />
-        <StatCard
-          title="Bu Ayki Seans"
-          value={stats.sessionsThisMonth}
-          icon={CalendarDays}
-          variant="default"
-          description={currentMonthLabel}
-          className="xl:col-span-1"
-        />
-        <StatCard
-          title="Bu Ayki Ciro"
-          value={formatCurrency(stats.revenueThisMonth)}
-          icon={TrendingUp}
-          variant="success"
-          description="Tamamlanan seanslar"
-          className="xl:col-span-1"
-        />
-        <StatCard
-          title="Bekleyen Borç"
-          value={formatCurrency(stats.pendingPayments)}
-          icon={AlertCircle}
-          variant="danger"
-          description="Tahsil edilmemiş"
-          className="xl:col-span-1"
-        />
-        <StatCard
-          title="Öğretmen Borcu"
-          value={formatCurrency(stats.pendingEarnings)}
-          icon={Banknote}
-          variant="warning"
-          description="Ödenmemiş kazanç"
-          className="xl:col-span-1"
-        />
+        <Link href="/app/sessions" className="block">
+          <StatCard
+            title="Bu Ayki Seans"
+            value={stats.sessionsThisMonth}
+            icon={CalendarDays}
+            variant="default"
+            description={currentMonthLabel}
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/reports" className="block">
+          <StatCard
+            title="Bu Ayki Ciro"
+            value={formatCurrency(stats.revenueThisMonth)}
+            icon={TrendingUp}
+            variant="success"
+            description="Tahakkuk — tamamlanan seanslar"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/payments" className="block">
+          <StatCard
+            title="Bu Ay Tahsilat"
+            value={formatCurrency(stats.collectedThisMonth)}
+            icon={Wallet}
+            variant="success"
+            description="Alınan ödeme"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/payments" className="block">
+          <StatCard
+            title="Bekleyen Borç"
+            value={formatCurrency(stats.pendingPayments)}
+            icon={AlertCircle}
+            variant="danger"
+            description="Tahsil edilmemiş"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/teacher-earnings" className="block">
+          <StatCard
+            title="Öğretmen Borcu"
+            value={formatCurrency(stats.pendingEarnings)}
+            icon={Banknote}
+            variant="warning"
+            description="Ödenmemiş kazanç"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
       </div>
 
       {/* Middle row: Payment + Earning + Status */}
@@ -111,8 +129,9 @@ export default function DashboardPage() {
           students={store.students}
         />
         <TeacherEarningsCard
-          earnings={store.teacherEarnings}
+          teacherPayments={store.teacherPayments}
           teachers={store.teachers}
+          sessions={store.sessions}
         />
         <SessionStatusBreakdown sessions={store.sessions} />
       </div>
