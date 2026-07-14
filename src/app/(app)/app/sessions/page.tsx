@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
@@ -130,18 +131,28 @@ const columns: Column<SessionListItem>[] = [
   {
     key: "teacherEarning",
     header: "Öğretmen Hakedişi",
-    render: (row) => (
-      <span className="tabular-nums text-amber-600 font-medium text-right block">
-        {formatCurrency(row.totalTeacherEarning)}
-      </span>
-    ),
+    render: (row) =>
+      row.teacherEarningStatus === "unknown" ? (
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 float-right">
+          Hakediş bekliyor
+        </span>
+      ) : (
+        <span className="tabular-nums text-amber-600 font-medium text-right block">
+          {formatCurrency(row.totalTeacherEarning)}
+        </span>
+      ),
     className: "hidden lg:table-cell text-right",
     headerClassName: "hidden lg:table-cell text-right",
   },
   {
     key: "status",
     header: "Durum",
-    render: (row) => <StatusBadge status={getSessionDisplayStatus(row)} />,
+    render: (row) => (
+      <div className="flex flex-col items-end gap-1">
+        <StatusBadge status={getSessionDisplayStatus(row)} />
+        {row.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+      </div>
+    ),
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -244,9 +255,10 @@ function SessionsPageContent() {
         store.sessions,
         store.students,
         store.teachers,
-        mockEducationTypes
+        mockEducationTypes,
+        store.teacherCustomPrices
       ),
-    [store.sessions, store.students, store.teachers]
+    [store.sessions, store.students, store.teachers, store.teacherCustomPrices]
   );
 
   const handleEdit = (row: SessionListItem) => {

@@ -218,6 +218,12 @@ export default function CalendarPage() {
     []
   );
 
+  // Month view "+N daha" → drill into that day's full list (Day view), never hidden
+  const handleShowMore = useCallback((date: Date) => {
+    setCurrentDate(date);
+    setView("day");
+  }, []);
+
   // Edit from detail drawer
   const handleEditFromDetail = useCallback(() => {
     if (!selectedSessionId) return;
@@ -491,6 +497,7 @@ export default function CalendarPage() {
             month={currentDate.getMonth()}
             events={filteredEvents}
             onEventClick={handleEventClick}
+            onShowMore={handleShowMore}
           />
         ) : view === "week" ? (
           <CalendarWeekView
@@ -513,6 +520,7 @@ export default function CalendarPage() {
         onOpenChange={setDetailOpen}
         relations={selectedRelations}
         onEdit={handleEditFromDetail}
+        teacherCustomPrices={store.teacherCustomPrices}
       />
 
       {/* Session edit form drawer */}

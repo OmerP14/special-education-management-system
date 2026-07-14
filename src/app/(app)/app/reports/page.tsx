@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { ReportViewer, type ReportSummaryCard } from "@/components/reports/ReportViewer";
 import { ReportFilterBar } from "@/components/reports/ReportFilterBar";
 import type { Column } from "@/components/shared/DataTable";
@@ -40,6 +41,9 @@ import {
   getMonthLabel,
   formatCurrency,
   formatDate,
+  formatDateDMY,
+  getSessionStatusLabel,
+  getTeacherStatusLabel,
 } from "@/lib/helpers/finance";
 import { buildCashMovementRows } from "@/lib/helpers/cash";
 import { buildStudentMonthlyAccountRows } from "@/lib/helpers/current-account";
@@ -94,9 +98,29 @@ function PaymentTypeBadge({ label }: { label: string }) {
   );
 }
 
+function DateCell({ date }: { date: string | null }) {
+  return (
+    <span className="tabular-nums text-sm">
+      {date ? formatDateDMY(date) : <span className="text-muted-foreground/40">—</span>}
+    </span>
+  );
+}
+
+/** Standard "Tarih" first column — every report table leads with the most relevant
+ *  business date for its row (see report-specific date rules at each call site). */
+function tarihColumn<T>(getDate: (row: T) => string | null): Column<T> {
+  return {
+    key: "tarih",
+    header: "Tarih",
+    render: (row) => <DateCell date={getDate(row)} />,
+  };
+}
+
 // ─── Column definitions (one per report row shape) ────────────────────────────
 
-const debtColumns: Column<StudentDebtItem>[] = [
+// Shared non-date columns for the debt-style table (Income Report all-time view +
+// Student Debt Report) — only the Tarih column's date field differs between the two.
+const debtColumnsRest: Column<StudentDebtItem>[] = [
   {
     key: "student",
     header: "Öğrenci",
@@ -155,9 +179,23 @@ const debtColumns: Column<StudentDebtItem>[] = [
   },
 ];
 
+// Income Report all-time view — Tarih shows latest payment, else latest billed session.
+const debtColumns: Column<StudentDebtItem>[] = [
+  tarihColumn<StudentDebtItem>((row) => row.lastActivityDate),
+  ...debtColumnsRest,
+];
+
+// Student Debt Report — Tarih shows latest billed session, else latest payment
+// (reversed priority from Income Report: leads with service delivered, not money moved).
+const studentDebtColumns: Column<StudentDebtItem>[] = [
+  tarihColumn<StudentDebtItem>((row) => row.lastDebtActivityDate),
+  ...debtColumnsRest,
+];
+
 // Month-scoped variant — Önceki Devir / Bu Ay Tahakkuk / Bu Ay Tahsilat / Güncel Bakiye,
-// shown instead of debtColumns when a single month filter is active.
-const monthlyAccountColumns: Column<StudentMonthlyAccountRow>[] = [
+// shown instead of the debt-style columns above when a single month filter is active.
+// Shared non-date columns; only the Tarih column's date field differs by report (see below).
+const monthlyAccountColumnsRest: Column<StudentMonthlyAccountRow>[] = [
   {
     key: "student",
     header: "Öğrenci",
@@ -234,7 +272,20 @@ const monthlyAccountColumns: Column<StudentMonthlyAccountRow>[] = [
   },
 ];
 
+// Income Report single-month view — Tarih shows latest payment, else latest billed session.
+const monthlyAccountColumns: Column<StudentMonthlyAccountRow>[] = [
+  tarihColumn<StudentMonthlyAccountRow>((row) => row.lastActivityDate),
+  ...monthlyAccountColumnsRest,
+];
+
+// Student Debt Report single-month view — Tarih shows latest billed session, else payment.
+const monthlyDebtAccountColumns: Column<StudentMonthlyAccountRow>[] = [
+  tarihColumn<StudentMonthlyAccountRow>((row) => row.lastDebtActivityDate),
+  ...monthlyAccountColumnsRest,
+];
+
 const teacherPaymentColumns: Column<TeacherPaymentReportRow>[] = [
+  tarihColumn<TeacherPaymentReportRow>((row) => row.date),
   {
     key: "teacher",
     header: "Öğretmen",
@@ -272,11 +323,6 @@ const teacherPaymentColumns: Column<TeacherPaymentReportRow>[] = [
     headerClassName: "hidden sm:table-cell",
   },
   {
-    key: "date",
-    header: "Tarih",
-    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
-  },
-  {
     key: "description",
     header: "Açıklama",
     render: (row) =>
@@ -287,11 +333,7 @@ const teacherPaymentColumns: Column<TeacherPaymentReportRow>[] = [
 ];
 
 const cashColumns: Column<CashMovementRow>[] = [
-  {
-    key: "date",
-    header: "Tarih",
-    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
-  },
+  tarihColumn<CashMovementRow>((row) => row.date),
   {
     key: "type",
     header: "Tür",
@@ -329,11 +371,7 @@ const cashColumns: Column<CashMovementRow>[] = [
 ];
 
 const sessionColumns: Column<SessionListItem>[] = [
-  {
-    key: "date",
-    header: "Tarih",
-    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
-  },
+  tarihColumn<SessionListItem>((row) => row.date),
   {
     key: "student",
     header: "Öğrenci",
@@ -372,7 +410,12 @@ const sessionColumns: Column<SessionListItem>[] = [
   {
     key: "status",
     header: "Durum",
-    render: (row) => <StatusBadge status={row.status} />,
+    render: (row) => (
+      <div className="flex flex-col items-start gap-1">
+        <StatusBadge status={row.status} />
+        {row.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+      </div>
+    ),
   },
   {
     key: "amount",
@@ -386,11 +429,7 @@ const sessionColumns: Column<SessionListItem>[] = [
 ];
 
 const paymentColumns: Column<PaymentListItem>[] = [
-  {
-    key: "date",
-    header: "Tarih",
-    render: (row) => <span className="tabular-nums text-sm">{formatDate(row.date)}</span>,
-  },
+  tarihColumn<PaymentListItem>((row) => row.date),
   {
     key: "student",
     header: "Öğrenci",
@@ -439,6 +478,7 @@ const paymentColumns: Column<PaymentListItem>[] = [
 ];
 
 const attendanceColumns: Column<StudentAttendanceRow>[] = [
+  tarihColumn<StudentAttendanceRow>((row) => row.lastSessionDate),
   {
     key: "student",
     header: "Öğrenci",
@@ -461,6 +501,7 @@ const attendanceColumns: Column<StudentAttendanceRow>[] = [
 ];
 
 const teacherSessionCountColumns: Column<TeacherSessionCountRow>[] = [
+  tarihColumn<TeacherSessionCountRow>((row) => row.lastSessionDate),
   {
     key: "teacher",
     header: "Öğretmen",
@@ -483,6 +524,7 @@ const teacherSessionCountColumns: Column<TeacherSessionCountRow>[] = [
 ];
 
 const teacherEarningsColumns: Column<TeacherReportRow>[] = [
+  tarihColumn<TeacherReportRow>((row) => row.lastSessionDate),
   {
     key: "teacher",
     header: "Öğretmen",
@@ -506,7 +548,14 @@ const teacherEarningsColumns: Column<TeacherReportRow>[] = [
   {
     key: "totalEarning",
     header: "Toplam Hakediş",
-    render: (row) => <span className="tabular-nums font-semibold text-right block">{formatCurrency(row.totalEarning)}</span>,
+    render: (row) => (
+      <div className="text-right">
+        <span className="tabular-nums font-semibold">{formatCurrency(row.totalEarning)}</span>
+        {row.unknownSessionCount > 0 && (
+          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+        )}
+      </div>
+    ),
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -538,6 +587,7 @@ const teacherEarningsColumns: Column<TeacherReportRow>[] = [
 ];
 
 const teacherPerformanceColumns: Column<TeacherReportRow>[] = [
+  tarihColumn<TeacherReportRow>((row) => row.lastSessionDate),
   {
     key: "teacher",
     header: "Öğretmen",
@@ -554,7 +604,20 @@ const teacherPerformanceColumns: Column<TeacherReportRow>[] = [
   { key: "totalSessions", header: "Toplam Seans", render: (row) => <span className="tabular-nums text-right block">{row.totalSessions}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
   { key: "completedSessions", header: "Tamamlanan", render: (row) => <span className="tabular-nums text-right block">{row.completedSessions}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
   { key: "students", header: "Öğrenci Sayısı", render: (row) => <span className="tabular-nums text-right block">{row.uniqueStudentCount}</span>, className: "hidden sm:table-cell text-right", headerClassName: "hidden sm:table-cell text-right" },
-  { key: "totalEarning", header: "Toplam Hakediş", render: (row) => <span className="tabular-nums font-semibold text-right block">{formatCurrency(row.totalEarning)}</span>, className: "text-right", headerClassName: "text-right" },
+  {
+    key: "totalEarning",
+    header: "Toplam Hakediş",
+    render: (row) => (
+      <div className="text-right">
+        <span className="tabular-nums font-semibold">{formatCurrency(row.totalEarning)}</span>
+        {row.unknownSessionCount > 0 && (
+          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+        )}
+      </div>
+    ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
   { key: "paidEarning", header: "Ödenen", render: (row) => <span className="tabular-nums text-emerald-600 text-right block">{formatCurrency(row.paidEarning)}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
   { key: "pendingEarning", header: "Bekleyen", render: (row) => <span className={cn("tabular-nums font-medium text-right block", row.pendingEarning > 0 ? "text-amber-600" : "text-muted-foreground")}>{formatCurrency(row.pendingEarning)}</span>, className: "hidden md:table-cell text-right", headerClassName: "hidden md:table-cell text-right" },
   { key: "status", header: "Durum", render: (row) => <StatusBadge status={row.status} />, className: "hidden sm:table-cell", headerClassName: "hidden sm:table-cell" },
@@ -563,6 +626,7 @@ const teacherPerformanceColumns: Column<TeacherReportRow>[] = [
 // Month-scoped variant for Teacher Earnings/Performance — shown instead of the columns
 // above when a single month filter is active, so carryover is explicit instead of hidden.
 const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
+  tarihColumn<TeacherMonthAccountSummary>((row) => row.lastSessionDate),
   {
     key: "teacher",
     header: "Öğretmen",
@@ -590,7 +654,14 @@ const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
   {
     key: "thisMonthEarning",
     header: "Bu Ay Hakediş",
-    render: (row) => <span className="tabular-nums text-right block">{formatCurrency(row.thisMonthEarning)}</span>,
+    render: (row) => (
+      <div className="text-right">
+        <span className="tabular-nums">{formatCurrency(row.thisMonthEarning)}</span>
+        {row.unknownSessionCount > 0 && (
+          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+        )}
+      </div>
+    ),
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -736,7 +807,13 @@ export default function ReportsPage() {
 
   // ─── Report bodies ─────────────────────────────────────────────────────────
 
-  function renderIncomeStyleReport(idSuffix: string) {
+  // mode "income" → Tarih prefers latest payment, else latest billed session (Income Report).
+  // mode "debt" → Tarih prefers latest billed session, else latest payment (Student Debt Report).
+  function renderIncomeStyleReport(idSuffix: string, mode: "income" | "debt") {
+    const reportTitle = mode === "income" ? "Gelir Raporu" : "Öğrenci Borç Raporu";
+    const dateOf = (r: { lastActivityDate: string | null; lastDebtActivityDate: string | null }) =>
+      mode === "income" ? r.lastActivityDate : r.lastDebtActivityDate;
+
     // A single month selected → carryover-aware view (Önceki Devir explicit, never
     // hidden inside a lifetime total). Reuses buildStudentCurrentAccount under the hood
     // via buildStudentMonthlyAccountRows, same as Student/Guardian Detail's Cari Hesap.
@@ -747,7 +824,8 @@ export default function ReportsPage() {
         store.sessions,
         store.payments,
         singleMonthYear,
-        singleMonthMonth
+        singleMonthMonth,
+        store.openingBalances
       );
 
       const totalPrevious = rows.reduce((s, r) => s + r.previousBalance, 0);
@@ -766,19 +844,20 @@ export default function ReportsPage() {
         <ReportViewer<StudentMonthlyAccountRow>
           note={filterSummaryText}
           summaryCards={summaryCards}
-          columns={monthlyAccountColumns}
+          columns={mode === "income" ? monthlyAccountColumns : monthlyDebtAccountColumns}
           rows={rows}
           keyExtractor={(r) => r.studentId}
           emptyTitle="Bu ayda hareket bulunamadı"
           csv={{
             filename: `gelir-raporu-${idSuffix}-${filters.monthKey}.csv`,
-            headers: ["Öğrenci", "Veli", "Önceki Devir", "Bu Ay Tahakkuk", "Bu Ay Tahsilat", "Güncel Bakiye"],
-            rowMapper: (r) => [r.studentName, r.guardianName ?? "", r.previousBalance, r.currentMonthBilled, r.currentMonthPaid, r.currentBalance],
+            headers: ["Tarih", "Öğrenci", "Veli", "Önceki Devir", "Bu Ay Tahakkuk", "Bu Ay Tahsilat", "Güncel Bakiye"],
+            rowMapper: (r) => [dateOf(r) ? formatDateDMY(dateOf(r)!) : "", r.studentName, r.guardianName ?? "", r.previousBalance, r.currentMonthBilled, r.currentMonthPaid, r.currentBalance],
           }}
           pdf={{
-            title: "Gelir Raporu",
+            title: reportTitle,
             subtitle: filterSummaryText,
             columns: [
+              { header: "Tarih" },
               { header: "Öğrenci" },
               { header: "Veli" },
               { header: "Önceki Devir", align: "right" },
@@ -787,6 +866,7 @@ export default function ReportsPage() {
               { header: "Güncel Bakiye", align: "right" },
             ],
             rowMapper: (r) => [
+              dateOf(r) ? formatDateDMY(dateOf(r)!) : "—",
               r.studentName,
               r.guardianName ?? "—",
               formatCurrency(r.previousBalance),
@@ -804,7 +884,7 @@ export default function ReportsPage() {
     // teacher/education-type filters only narrow down *which* students appear (activity
     // in that window), never the all-time totals themselves, since "remaining debt" isn't
     // a period-scoped concept.
-    const allDebtItems = buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments);
+    const allDebtItems = buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances);
     // Activity in the filtered window can come from sessions (billing) OR payments
     // (collection) — a student who only paid (no billed session yet, e.g. an advance
     // payment) must still count as "active" here, otherwise they'd silently vanish.
@@ -832,19 +912,20 @@ export default function ReportsPage() {
       <ReportViewer<StudentDebtItem>
         note={filterSummaryText}
         summaryCards={summaryCards}
-        columns={debtColumns}
+        columns={mode === "income" ? debtColumns : studentDebtColumns}
         rows={rows}
         keyExtractor={(r) => r.studentId}
         emptyTitle="Borç kaydı bulunamadı"
         csv={{
           filename: `gelir-raporu-${idSuffix}.csv`,
-          headers: ["Öğrenci", "Veli", "Tahakkuk", "Tahsilat", "Kalan"],
-          rowMapper: (r) => [r.studentName, r.guardianName ?? "", r.totalBilled, r.totalPaid, r.remainingDebt],
+          headers: ["Tarih", "Öğrenci", "Veli", "Tahakkuk", "Tahsilat", "Kalan"],
+          rowMapper: (r) => [dateOf(r) ? formatDateDMY(dateOf(r)!) : "", r.studentName, r.guardianName ?? "", r.totalBilled, r.totalPaid, r.remainingDebt],
         }}
         pdf={{
-          title: "Gelir Raporu",
+          title: reportTitle,
           subtitle: filterSummaryText,
           columns: [
+            { header: "Tarih" },
             { header: "Öğrenci" },
             { header: "Veli" },
             { header: "Tahakkuk", align: "right" },
@@ -852,6 +933,7 @@ export default function ReportsPage() {
             { header: "Kalan", align: "right" },
           ],
           rowMapper: (r) => [
+            dateOf(r) ? formatDateDMY(dateOf(r)!) : "—",
             r.studentName,
             r.guardianName ?? "—",
             formatCurrency(r.totalBilled),
@@ -872,30 +954,38 @@ export default function ReportsPage() {
     const summaryCards: ReportSummaryCard[] = isSingleMonthMode
       ? (() => {
           const monthSummaries = teachersToShow.map((t) =>
-            getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth)
+            getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherCustomPrices)
           );
           const totalPrevious = monthSummaries.reduce((s, m) => s + m.previousBalance, 0);
           const totalEarning = monthSummaries.reduce((s, m) => s + m.thisMonthEarning, 0);
           const totalPaidThisMonth = monthSummaries.reduce((s, m) => s + m.thisMonthPaid, 0);
           const totalDeducted = monthSummaries.reduce((s, m) => s + m.thisMonthDeducted, 0);
           const totalBalance = monthSummaries.reduce((s, m) => s + m.currentBalance, 0);
+          const totalUnknown = monthSummaries.reduce((s, m) => s + m.unknownSessionCount, 0);
           return [
             { title: "Önceki Devir", value: formatCurrency(totalPrevious), icon: AlertCircle, variant: totalPrevious > 0 ? "warning" : "default" },
             { title: "Bu Ay Hakediş", value: formatCurrency(totalEarning), icon: TrendingUp, variant: "default" },
             { title: "Bu Ay Ödeme", value: formatCurrency(totalPaidThisMonth), icon: CheckCircle2, variant: "success" },
             { title: "Bu Ay Kesinti", value: formatCurrency(totalDeducted), icon: Clock, variant: totalDeducted > 0 ? "warning" : "default" },
             { title: "Güncel Bakiye", value: formatCurrency(totalBalance), icon: AlertCircle, variant: totalBalance > 0 ? "warning" : "success" },
+            ...(totalUnknown > 0
+              ? [{ title: "Hesaplanamayan", value: `${totalUnknown} seans`, icon: Clock, variant: "warning" as const }]
+              : []),
           ];
         })()
       : (() => {
-          const totals = teachersToShow.map((t) => getTeacherEarningTotalsForRange(t, store.sessions, store.teacherPayments, start, end));
+          const totals = teachersToShow.map((t) => getTeacherEarningTotalsForRange(t, store.sessions, store.teacherPayments, start, end, store.teacherCustomPrices));
           const totalEarned = totals.reduce((s, t) => s + t.totalEarning, 0);
           const totalPaid = totals.reduce((s, t) => s + t.paidEarning, 0);
           const totalPending = totals.reduce((s, t) => s + t.pendingEarning, 0);
+          const totalUnknown = totals.reduce((s, t) => s + t.unknownSessionCount, 0);
           return [
-            { title: "Toplam Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
+            { title: "Bilinen Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
             { title: "Toplam Ödenen", value: formatCurrency(totalPaid), icon: CheckCircle2, variant: "success" },
             { title: "Bekleyen", value: formatCurrency(totalPending), icon: Clock, variant: totalPending > 0 ? "warning" : "success" },
+            ...(totalUnknown > 0
+              ? [{ title: "Hesaplanamayan", value: `${totalUnknown} seans`, icon: Clock, variant: "warning" as const }]
+              : []),
           ];
         })();
 
@@ -909,21 +999,21 @@ export default function ReportsPage() {
         emptyTitle="Ödeme kaydı bulunamadı"
         csv={{
           filename: `ogretmen-odeme-raporu-${idSuffix}.csv`,
-          headers: ["Öğretmen", "Ödeme Türü", "Tutar", "Yöntem", "Tarih", "Açıklama"],
-          rowMapper: (r) => [r.teacherName, r.paymentTypeLabel, r.amount, r.methodLabel, formatDate(r.date), r.description ?? ""],
+          headers: ["Tarih", "Öğretmen", "Ödeme Türü", "Tutar", "Yöntem", "Açıklama"],
+          rowMapper: (r) => [formatDateDMY(r.date), r.teacherName, r.paymentTypeLabel, r.amount, r.methodLabel, r.description ?? ""],
         }}
         pdf={{
           title: "Öğretmen Ödeme Raporu",
           subtitle: filterSummaryText,
           columns: [
+            { header: "Tarih" },
             { header: "Öğretmen" },
             { header: "Ödeme Türü" },
             { header: "Tutar", align: "right" },
             { header: "Yöntem" },
-            { header: "Tarih" },
             { header: "Açıklama" },
           ],
-          rowMapper: (r) => [r.teacherName, r.paymentTypeLabel, formatCurrency(r.amount), r.methodLabel, formatDate(r.date), r.description ?? "—"],
+          rowMapper: (r) => [formatDateDMY(r.date), r.teacherName, r.paymentTypeLabel, formatCurrency(r.amount), r.methodLabel, r.description ?? "—"],
         }}
       />
     );
@@ -958,14 +1048,14 @@ export default function ReportsPage() {
         csv={{
           filename: "gunluk-kasa-raporu.csv",
           headers: ["Tarih", "Tür", "Açıklama", "Tutar"],
-          rowMapper: (r) => [formatDate(r.date), r.typeLabel, r.description ?? "", r.type === "income" ? r.amount : -r.amount],
+          rowMapper: (r) => [formatDateDMY(r.date), r.typeLabel, r.description ?? "", r.type === "income" ? r.amount : -r.amount],
         }}
         pdf={{
           title: "Günlük Kasa Raporu",
           subtitle: filterSummaryText,
           columns: [{ header: "Tarih" }, { header: "Tür" }, { header: "Açıklama" }, { header: "Tutar", align: "right" }],
           rowMapper: (r) => [
-            formatDate(r.date),
+            formatDateDMY(r.date),
             r.typeLabel,
             r.description ?? "—",
             `${r.type === "income" ? "+" : "-"}${formatCurrency(r.amount)}`,
@@ -998,7 +1088,7 @@ export default function ReportsPage() {
         csv={{
           filename: "seans-durum-raporu.csv",
           headers: ["Tarih", "Öğrenci", "Öğretmen", "Eğitim Türü", "Durum", "Tutar"],
-          rowMapper: (r) => [formatDate(r.date), r.studentName, r.teacherName, r.educationTypeName, r.status, r.totalAmount],
+          rowMapper: (r) => [formatDateDMY(r.date), r.studentName, r.teacherName, r.educationTypeName, getSessionStatusLabel(r.status), r.totalAmount],
         }}
         pdf={{
           title: "Seans Durum Raporu",
@@ -1011,14 +1101,14 @@ export default function ReportsPage() {
             { header: "Durum" },
             { header: "Tutar", align: "right" },
           ],
-          rowMapper: (r) => [formatDate(r.date), r.studentName, r.teacherName, r.educationTypeName, r.status, formatCurrency(r.totalAmount)],
+          rowMapper: (r) => [formatDateDMY(r.date), r.studentName, r.teacherName, r.educationTypeName, getSessionStatusLabel(r.status), formatCurrency(r.totalAmount)],
         }}
       />
     );
   }
 
   function renderStudentPaymentReport() {
-    const rows = buildPaymentListItems(filteredPayments, store.students, store.guardians, store.sessions);
+    const rows = buildPaymentListItems(filteredPayments, store.students, store.guardians, store.sessions, store.openingBalances);
     const total = rows.reduce((s, r) => s + r.amount, 0);
     const uniqueStudents = new Set(rows.map((r) => r.studentId)).size;
 
@@ -1039,7 +1129,7 @@ export default function ReportsPage() {
         csv={{
           filename: "ogrenci-odeme-raporu.csv",
           headers: ["Tarih", "Öğrenci", "Veli", "Tutar", "Yöntem", "Not"],
-          rowMapper: (r) => [formatDate(r.date), r.studentName, r.guardianName ?? "", r.amount, r.methodLabel, r.notes ?? ""],
+          rowMapper: (r) => [formatDateDMY(r.date), r.studentName, r.guardianName ?? "", r.amount, r.methodLabel, r.notes ?? ""],
         }}
         pdf={{
           title: "Öğrenci Ödeme Raporu",
@@ -1052,7 +1142,7 @@ export default function ReportsPage() {
             { header: "Yöntem" },
             { header: "Not" },
           ],
-          rowMapper: (r) => [formatDate(r.date), r.studentName, r.guardianName ?? "—", formatCurrency(r.amount), r.methodLabel, r.notes ?? "—"],
+          rowMapper: (r) => [formatDateDMY(r.date), r.studentName, r.guardianName ?? "—", formatCurrency(r.amount), r.methodLabel, r.notes ?? "—"],
         }}
       />
     );
@@ -1079,13 +1169,14 @@ export default function ReportsPage() {
         emptyTitle="Devam kaydı bulunamadı"
         csv={{
           filename: "devam-ozeti.csv",
-          headers: ["Öğrenci", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
-          rowMapper: (r) => [r.studentName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
+          headers: ["Tarih", "Öğrenci", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
+          rowMapper: (r) => [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "", r.studentName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
         }}
         pdf={{
           title: "Devam Özeti",
           subtitle: filterSummaryText,
           columns: [
+            { header: "Tarih" },
             { header: "Öğrenci" },
             { header: "Toplam", align: "right" },
             { header: "Tamamlanan", align: "right" },
@@ -1094,7 +1185,7 @@ export default function ReportsPage() {
             { header: "Gelmedi", align: "right" },
             { header: "Telafi", align: "right" },
           ],
-          rowMapper: (r) => [r.studentName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
+          rowMapper: (r) => [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "—", r.studentName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
         }}
       />
     );
@@ -1121,13 +1212,14 @@ export default function ReportsPage() {
         emptyTitle="Seans kaydı bulunamadı"
         csv={{
           filename: "ogretmen-seans-sayilari.csv",
-          headers: ["Öğretmen", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
-          rowMapper: (r) => [r.teacherName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
+          headers: ["Tarih", "Öğretmen", "Toplam", "Tamamlanan", "Planlanan", "İptal", "Gelmedi", "Telafi"],
+          rowMapper: (r) => [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "", r.teacherName, r.total, r.completed, r.planned, r.cancelled, r.noShow, r.makeup],
         }}
         pdf={{
           title: "Öğretmen Seans Sayıları",
           subtitle: filterSummaryText,
           columns: [
+            { header: "Tarih" },
             { header: "Öğretmen" },
             { header: "Toplam", align: "right" },
             { header: "Tamamlanan", align: "right" },
@@ -1136,7 +1228,7 @@ export default function ReportsPage() {
             { header: "Gelmedi", align: "right" },
             { header: "Telafi", align: "right" },
           ],
-          rowMapper: (r) => [r.teacherName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
+          rowMapper: (r) => [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "—", r.teacherName, String(r.total), String(r.completed), String(r.planned), String(r.cancelled), String(r.noShow), String(r.makeup)],
         }}
       />
     );
@@ -1150,13 +1242,14 @@ export default function ReportsPage() {
     // performance modes — session-count columns aren't part of the carryover story.
     if (isSingleMonthMode) {
       const rows = teachersToShow.map((t) =>
-        getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth)
+        getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherCustomPrices)
       );
       const totalPrevious = rows.reduce((s, r) => s + r.previousBalance, 0);
       const totalEarning = rows.reduce((s, r) => s + r.thisMonthEarning, 0);
       const totalPaidThisMonth = rows.reduce((s, r) => s + r.thisMonthPaid, 0);
       const totalDeducted = rows.reduce((s, r) => s + r.thisMonthDeducted, 0);
       const totalBalance = rows.reduce((s, r) => s + r.currentBalance, 0);
+      const totalUnknown = rows.reduce((s, r) => s + r.unknownSessionCount, 0);
 
       const summaryCards: ReportSummaryCard[] = [
         { title: "Önceki Devir", value: formatCurrency(totalPrevious), icon: AlertCircle, variant: totalPrevious > 0 ? "warning" : "default" },
@@ -1164,6 +1257,9 @@ export default function ReportsPage() {
         { title: "Bu Ay Ödeme", value: formatCurrency(totalPaidThisMonth), icon: CheckCircle2, variant: "success" },
         { title: "Bu Ay Kesinti", value: formatCurrency(totalDeducted), icon: Clock, variant: totalDeducted > 0 ? "warning" : "default" },
         { title: "Güncel Bakiye", value: formatCurrency(totalBalance), icon: AlertCircle, variant: totalBalance > 0 ? "warning" : "success" },
+        ...(totalUnknown > 0
+          ? [{ title: "Hesaplanamayan", value: `${totalUnknown} seans`, icon: Clock, variant: "warning" as const }]
+          : []),
       ];
 
       return (
@@ -1176,13 +1272,14 @@ export default function ReportsPage() {
           emptyTitle="Öğretmen verisi bulunamadı"
           csv={{
             filename: `${isPerformance ? "ogretmen-performansi" : "ogretmen-hakedisleri"}-${filters.monthKey}.csv`,
-            headers: ["Öğretmen", "Önceki Devir", "Bu Ay Hakediş", "Bu Ay Ödeme", "Bu Ay Kesinti", "Güncel Bakiye", "Toplam Bekleyen"],
-            rowMapper: (r) => [r.teacherName, r.previousBalance, r.thisMonthEarning, r.thisMonthPaid, r.thisMonthDeducted, r.currentBalance, r.totalPending],
+            headers: ["Tarih", "Öğretmen", "Önceki Devir", "Bu Ay Hakediş", "Bu Ay Ödeme", "Bu Ay Kesinti", "Güncel Bakiye", "Toplam Bekleyen"],
+            rowMapper: (r) => [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "", r.teacherName, r.previousBalance, r.thisMonthEarning, r.thisMonthPaid, r.thisMonthDeducted, r.currentBalance, r.totalPending],
           }}
           pdf={{
             title: isPerformance ? "Öğretmen Performansı" : "Öğretmen Hakedişleri",
             subtitle: filterSummaryText,
             columns: [
+              { header: "Tarih" },
               { header: "Öğretmen" },
               { header: "Önceki Devir", align: "right" },
               { header: "Bu Ay Hakediş", align: "right" },
@@ -1192,6 +1289,7 @@ export default function ReportsPage() {
               { header: "Toplam Bekleyen", align: "right" },
             ],
             rowMapper: (r) => [
+              r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "—",
               r.teacherName,
               formatCurrency(r.previousBalance),
               formatCurrency(r.thisMonthEarning),
@@ -1205,16 +1303,20 @@ export default function ReportsPage() {
       );
     }
 
-    const rows = buildTeacherReportRows(teachersToShow, filteredSessions, store.sessions, store.teacherPayments, start, end);
+    const rows = buildTeacherReportRows(teachersToShow, filteredSessions, store.sessions, store.teacherPayments, start, end, store.teacherCustomPrices);
     const totalEarned = rows.reduce((s, r) => s + r.totalEarning, 0);
     const totalPaid = rows.reduce((s, r) => s + r.paidEarning, 0);
     const totalPending = rows.reduce((s, r) => s + r.pendingEarning, 0);
+    const totalUnknown = rows.reduce((s, r) => s + r.unknownSessionCount, 0);
 
     const summaryCards: ReportSummaryCard[] = [
-      { title: "Toplam Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
+      { title: "Bilinen Hakediş", value: formatCurrency(totalEarned), icon: TrendingUp, variant: "default" },
       { title: "Toplam Ödenen", value: formatCurrency(totalPaid), icon: CheckCircle2, variant: "success" },
       { title: "Bekleyen", value: formatCurrency(totalPending), icon: Clock, variant: totalPending > 0 ? "warning" : "success" },
       { title: "Öğretmen Sayısı", value: rows.length, icon: GraduationCap, variant: "default" },
+      ...(totalUnknown > 0
+        ? [{ title: "Hesaplanamayan", value: `${totalUnknown} seans`, icon: AlertCircle, variant: "warning" as const }]
+        : []),
     ];
 
     return (
@@ -1228,18 +1330,19 @@ export default function ReportsPage() {
         csv={{
           filename: isPerformance ? "ogretmen-performansi.csv" : "ogretmen-hakedisleri.csv",
           headers: isPerformance
-            ? ["Öğretmen", "Toplam Seans", "Tamamlanan", "Öğrenci Sayısı", "Toplam Hakediş", "Ödenen", "Bekleyen", "Durum"]
-            : ["Öğretmen", "Seans", "Toplam Hakediş", "Ödenen", "Bekleyen", "Durum"],
+            ? ["Tarih", "Öğretmen", "Toplam Seans", "Tamamlanan", "Öğrenci Sayısı", "Toplam Hakediş", "Ödenen", "Bekleyen", "Hesaplanamayan Seans", "Durum"]
+            : ["Tarih", "Öğretmen", "Seans", "Toplam Hakediş", "Ödenen", "Bekleyen", "Hesaplanamayan Seans", "Durum"],
           rowMapper: (r) =>
             isPerformance
-              ? [r.teacherName, r.totalSessions, r.completedSessions, r.uniqueStudentCount, r.totalEarning, r.paidEarning, r.pendingEarning, r.status]
-              : [r.teacherName, r.totalSessions, r.totalEarning, r.paidEarning, r.pendingEarning, r.status],
+              ? [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "", r.teacherName, r.totalSessions, r.completedSessions, r.uniqueStudentCount, r.totalEarning, r.paidEarning, r.pendingEarning, r.unknownSessionCount, getTeacherStatusLabel(r.status)]
+              : [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "", r.teacherName, r.totalSessions, r.totalEarning, r.paidEarning, r.pendingEarning, r.unknownSessionCount, getTeacherStatusLabel(r.status)],
         }}
         pdf={{
           title: isPerformance ? "Öğretmen Performansı" : "Öğretmen Hakedişleri",
           subtitle: filterSummaryText,
           columns: isPerformance
             ? [
+                { header: "Tarih" },
                 { header: "Öğretmen" },
                 { header: "Toplam Seans", align: "right" },
                 { header: "Tamamlanan", align: "right" },
@@ -1247,19 +1350,23 @@ export default function ReportsPage() {
                 { header: "Toplam Hakediş", align: "right" },
                 { header: "Ödenen", align: "right" },
                 { header: "Bekleyen", align: "right" },
+                { header: "Hesaplanamayan Seans", align: "right" },
                 { header: "Durum" },
               ]
             : [
+                { header: "Tarih" },
                 { header: "Öğretmen" },
                 { header: "Seans", align: "right" },
                 { header: "Toplam Hakediş", align: "right" },
                 { header: "Ödenen", align: "right" },
                 { header: "Bekleyen", align: "right" },
+                { header: "Hesaplanamayan Seans", align: "right" },
                 { header: "Durum" },
               ],
           rowMapper: (r) =>
             isPerformance
               ? [
+                  r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "—",
                   r.teacherName,
                   String(r.totalSessions),
                   String(r.completedSessions),
@@ -1267,9 +1374,10 @@ export default function ReportsPage() {
                   formatCurrency(r.totalEarning),
                   formatCurrency(r.paidEarning),
                   formatCurrency(r.pendingEarning),
-                  r.status,
+                  String(r.unknownSessionCount),
+                  getTeacherStatusLabel(r.status),
                 ]
-              : [r.teacherName, String(r.totalSessions), formatCurrency(r.totalEarning), formatCurrency(r.paidEarning), formatCurrency(r.pendingEarning), r.status],
+              : [r.lastSessionDate ? formatDateDMY(r.lastSessionDate) : "—", r.teacherName, String(r.totalSessions), formatCurrency(r.totalEarning), formatCurrency(r.paidEarning), formatCurrency(r.pendingEarning), String(r.unknownSessionCount), getTeacherStatusLabel(r.status)],
         }}
       />
     );
@@ -1278,7 +1386,7 @@ export default function ReportsPage() {
   function renderActiveReport() {
     switch (reportId) {
       case "income":
-        return renderIncomeStyleReport("gelir");
+        return renderIncomeStyleReport("gelir", "income");
       case "teacher-payments":
         return renderTeacherPaymentReport("finansal");
       case "daily-cash":
@@ -1286,7 +1394,7 @@ export default function ReportsPage() {
       case "session-status":
         return renderSessionStatusReport();
       case "student-debt":
-        return renderIncomeStyleReport("ogrenci-borc");
+        return renderIncomeStyleReport("ogrenci-borc", "debt");
       case "student-payments":
         return renderStudentPaymentReport();
       case "attendance":

@@ -3,20 +3,21 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatCurrency } from "@/lib/helpers/finance";
-import type { Payment, Session, Student } from "@/types";
+import type { Payment, Session, Student, OpeningBalance } from "@/types";
 import { getStudentDebt, getStudentTotalPaid } from "@/lib/helpers/finance";
 
 interface PaymentSummaryCardProps {
   sessions: Session[];
   payments: Payment[];
   students: Student[];
+  openingBalances?: OpeningBalance[];
 }
 
-export function PaymentSummaryCard({ sessions, payments, students }: PaymentSummaryCardProps) {
+export function PaymentSummaryCard({ sessions, payments, students, openingBalances = [] }: PaymentSummaryCardProps) {
   const summaries = students
     .filter((s) => s.status === "active")
     .map((student) => {
-      const debt = getStudentDebt(student.id, sessions, payments);
+      const debt = getStudentDebt(student.id, sessions, payments, openingBalances);
       const paid = getStudentTotalPaid(student.id, payments);
       const total = debt + paid;
       return { student, debt, paid, total };

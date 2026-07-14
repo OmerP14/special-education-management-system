@@ -39,25 +39,77 @@ import type {
   Teacher,
   EducationType,
   PlannedSessionsSummary,
+  StudentStatus,
+  TeacherStatus,
+  OpeningBalance,
+  TeacherEarningCalculationStatus,
 } from "@/types";
+import { normalizeName } from "./import-match";
 
 const BILLABLE_STATUSES: Session["status"][] = ["completed", "no_show", "makeup"];
 export const EARNING_STATUSES: Session["status"][] = ["completed", "makeup"];
 
-export function getStudentDebt(
+/** The single source of truth for "does this session count toward student/
+ *  guardian debt, tahakkuk, or receivables". A session must both be in a
+ *  billable STATUS (completed/no_show/makeup) and NOT be flagged
+ *  billingMode: "historical_non_billable" — a historical migration import the
+ *  user explicitly chose to bring in as pure session history, never billed.
+ *  `billingMode` undefined (every manually-created/pre-existing session) is
+ *  always billable, so this changes nothing for normal session behavior.
+ *  Teacher earning/hakediş calculations intentionally do NOT use this — see
+ *  EARNING_STATUSES — historical-non-billable is a student-billing concept only. */
+export function isBillableSession(session: Session): boolean {
+  return BILLABLE_STATUSES.includes(session.status) && session.billingMode !== "historical_non_billable";
+}
+
+/** True when a student's session history exists but is entirely
+ *  historical_non_billable — the "no debt yet has session history" case a plain
+ *  zero-activity check can't distinguish from "no history at all". Used to
+ *  decide whether to show the "Geçmiş ders kayıtları borca dahil değil"
+ *  explanation alongside an otherwise all-₺0 account. */
+export function hasOnlyHistoricalNonBillableSessions(studentId: string, sessions: Session[]): boolean {
+  const studentSessions = sessions.filter((s) => s.studentId === studentId);
+  return studentSessions.length > 0 && studentSessions.every((s) => s.billingMode === "historical_non_billable");
+}
+
+/** Signed net of a student's opening balances (debt = +amount, credit = -amount).
+ *  Never counted as Tahakkuk/Tahsilat — only folded into the net debt/balance figure. */
+export function getOpeningBalanceNet(studentId: string, openingBalances: OpeningBalance[]): number {
+  return openingBalances
+    .filter((b) => b.studentId === studentId)
+    .reduce((sum, b) => sum + (b.balanceType === "debt" ? b.amount : -b.amount), 0);
+}
+
+/** Signed all-time balance — billed minus paid, plus opening-balance net — never
+ *  floored at 0. Positive = student owes; negative = student has overpaid/holds a
+ *  credit. `getStudentDebt` (the canonical "how much is owed" figure used
+ *  everywhere) is a thin floor over this; UI that needs to distinguish debt from
+ *  credit/overpayment (never showing an ambiguous unlabeled "X / Y") should read
+ *  this instead of re-deriving billed-minus-paid itself. */
+export function getStudentNetBalance(
   studentId: string,
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): number {
   const charged = sessions
-    .filter((s) => s.studentId === studentId && BILLABLE_STATUSES.includes(s.status))
+    .filter((s) => s.studentId === studentId && isBillableSession(s))
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
 
   const paid = payments
     .filter((p) => p.studentId === studentId)
     .reduce((sum, p) => sum + p.amount, 0);
 
-  return Math.max(0, charged - paid);
+  return charged - paid + getOpeningBalanceNet(studentId, openingBalances);
+}
+
+export function getStudentDebt(
+  studentId: string,
+  sessions: Session[],
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
+): number {
+  return Math.max(0, getStudentNetBalance(studentId, sessions, payments, openingBalances));
 }
 
 export function getStudentTotalPaid(studentId: string, payments: Payment[]): number {
@@ -101,7 +153,7 @@ export function getMonthlyRevenue(sessions: Session[], year: number, month: numb
       return (
         d.getFullYear() === year &&
         d.getMonth() + 1 === month &&
-        BILLABLE_STATUSES.includes(s.status)
+        isBillableSession(s)
       );
     })
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
@@ -130,7 +182,9 @@ export function buildDashboardStats(
   payments: Payment[],
   teacherPayments: TeacherPayment[],
   students: Student[],
-  teachers: Teacher[]
+  teachers: Teacher[],
+  openingBalances: OpeningBalance[] = [],
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): DashboardStats {
   const now = new Date();
   const year = now.getFullYear();
@@ -140,17 +194,16 @@ export function buildDashboardStats(
   const activeTeachers = teachers.filter((t) => t.status === "active").length;
 
   const totalDebt = students.reduce(
-    (sum, s) => sum + getStudentDebt(s.id, sessions, payments),
+    (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
     0
   );
 
   // Teacher earnings are owed the moment a session is completed/salary is entitled —
   // never derived from whether the student/parent has paid. "Paid" comes from actual
   // TeacherPayment records, never from the TeacherEarning ledger.
-  const pendingEarnings = teachers.reduce(
-    (sum, t) => sum + getTeacherEarningTotals(t, sessions, teacherPayments).pendingEarning,
-    0
-  );
+  const teacherTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, teacherCustomPrices));
+  const pendingEarnings = teacherTotals.reduce((sum, t) => sum + t.pendingEarning, 0);
+  const unknownEarningSessionCount = teacherTotals.reduce((sum, t) => sum + t.unknownSessionCount, 0);
 
   return {
     activeStudents,
@@ -159,6 +212,7 @@ export function buildDashboardStats(
     revenueThisMonth: getMonthlyRevenue(sessions, year, month),
     collectedThisMonth: getMonthlyCollected(payments, year, month),
     pendingPayments: totalDebt,
+    unknownEarningSessionCount,
     pendingEarnings,
   };
 }
@@ -166,11 +220,12 @@ export function buildDashboardStats(
 export function buildStudentSummaries(
   sessions: Session[],
   payments: Payment[],
-  students: Student[]
+  students: Student[],
+  openingBalances: OpeningBalance[] = []
 ): StudentSummary[] {
   return students.map((student) => ({
     ...student,
-    totalDebt: getStudentDebt(student.id, sessions, payments),
+    totalDebt: getStudentDebt(student.id, sessions, payments, openingBalances),
     totalPaid: getStudentTotalPaid(student.id, payments),
     completedSessions: getStudentCompletedSessions(student.id, sessions),
   }));
@@ -197,36 +252,62 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-export function formatDate(dateStr: string): string {
+/** Imported/hand-entered data can carry a malformed or empty date string (a bad
+ *  Excel cell, an emptied optional field, …) — every date formatter below MUST
+ *  degrade to a visible placeholder instead of throwing `RangeError: Invalid time
+ *  value`, since a single bad record must never crash Student/Guardian detail,
+ *  Sessions, Reports, or the Dashboard. */
+function isValidDate(d: Date): boolean {
+  return !Number.isNaN(d.getTime());
+}
+
+/** "-" for a genuinely blank/never-entered value (not an error); the more explicit
+ *  "Geçersiz Tarih" only when there WAS a value and it failed to parse — so a student
+ *  with no birth date on file doesn't read as "corrupted" next to one that actually is. */
+function invalidDateFallback(raw: string): string {
+  return raw.trim() === "" ? "-" : "Geçersiz Tarih";
+}
+
+export function formatDate(dateStr: string | null | undefined): string {
+  const raw = dateStr ?? "";
+  const d = new Date(raw);
+  if (!isValidDate(d)) return invalidDateFallback(raw);
   return new Intl.DateTimeFormat("tr-TR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  }).format(new Date(dateStr));
+  }).format(d);
 }
 
-export function formatDateTime(dateStr: string): string {
+export function formatDateTime(dateStr: string | null | undefined): string {
+  const raw = dateStr ?? "";
+  const d = new Date(raw);
+  if (!isValidDate(d)) return invalidDateFallback(raw);
   return new Intl.DateTimeFormat("tr-TR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(dateStr));
+  }).format(d);
 }
 
-export function formatTime(dateStr: string): string {
+export function formatTime(dateStr: string | null | undefined): string {
+  const d = new Date(dateStr ?? "");
+  if (!isValidDate(d)) return "-";
   return new Intl.DateTimeFormat("tr-TR", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(dateStr));
+  }).format(d);
 }
 
 /** "06.07.2026" — day.month.year, for report "Tarih" columns. Handles both full ISO
  *  datetime strings (Session.date) and date-only "YYYY-MM-DD" strings (Payment.date)
  *  safely, same as parseDateOnly, so the displayed day never shifts by timezone. */
-export function formatDateDMY(dateStr: string): string {
-  const d = dateStr.includes("T") ? new Date(dateStr) : parseDateOnly(dateStr);
+export function formatDateDMY(dateStr: string | null | undefined): string {
+  const raw = dateStr ?? "";
+  const d = raw.includes("T") ? new Date(raw) : parseDateOnly(raw);
+  if (!isValidDate(d)) return invalidDateFallback(raw);
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   return `${day}.${month}.${d.getFullYear()}`;
@@ -236,7 +317,7 @@ export function formatDateDMY(dateStr: string): string {
 
 export function getStudentTotalBilled(studentId: string, sessions: Session[]): number {
   return sessions
-    .filter((s) => s.studentId === studentId && BILLABLE_STATUSES.includes(s.status))
+    .filter((s) => s.studentId === studentId && isBillableSession(s))
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
 }
 
@@ -256,10 +337,32 @@ export function getStudentLastActivityDate(
     return studentPayments.reduce((latest, p) => (p.date > latest ? p.date : latest), studentPayments[0]!.date);
   }
   const billableSessions = sessions.filter(
-    (s) => s.studentId === studentId && BILLABLE_STATUSES.includes(s.status)
+    (s) => s.studentId === studentId && isBillableSession(s)
   );
   if (billableSessions.length === 0) return null;
   return billableSessions.reduce((latest, s) => (s.date > latest ? s.date : latest), billableSessions[0]!.date);
+}
+
+/**
+ * Debt-report activity date — the reverse priority of getStudentLastActivityDate: leads
+ * with "when was the service delivered" (latest billed session date), falling back to the
+ * latest payment date only when no billed session exists yet (e.g. an advance payment).
+ * Purely for report readability, never fed into any debt calculation.
+ */
+export function getStudentDebtActivityDate(
+  studentId: string,
+  sessions: Session[],
+  payments: Payment[]
+): string | null {
+  const billableSessions = sessions.filter(
+    (s) => s.studentId === studentId && isBillableSession(s)
+  );
+  if (billableSessions.length > 0) {
+    return billableSessions.reduce((latest, s) => (s.date > latest ? s.date : latest), billableSessions[0]!.date);
+  }
+  const studentPayments = payments.filter((p) => p.studentId === studentId);
+  if (studentPayments.length === 0) return null;
+  return studentPayments.reduce((latest, p) => (p.date > latest ? p.date : latest), studentPayments[0]!.date);
 }
 
 export function getStudentSessionCount(studentId: string, sessions: Session[]): number {
@@ -409,7 +512,8 @@ export function buildStudentListItems(
   educationTypes: EducationType[],
   teachers: Teacher[],
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): StudentListItem[] {
   return students.map((student) => {
     const studentGuardians = getStudentGuardians(student, guardians);
@@ -421,7 +525,7 @@ export function buildStudentListItems(
 
     const totalBilled = getStudentTotalBilled(student.id, sessions);
     const totalPaid = getStudentTotalPaid(student.id, payments);
-    const totalDebt = getStudentDebt(student.id, sessions, payments);
+    const totalDebt = getStudentDebt(student.id, sessions, payments, openingBalances);
 
     return {
       id: student.id,
@@ -530,11 +634,70 @@ export function getTeacherPriceRows(
   });
 }
 
+// ─── Likely-duplicate teacher detection (read-only — never merges/deletes) ─────
+// Import name resolution matches on normalizeName() alone (see import-match.ts),
+// which lowercases and collapses whitespace but does NOT strip an honorific/
+// abbreviation suffix — "EKREM" and "EKREM H" (a common shorthand for "EKREM
+// HOCA" some source sheets use, vs. others that already wrote "HOCA" in full
+// and got it stripped by stripHocaHonorific in student-ledger-import.ts)
+// normalize to two DIFFERENT keys and are therefore staged as two distinct
+// teachers. This only ever SURFACES a recommendation for a human to review —
+// it never merges records, transfers sessions, or deletes/archives anything.
+
+/** Trailing tokens that commonly stand in for "Hoca" (teacher) in source
+ *  sheets — stripped one at a time from the end so "ekrem h" and "ekrem hoca"
+ *  both collapse to "ekrem" for comparison purposes only. */
+const TEACHER_HONORIFIC_TOKENS = new Set(["hoca", "h", "öğretmen", "ogretmen", "abi", "hanım", "hanim"]);
+
+function stripTrailingTeacherHonorific(normalized: string): string {
+  const tokens = normalized.split(" ");
+  while (tokens.length > 1) {
+    const last = tokens[tokens.length - 1]!.replace(/\.$/, "");
+    if (!TEACHER_HONORIFIC_TOKENS.has(last)) break;
+    tokens.pop();
+  }
+  return tokens.join(" ");
+}
+
+export interface DuplicateTeacherCandidate {
+  teacherA: Teacher;
+  teacherB: Teacher;
+  teacherASessionCount: number;
+  teacherBSessionCount: number;
+  reason: string;
+}
+
+/** Flags teacher pairs whose names normalize to the same person once a
+ *  trailing honorific/abbreviation is stripped — e.g. "EKREM" vs "EKREM H".
+ *  Read-only: callers decide what (if anything) to do with the recommendation;
+ *  this never mutates `teachers`/`sessions` or picks a "correct" record. */
+export function findLikelyDuplicateTeachers(teachers: Teacher[], sessions: Session[]): DuplicateTeacherCandidate[] {
+  const results: DuplicateTeacherCandidate[] = [];
+  for (let i = 0; i < teachers.length; i++) {
+    for (let j = i + 1; j < teachers.length; j++) {
+      const a = teachers[i]!;
+      const b = teachers[j]!;
+      const strippedA = stripTrailingTeacherHonorific(normalizeName(a.fullName));
+      const strippedB = stripTrailingTeacherHonorific(normalizeName(b.fullName));
+      if (!strippedA || strippedA !== strippedB) continue;
+      results.push({
+        teacherA: a,
+        teacherB: b,
+        teacherASessionCount: sessions.filter((s) => s.teacherId === a.id).length,
+        teacherBSessionCount: sessions.filter((s) => s.teacherId === b.id).length,
+        reason: `"${a.fullName}" ve "${b.fullName}" adları normalize edildiğinde aynı kişiyi işaret ediyor olabilir.`,
+      });
+    }
+  }
+  return results;
+}
+
 export function buildTeacherListItems(
   teachers: Teacher[],
   educationTypes: EducationType[],
   sessions: Session[],
-  teacherPayments: TeacherPayment[]
+  teacherPayments: TeacherPayment[],
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): TeacherListItem[] {
   const now = new Date();
   const year = now.getFullYear();
@@ -561,6 +724,7 @@ export function buildTeacherListItems(
       completedSessions: getTeacherCompletedSessions(teacher.id, sessions),
       monthlyEarnings: getTeacherMonthlyEarnings(teacher, sessions, year, month),
       pendingEarnings: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
+      unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, teacherCustomPrices).unknownSessionCount,
     };
   });
 }
@@ -612,6 +776,7 @@ export function buildTeacherDetail(
     monthlyEarnings: getTeacherMonthlyEarnings(teacher, sessions, year, month),
     pendingEarnings: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
     totalEarnings: getTeacherTotalEarnings(teacher, sessions, teacherPayments),
+    unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices).unknownSessionCount,
   };
 }
 
@@ -622,7 +787,8 @@ export function buildStudentDetail(
   educationTypes: EducationType[],
   teachers: Teacher[],
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): StudentDetail | null {
   const student = students.find((s) => s.id === studentId);
   if (!student) return null;
@@ -647,7 +813,7 @@ export function buildStudentDetail(
     totalSessions: studentSessions.length,
     totalBilled: getStudentTotalBilled(studentId, sessions),
     totalPaid: getStudentTotalPaid(studentId, payments),
-    totalDebt: getStudentDebt(studentId, sessions, payments),
+    totalDebt: getStudentDebt(studentId, sessions, payments, openingBalances),
   };
 }
 
@@ -738,6 +904,104 @@ export function calculateTeacherSessionEarning(
 }
 
 /**
+ * The single source of truth for "was this session's teacherEarning actually
+ * calculated, or is it an unreliable 0-fallback" (see TeacherEarningCalculationStatus).
+ * Every new Session write path (import, manual SessionFormDrawer entry, recalculation)
+ * persists `teacherEarningStatus` explicitly at write time — this resolver exists so
+ * every READ path (totals, lists, reports) has exactly one place that decides what an
+ * older record with no persisted status means, instead of each screen guessing.
+ *
+ * Rule for `teacherEarningStatus === undefined` (a record written before this field
+ * existed): a nonzero stored `teacherEarning` could only exist if it was genuinely
+ * computed or entered, so it's "calculated". A zero requires closer inspection — if the
+ * teacher can be found, re-running calculateTeacherSessionEarning with today's settings
+ * tells us whether zero was ever really uncomputable (null → "unknown") or is a
+ * legitimate zero (a 0% percentage teacher, etc. → "calculated"). If the teacher can't
+ * be found at all (deleted/orphaned reference), this is genuinely ambiguous — per the
+ * "never guess" rule, it falls back to "calculated" (the pre-existing, already-displayed
+ * behavior) rather than inventing a new "unknown" flag for a record we can't verify.
+ */
+export function resolveTeacherEarningStatus(
+  session: Session,
+  teacher: Teacher | undefined,
+  customPrices: TeacherCustomPrice[]
+): TeacherEarningCalculationStatus {
+  if (session.teacherEarningStatus) return session.teacherEarningStatus;
+  if (session.teacherEarning > 0) return "calculated";
+  if (!teacher) return "calculated";
+  const recalculated = calculateTeacherSessionEarning(teacher, session.educationTypeId, session.studentPrice, customPrices);
+  return recalculated === null ? "unknown" : "calculated";
+}
+
+// ─── Unknown-earning recalculation (requirement 5) ─────────────────────────────
+// Lets a center complete a teacher's price settings after a historical import and
+// then safely re-run the calculation for exactly the sessions that were left
+// unresolved — never touches sessions that already have a real calculated
+// earning, never creates a TeacherPayment, and never duplicates a TeacherEarning
+// row (store.updateSession's existing upsertEarningForSession already keys by
+// sessionId). Running the preview/apply twice in a row is a no-op the second
+// time: once a session's status flips to "calculated" it no longer matches the
+// "unknown" filter below.
+
+export interface EarningRecalculationRow {
+  session: Session;
+  studentName: string;
+  educationTypeName: string;
+  /** null = calculateTeacherSessionEarning still can't resolve this session
+   *  (e.g. the custom price still isn't configured for THIS education type). */
+  recalculatedEarning: number | null;
+}
+
+/** Every earning-eligible session for `teacher` currently marked unknown,
+ *  paired with what calculateTeacherSessionEarning resolves to right now —
+ *  the preview a "Eksik Hakedişleri Yeniden Hesapla" action should show before
+ *  applying anything. Purely read-only. */
+export function buildEarningRecalculationPreview(
+  teacher: Teacher,
+  sessions: Session[],
+  customPrices: TeacherCustomPrice[],
+  students: Student[],
+  educationTypes: EducationType[]
+): EarningRecalculationRow[] {
+  return sessions
+    .filter(
+      (s) =>
+        s.teacherId === teacher.id &&
+        EARNING_STATUSES.includes(s.status) &&
+        resolveTeacherEarningStatus(s, teacher, customPrices) === "unknown"
+    )
+    .map((s) => {
+      const student = students.find((st) => st.id === s.studentId);
+      const et = educationTypes.find((e) => e.id === s.educationTypeId);
+      return {
+        session: s,
+        studentName: student?.fullName ?? "—",
+        educationTypeName: et?.name ?? "—",
+        recalculatedEarning: calculateTeacherSessionEarning(teacher, s.educationTypeId, s.studentPrice, customPrices),
+      } satisfies EarningRecalculationRow;
+    });
+}
+
+/**
+ * Turns a preview into the actual Session records to persist — only the rows
+ * that resolved (recalculatedEarning !== null), with teacherEarning updated and
+ * teacherEarningStatus flipped to "calculated". Still-unresolved rows are left
+ * out entirely (never written, never guessed).
+ *
+ * This function only returns data — it does not call the store. The caller
+ * must feed each returned Session through the existing `store.updateSession`,
+ * which already upserts the TeacherEarning ledger idempotently by sessionId
+ * (see upsertEarningForSession in mock/store.tsx) and never touches
+ * TeacherPayment, satisfying "no duplicate earning/payment records" by
+ * construction — this helper does not need to re-implement that guarantee.
+ */
+export function applyEarningRecalculation(rows: EarningRecalculationRow[]): Session[] {
+  return rows
+    .filter((r): r is EarningRecalculationRow & { recalculatedEarning: number } => r.recalculatedEarning !== null)
+    .map((r) => ({ ...r.session, teacherEarning: r.recalculatedEarning, teacherEarningStatus: "calculated" as const }));
+}
+
+/**
  * Computes the total amount payable to a teacher for a given month.
  * Uses stored session teacherEarning values for per_session teachers.
  */
@@ -819,6 +1083,30 @@ export interface TeacherEarningTotals {
   /** Kesinti total — reduces what's owed but is never cash, never counted as "paid". */
   deductedEarning: number;
   pendingEarning: number;
+  /** Earning-eligible sessions in this total's scope whose earning is unknown/
+   *  unresolved (see resolveTeacherEarningStatus) — never folded into
+   *  totalEarning/pendingEarning as a confirmed ₺0. Callers that display a total
+   *  MUST also surface this count instead of presenting the total as complete. */
+  unknownSessionCount: number;
+}
+
+/** Counts earning-eligible sessions for one teacher whose earning is unknown/
+ *  unresolved, optionally restricted to a scope (a month, a date range) — the
+ *  shared building block behind every TeacherEarningTotals' unknownSessionCount.
+ *  Never invents an amount for these sessions, only counts them. */
+function countUnknownEarningSessions(
+  teacher: Teacher,
+  sessions: Session[],
+  customPrices: TeacherCustomPrice[],
+  isInScope: (session: Session) => boolean = () => true
+): number {
+  return sessions.filter(
+    (s) =>
+      s.teacherId === teacher.id &&
+      EARNING_STATUSES.includes(s.status) &&
+      isInScope(s) &&
+      resolveTeacherEarningStatus(s, teacher, customPrices) === "unknown"
+  ).length;
 }
 
 /** A Kesinti isn't an outgoing payment — it's an adjustment to what's owed. Every other
@@ -849,13 +1137,15 @@ export function getTeacherDeductionTotal(teacherId: string, teacherPayments: Tea
 export function getTeacherEarningTotals(
   teacher: Teacher,
   sessions: Session[],
-  teacherPayments: TeacherPayment[]
+  teacherPayments: TeacherPayment[],
+  customPrices: TeacherCustomPrice[] = []
 ): TeacherEarningTotals {
   const totalEarning = calculateTeacherTotalPayable(teacher, sessions);
   const paidEarning = getTeacherCashPaidTotal(teacher.id, teacherPayments);
   const deductedEarning = getTeacherDeductionTotal(teacher.id, teacherPayments);
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
-  return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning };
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices);
+  return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning, unknownSessionCount };
 }
 
 /**
@@ -869,7 +1159,8 @@ export function getTeacherMonthEarningTotals(
   sessions: Session[],
   teacherPayments: TeacherPayment[],
   year: number,
-  month: number
+  month: number,
+  customPrices: TeacherCustomPrice[] = []
 ): TeacherEarningTotals {
   const totalEarning = calculateTeacherMonthlyPayable(teacher, sessions, year, month);
 
@@ -900,7 +1191,11 @@ export function getTeacherMonthEarningTotals(
   }
 
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
-  return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning };
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => {
+    const d = new Date(s.date);
+    return d.getFullYear() === year && d.getMonth() + 1 === month;
+  });
+  return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning, unknownSessionCount };
 }
 
 /**
@@ -915,7 +1210,8 @@ export function getTeacherMonthAccountSummary(
   sessions: Session[],
   teacherPayments: TeacherPayment[],
   year: number,
-  month: number
+  month: number,
+  customPrices: TeacherCustomPrice[] = []
 ): TeacherMonthAccountSummary {
   const isBeforeMonth = (dateStr: string) => {
     const d = parseDateOnly(dateStr);
@@ -957,7 +1253,18 @@ export function getTeacherMonthAccountSummary(
     previousBalance + thisMonthEarning - thisMonthPaid - thisMonthDeducted
   );
 
-  const totalPending = getTeacherEarningTotals(teacher, sessions, teacherPayments).pendingEarning;
+  const allTimeTotals = getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices);
+  const totalPending = allTimeTotals.pendingEarning;
+  const totalUnknownSessionCount = allTimeTotals.unknownSessionCount;
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => isInMonth(s.date));
+
+  const earningSessions = sessions.filter(
+    (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
+  );
+  const lastSessionDate =
+    earningSessions.length === 0
+      ? null
+      : earningSessions.reduce((latest, s) => (s.date > latest ? s.date : latest), earningSessions[0]!.date);
 
   return {
     teacherId: teacher.id,
@@ -970,6 +1277,9 @@ export function getTeacherMonthAccountSummary(
     thisMonthDeducted,
     currentBalance,
     totalPending,
+    lastSessionDate,
+    unknownSessionCount,
+    totalUnknownSessionCount,
   };
 }
 
@@ -987,10 +1297,11 @@ export function getTeacherEarningTotalsForRange(
   sessions: Session[],
   teacherPayments: TeacherPayment[],
   startDate: string | null,
-  endDate: string | null
+  endDate: string | null,
+  customPrices: TeacherCustomPrice[] = []
 ): TeacherEarningTotals {
   if (!startDate && !endDate) {
-    return getTeacherEarningTotals(teacher, sessions, teacherPayments);
+    return getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices);
   }
 
   // Parsed as local dates throughout (never `new Date("YYYY-MM-DD")`, which is UTC and
@@ -1041,12 +1352,20 @@ export function getTeacherEarningTotalsForRange(
     .filter((p) => isDeductionPaymentType(p.paymentType))
     .reduce((sum, p) => sum + p.amount, 0);
 
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => {
+    const d = new Date(s.date);
+    if (start && d < start) return false;
+    if (end && d > end) return false;
+    return true;
+  });
+
   return {
     teacherId: teacher.id,
     totalEarning,
     paidEarning,
     deductedEarning,
     pendingEarning: Math.max(0, totalEarning - paidEarning - deductedEarning),
+    unknownSessionCount,
   };
 }
 
@@ -1102,7 +1421,8 @@ export function buildSessionListItems(
   sessions: Session[],
   students: Student[],
   teachers: Teacher[],
-  educationTypes: EducationType[]
+  educationTypes: EducationType[],
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): SessionListItem[] {
   return [...sessions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -1132,6 +1452,8 @@ export function buildSessionListItems(
         status: session.status,
         notes: session.notes,
         durationMinutes: session.durationMinutes,
+        billingMode: session.billingMode,
+        teacherEarningStatus: resolveTeacherEarningStatus(session, teacher, teacherCustomPrices),
       } satisfies SessionListItem;
     });
 }
@@ -1162,7 +1484,7 @@ export function buildSessionPageStats(
 export function getPaymentMethodLabel(method: PaymentMethod): string {
   const labels: Record<PaymentMethod, string> = {
     cash: "Nakit",
-    bank_transfer: "Banka Havalesi",
+    bank_transfer: "EFT / Havale",
     credit_card: "Kredi Kartı",
     other: "Diğer",
   };
@@ -1199,6 +1521,39 @@ export function getTeacherPaymentTypeLabel(type: TeacherPaymentType): string {
     other: "Diğer",
   };
   return labels[type];
+}
+
+// ─── Status label helpers ───────────────────────────────────────────────────────
+// Centralized so no raw enum value (e.g. "planned", "active") ever reaches the UI —
+// tables, exports (CSV/PDF), and dropdowns should all resolve through these.
+
+export function getSessionStatusLabel(status: SessionStatus | "in_progress"): string {
+  const labels: Record<SessionStatus | "in_progress", string> = {
+    planned: "Planlandı",
+    completed: "Tamamlandı",
+    cancelled: "İptal",
+    no_show: "Gelmedi",
+    makeup: "Telafi",
+    in_progress: "Devam Ediyor",
+  };
+  return labels[status];
+}
+
+export function getStudentStatusLabel(status: StudentStatus): string {
+  const labels: Record<StudentStatus, string> = {
+    active: "Aktif",
+    inactive: "Pasif",
+    on_hold: "Beklemede",
+  };
+  return labels[status];
+}
+
+export function getTeacherStatusLabel(status: TeacherStatus): string {
+  const labels: Record<TeacherStatus, string> = {
+    active: "Aktif",
+    inactive: "Pasif",
+  };
+  return labels[status];
 }
 
 // ─── Month key/label helpers ────────────────────────────────────────────────────
@@ -1258,7 +1613,8 @@ export function buildPaymentListItems(
   payments: Payment[],
   students: Student[],
   guardians: Guardian[],
-  sessions: Session[]
+  sessions: Session[],
+  openingBalances: OpeningBalance[] = []
 ): PaymentListItem[] {
   return [...payments]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -1269,7 +1625,7 @@ export function buildPaymentListItems(
         : null;
       const totalBilled = getStudentTotalBilled(payment.studentId, sessions);
       const totalPaid = getStudentTotalPaid(payment.studentId, payments);
-      const remainingDebt = getStudentDebt(payment.studentId, sessions, payments);
+      const remainingDebt = getStudentDebt(payment.studentId, sessions, payments, openingBalances);
 
       return {
         id: payment.id,
@@ -1299,7 +1655,8 @@ export function buildStudentDebtItems(
   students: Student[],
   guardians: Guardian[],
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): StudentDebtItem[] {
   return students
     .map((student) => {
@@ -1307,7 +1664,7 @@ export function buildStudentDebtItems(
         guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
       const totalBilled = getStudentTotalBilled(student.id, sessions);
       const totalPaid = getStudentTotalPaid(student.id, payments);
-      const remainingDebt = getStudentDebt(student.id, sessions, payments);
+      const remainingDebt = getStudentDebt(student.id, sessions, payments, openingBalances);
 
       return {
         studentId: student.id,
@@ -1319,12 +1676,14 @@ export function buildStudentDebtItems(
         remainingDebt,
         debtStatus: resolveDebtStatus(totalBilled, totalPaid, remainingDebt),
         lastActivityDate: getStudentLastActivityDate(student.id, sessions, payments),
+        lastDebtActivityDate: getStudentDebtActivityDate(student.id, sessions, payments),
+        hasOpeningBalance: getOpeningBalanceNet(student.id, openingBalances) !== 0,
       } satisfies StudentDebtItem;
     })
-    // Any student with financial activity — billed OR paid. A guardian can pay in
-    // advance before any session is billed, and that collection must still show up
-    // here (this is the one place Dashboard/Payments/Income Report all read from).
-    .filter((item) => item.totalBilled > 0 || item.totalPaid > 0)
+    // Any student with financial activity — billed, paid, or carrying a migrated
+    // opening balance (a student imported with only a historical Devir Bakiyesi
+    // and no session/payment history yet must still show up here).
+    .filter((item) => item.totalBilled > 0 || item.totalPaid > 0 || item.hasOpeningBalance)
     .sort((a, b) => b.remainingDebt - a.remainingDebt);
 }
 
@@ -1333,7 +1692,8 @@ export function buildPaymentPageStats(
   sessions: Session[],
   students: Student[],
   year: number,
-  month: number
+  month: number,
+  openingBalances: OpeningBalance[] = []
 ): PaymentPageStats {
   const inMonth = payments.filter((p) => {
     const d = new Date(p.date);
@@ -1341,18 +1701,18 @@ export function buildPaymentPageStats(
   });
 
   const totalBilled = sessions
-    .filter((s) => BILLABLE_STATUSES.includes(s.status))
+    .filter((s) => isBillableSession(s))
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
 
   const totalCollected = payments.reduce((sum, p) => sum + p.amount, 0);
 
   const totalRemaining = students.reduce(
-    (sum, s) => sum + getStudentDebt(s.id, sessions, payments),
+    (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
     0
   );
 
   const studentsWithDebt = students.filter(
-    (s) => getStudentDebt(s.id, sessions, payments) > 0
+    (s) => getStudentDebt(s.id, sessions, payments, openingBalances) > 0
   ).length;
 
   return {
@@ -1371,7 +1731,8 @@ export function buildTeacherEarningListItems(
   sessions: Session[],
   teachers: Teacher[],
   students: Student[],
-  educationTypes: EducationType[]
+  educationTypes: EducationType[],
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): TeacherEarningListItem[] {
   return [...earnings]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -1400,6 +1761,11 @@ export function buildTeacherEarningListItems(
         unitEarning: session?.teacherEarning ?? earning.amount,
         totalEarning: earning.amount,
         status: earning.status,
+        // A TeacherEarning ledger row only ever exists for amount > 0 (see
+        // upsertEarningForSession) — an "unknown" (0-fallback) session never
+        // gets one, so this only surfaces here in the defensive/edge case
+        // where a session record is missing entirely.
+        teacherEarningStatus: session ? resolveTeacherEarningStatus(session, teacher, teacherCustomPrices) : "calculated",
         paidAt: earning.paidAt,
         createdAt: earning.createdAt,
       } satisfies TeacherEarningListItem;
@@ -1409,11 +1775,12 @@ export function buildTeacherEarningListItems(
 export function buildTeacherEarningOverviewItems(
   teachers: Teacher[],
   sessions: Session[],
-  teacherPayments: TeacherPayment[]
+  teacherPayments: TeacherPayment[],
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): TeacherEarningOverviewItem[] {
   return teachers
     .map((teacher) => {
-      const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments);
+      const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments, teacherCustomPrices);
       const earningCount = sessions.filter(
         (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
       ).length;
@@ -1424,9 +1791,14 @@ export function buildTeacherEarningOverviewItems(
         paidEarning: totals.paidEarning,
         pendingEarning: totals.pendingEarning,
         earningCount,
+        unknownSessionCount: totals.unknownSessionCount,
       } satisfies TeacherEarningOverviewItem;
     })
-    .filter((item) => item.totalEarning > 0)
+    // A teacher whose entire earning-eligible history is "unknown" (all sessions
+    // 0-fallback, totalEarning stays 0) must still surface here — otherwise the
+    // exact case this feature exists for would be the one case that silently
+    // disappears from the overview.
+    .filter((item) => item.totalEarning > 0 || item.unknownSessionCount > 0)
     .sort((a, b) => b.totalEarning - a.totalEarning);
 }
 
@@ -1435,7 +1807,8 @@ export function buildTeacherEarningPageStats(
   sessions: Session[],
   teacherPayments: TeacherPayment[],
   year: number,
-  month: number
+  month: number,
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): TeacherEarningPageStats {
   // "Bu Ay" = what's owed for sessions/salary entitlement in this specific month —
   // independent of whether it has been billed/paid to the student yet.
@@ -1444,13 +1817,14 @@ export function buildTeacherEarningPageStats(
     0
   );
 
-  const allTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments));
+  const allTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, teacherCustomPrices));
 
   return {
     thisMonthTotal,
     paidTotal: allTotals.reduce((sum, t) => sum + t.paidEarning, 0),
     pendingTotal: allTotals.reduce((sum, t) => sum + t.pendingEarning, 0),
     teachersWithEarnings: allTotals.filter((t) => t.totalEarning > 0).length,
+    unresolvedSessionCount: allTotals.reduce((sum, t) => sum + t.unknownSessionCount, 0),
   };
 }
 
@@ -1459,7 +1833,8 @@ export function buildMonthlyTeacherEarningSummary(
   sessions: Session[],
   teacherPayments: TeacherPayment[],
   year: number,
-  month: number
+  month: number,
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): MonthlyTeacherEarningSummary[] {
   const inMonthSessions = sessions.filter((s) => {
     const d = new Date(s.date);
@@ -1481,12 +1856,13 @@ export function buildMonthlyTeacherEarningSummary(
       const teacherSessions = inMonthSessions.filter((s) => s.teacherId === teacher.id);
       const sessionCount = teacherSessions.reduce((sum, s) => sum + s.sessionCount, 0);
 
-      const { totalEarning, paidEarning, pendingEarning } = getTeacherMonthEarningTotals(
+      const { totalEarning, paidEarning, pendingEarning, unknownSessionCount } = getTeacherMonthEarningTotals(
         teacher,
         sessions,
         teacherPayments,
         year,
-        month
+        month,
+        teacherCustomPrices
       );
 
       const summary: MonthlyTeacherEarningSummary = {
@@ -1497,6 +1873,7 @@ export function buildMonthlyTeacherEarningSummary(
         totalEarning,
         paidEarning,
         pendingEarning,
+        unknownSessionCount,
       };
 
       if (teacher.earningType === "salary_plus_quota") {
@@ -1531,32 +1908,39 @@ export function buildTeacherReportRows(
   allSessions: Session[],
   teacherPayments: TeacherPayment[],
   startDate: string | null,
-  endDate: string | null
+  endDate: string | null,
+  teacherCustomPrices: TeacherCustomPrice[] = []
 ): TeacherReportRow[] {
   return teachers
     .map((teacher) => {
       const teacherSessions = filteredSessions.filter((s) => s.teacherId === teacher.id);
       const uniqueStudentCount = new Set(teacherSessions.map((s) => s.studentId)).size;
-      const { totalEarning, paidEarning, pendingEarning } = getTeacherEarningTotalsForRange(
+      const { totalEarning, paidEarning, pendingEarning, unknownSessionCount } = getTeacherEarningTotalsForRange(
         teacher,
         allSessions,
         teacherPayments,
         startDate,
-        endDate
+        endDate,
+        teacherCustomPrices
       );
+      const earningSessions = teacherSessions.filter((s) => EARNING_STATUSES.includes(s.status));
+      const lastSessionDate =
+        earningSessions.length === 0
+          ? null
+          : earningSessions.reduce((latest, s) => (s.date > latest ? s.date : latest), earningSessions[0]!.date);
 
       return {
         teacherId: teacher.id,
         teacherName: teacher.fullName,
         totalSessions: teacherSessions.length,
-        completedSessions: teacherSessions.filter((s) =>
-          EARNING_STATUSES.includes(s.status)
-        ).length,
+        completedSessions: earningSessions.length,
         totalEarning,
         paidEarning,
         pendingEarning,
         uniqueStudentCount,
         status: teacher.status,
+        lastSessionDate,
+        unknownSessionCount,
       } satisfies TeacherReportRow;
     })
     .sort((a, b) => b.totalEarning - a.totalEarning);
@@ -1605,6 +1989,11 @@ export function buildSessionStatusBreakdown(sessions: Session[]): SessionStatusB
 }
 
 /** Per-student session status breakdown — the Students category's "Attendance Summary". */
+function latestDate(sessions: Session[]): string | null {
+  if (sessions.length === 0) return null;
+  return sessions.reduce((latest, s) => (s.date > latest ? s.date : latest), sessions[0]!.date);
+}
+
 export function buildStudentAttendanceRows(
   students: Student[],
   sessions: Session[]
@@ -1616,6 +2005,7 @@ export function buildStudentAttendanceRows(
         studentId: student.id,
         studentName: student.fullName,
         ...summarizeSessionStatuses(studentSessions),
+        lastSessionDate: latestDate(studentSessions),
       } satisfies StudentAttendanceRow;
     })
     .filter((row) => row.total > 0)
@@ -1634,6 +2024,7 @@ export function buildTeacherSessionCountRows(
         teacherId: teacher.id,
         teacherName: teacher.fullName,
         ...summarizeSessionStatuses(teacherSessions),
+        lastSessionDate: latestDate(teacherSessions),
       } satisfies TeacherSessionCountRow;
     })
     .filter((row) => row.total > 0)
@@ -1668,7 +2059,8 @@ export function buildGuardianDetail(
   guardians: Guardian[],
   students: Student[],
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): GuardianDetail | null {
   const guardian = guardians.find((g) => g.id === guardianId);
   if (!guardian) return null;
@@ -1690,7 +2082,7 @@ export function buildGuardianDetail(
     0
   );
   const totalDebt = guardianStudents.reduce(
-    (sum, s) => sum + getStudentDebt(s.id, sessions, payments),
+    (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
     0
   );
   const lastPaymentDate = (guardianPayments[0] as Payment | undefined)?.date ?? null;
@@ -1716,7 +2108,8 @@ export function buildGuardianListItems(
   guardians: Guardian[],
   students: Student[],
   sessions: Session[],
-  payments: Payment[]
+  payments: Payment[],
+  openingBalances: OpeningBalance[] = []
 ): GuardianListItem[] {
   return guardians.map((guardian) => {
     const guardianStudents = getGuardianStudents(guardian, students);
@@ -1729,7 +2122,7 @@ export function buildGuardianListItems(
       0
     );
     const totalDebt = guardianStudents.reduce(
-      (sum, s) => sum + getStudentDebt(s.id, sessions, payments),
+      (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
       0
     );
     return {

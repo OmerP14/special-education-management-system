@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
+import { getTeacherStatusLabel } from "@/lib/helpers/finance";
 import type { Teacher, TeacherStatus, TeacherEarningType } from "@/types";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -273,11 +274,11 @@ export function TeacherFormDrawer({
             onValueChange={(val) => set("status", val as TeacherStatus)}
           >
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue>{(val: TeacherStatus) => getTeacherStatusLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="active">Aktif</SelectItem>
-              <SelectItem value="inactive">Pasif</SelectItem>
+              <SelectItem value="active">{getTeacherStatusLabel("active")}</SelectItem>
+              <SelectItem value="inactive">{getTeacherStatusLabel("inactive")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

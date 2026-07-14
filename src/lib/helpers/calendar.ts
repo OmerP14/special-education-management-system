@@ -5,6 +5,7 @@ import type {
   Teacher,
   EducationType,
   SessionStatus,
+  SessionBillingMode,
 } from "@/types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -25,6 +26,11 @@ export interface CalendarEvent {
   sessionCount: number;
   durationMinutes: number;
   notes?: string;
+  /** Carried straight from Session.billingMode so grid tiles (not just the
+   *  detail drawer) can mark a historical, non-billable import — see
+   *  isBillableSession() in finance.ts for the accounting-side rule this
+   *  labels. Purely a display concern; never read by scheduling/conflict logic. */
+  billingMode?: SessionBillingMode;
 }
 
 export interface CalendarEventRelations {
@@ -113,6 +119,7 @@ export function buildCalendarEvents(
       sessionCount: session.sessionCount,
       durationMinutes: session.durationMinutes,
       notes: session.notes,
+      billingMode: session.billingMode,
     };
   });
 }
@@ -179,6 +186,76 @@ export function buildCalendarStats(
       (e) => e.status === "cancelled" || e.status === "no_show"
     ).length,
   };
+}
+
+// ─── Overlap layout (time-grid day/week views) ─────────────────────────────────
+
+export interface EventLayout {
+  /** 0-indexed column this event sits in within its overlap cluster. */
+  col: number;
+  /** Total columns in this event's overlap cluster — width = 100 / totalCols. */
+  totalCols: number;
+}
+
+/**
+ * Assigns each event a column so overlapping sessions render side-by-side instead of
+ * stacking on top of each other (which made every card but the last one unclickable).
+ * Two allowed same-time sessions (different student + different teacher) still need to
+ * both be visible and clickable — this is the layout that makes that possible.
+ *
+ * Classic calendar greedy-column algorithm: events are grouped into clusters of mutually
+ * overlapping time ranges, then packed into the fewest columns via interval coloring.
+ * All events in a cluster share the same `totalCols` so columns line up evenly.
+ */
+export function layoutOverlappingEvents(events: CalendarEvent[]): Map<string, EventLayout> {
+  const layout = new Map<string, EventLayout>();
+  const sorted = [...events].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  let cluster: CalendarEvent[] = [];
+  let clusterEnd = -Infinity;
+  const clusters: CalendarEvent[][] = [];
+
+  for (const ev of sorted) {
+    const start = ev.date.getTime();
+    const end = start + ev.durationMinutes * 60_000;
+    if (cluster.length === 0 || start < clusterEnd) {
+      cluster.push(ev);
+      clusterEnd = Math.max(clusterEnd, end);
+    } else {
+      clusters.push(cluster);
+      cluster = [ev];
+      clusterEnd = end;
+    }
+  }
+  if (cluster.length > 0) clusters.push(cluster);
+
+  for (const cl of clusters) {
+    const columnEndTimes: number[] = [];
+    const colOf = new Map<string, number>();
+    for (const ev of cl) {
+      const start = ev.date.getTime();
+      const end = start + ev.durationMinutes * 60_000;
+      let placedCol = -1;
+      for (let i = 0; i < columnEndTimes.length; i++) {
+        if (columnEndTimes[i]! <= start) {
+          columnEndTimes[i] = end;
+          placedCol = i;
+          break;
+        }
+      }
+      if (placedCol === -1) {
+        columnEndTimes.push(end);
+        placedCol = columnEndTimes.length - 1;
+      }
+      colOf.set(ev.id, placedCol);
+    }
+    const totalCols = columnEndTimes.length;
+    for (const ev of cl) {
+      layout.set(ev.id, { col: colOf.get(ev.id)!, totalCols });
+    }
+  }
+
+  return layout;
 }
 
 // ─── Status colour maps ─────────────────────────────────────────────────────────

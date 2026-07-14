@@ -13,6 +13,8 @@ import type {
   InstallmentPlan,
   CashMovement,
   WeeklySessionPlan,
+  OpeningBalance,
+  ImportBatch,
 } from "@/types";
 import { mockStudents, mockGuardians, DEMO_STUDENTS, DEMO_GUARDIANS } from "@/lib/mock/students";
 import { mockTeachers } from "@/lib/mock/teachers";
@@ -48,9 +50,12 @@ function upsertEarningForSession(
     return withoutThisSession;
   }
 
+  // amount > 0 here (guarded above), so this can only ever be a real calculated
+  // figure — an "unknown" session's teacherEarning is always 0 and never reaches
+  // this point (see resolveTeacherEarningStatus in finance.ts).
   const existing = prev.find((e) => e.sessionId === session.id);
   const earning: TeacherEarning = existing
-    ? { ...existing, teacherId: session.teacherId, amount }
+    ? { ...existing, teacherId: session.teacherId, amount, calculationStatus: "calculated" }
     : {
         id: `earning-${session.id}`,
         tenantId: session.tenantId,
@@ -58,6 +63,7 @@ function upsertEarningForSession(
         sessionId: session.id,
         amount,
         status: "pending",
+        calculationStatus: "calculated",
         createdAt: new Date().toISOString(),
       };
 
@@ -113,19 +119,27 @@ interface MockStore {
   teacherCustomPrices: TeacherCustomPrice[];
   installmentPlans: InstallmentPlan[];
   cashMovements: CashMovement[];
+  openingBalances: OpeningBalance[];
+  importBatches: ImportBatch[];
 
   addStudent: (s: Student) => void;
   updateStudent: (s: Student) => void;
+  deleteStudents: (ids: string[]) => void;
   addGuardian: (g: Guardian) => void;
   updateGuardian: (g: Guardian) => void;
+  deleteGuardians: (ids: string[]) => void;
   addTeacher: (t: Teacher) => void;
   updateTeacher: (t: Teacher) => void;
+  deleteTeachers: (ids: string[]) => void;
   addSession: (s: Session) => void;
   updateSession: (s: Session) => void;
+  deleteSessions: (ids: string[]) => void;
   addPayment: (p: Payment) => void;
   updatePayment: (p: Payment) => void;
+  deletePayments: (ids: string[]) => void;
   /** Records a payment to a teacher. Silently no-ops if it would exceed pending earnings. */
   addTeacherPayment: (p: TeacherPayment) => void;
+  deleteTeacherPayments: (ids: string[]) => void;
   upsertTeacherCustomPricesForTeacher: (
     teacherId: string,
     tenantId: string,
@@ -138,6 +152,10 @@ interface MockStore {
   addCashMovement: (m: CashMovement) => void;
   updateCashMovement: (m: CashMovement) => void;
   deleteCashMovement: (id: string) => void;
+  addOpeningBalance: (b: OpeningBalance) => void;
+  deleteOpeningBalances: (ids: string[]) => void;
+  addImportBatch: (batch: ImportBatch) => void;
+  markImportBatchRolledBack: (batchId: string) => void;
   weeklySessionPlans: WeeklySessionPlan[];
   addWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
@@ -180,6 +198,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const installmentPlansRef = useRef(installmentPlans);
   installmentPlansRef.current = installmentPlans;
   const [cashMovements, setCashMovements] = useState<CashMovement[]>(mockCashMovements);
+  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([]);
+  const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
   const [weeklySessionPlans, setWeeklySessionPlans] = useState<WeeklySessionPlan[]>(
     mockWeeklySessionPlans
   );
@@ -250,37 +270,84 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherCustomPrices,
     installmentPlans,
     cashMovements,
+    openingBalances,
+    importBatches,
 
     addStudent: (s) => setStudents((prev) => [...prev, s]),
     updateStudent: (s) =>
       setStudents((prev) =>
-        prev.map((x) => (x.id === s.id ? { ...s, updatedAt: new Date().toISOString() } : x))
+        prev.map((x) =>
+          x.id === s.id
+            ? { ...s, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            : x
+        )
       ),
+    deleteStudents: (ids) => {
+      const idSet = new Set(ids);
+      setStudents((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
 
     addGuardian: (g) => setGuardians((prev) => [...prev, g]),
     updateGuardian: (g) =>
       setGuardians((prev) =>
-        prev.map((x) => (x.id === g.id ? { ...g, updatedAt: new Date().toISOString() } : x))
+        prev.map((x) =>
+          x.id === g.id
+            ? { ...g, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            : x
+        )
       ),
+    deleteGuardians: (ids) => {
+      const idSet = new Set(ids);
+      setGuardians((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
 
     addTeacher: (t) => setTeachers((prev) => [...prev, t]),
     updateTeacher: (t) =>
       setTeachers((prev) =>
-        prev.map((x) => (x.id === t.id ? { ...t, updatedAt: new Date().toISOString() } : x))
+        prev.map((x) =>
+          x.id === t.id
+            ? { ...t, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            : x
+        )
       ),
+    deleteTeachers: (ids) => {
+      const idSet = new Set(ids);
+      setTeachers((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
 
     addSession: (s) => {
       setSessions((prev) => [...prev, s]);
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
     },
     updateSession: (s) => {
-      setSessions((prev) => prev.map((x) => (x.id === s.id ? s : x)));
+      setSessions((prev) =>
+        prev.map((x) =>
+          x.id === s.id
+            ? { ...s, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            : x
+        )
+      );
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
+    },
+    deleteSessions: (ids) => {
+      const idSet = new Set(ids);
+      setSessions((prev) => prev.filter((x) => !idSet.has(x.id)));
+      setTeacherEarnings((prev) => prev.filter((e) => !idSet.has(e.sessionId)));
     },
 
     addPayment: (p) => setPayments((prev) => [...prev, p]),
     updatePayment: (p) =>
-      setPayments((prev) => prev.map((x) => (x.id === p.id ? p : x))),
+      setPayments((prev) =>
+        prev.map((x) =>
+          x.id === p.id
+            ? { ...p, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            : x
+        )
+      ),
+    deletePayments: (ids) => {
+      const idSet = new Set(ids);
+      setPayments((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
 
     addTeacherPayment: (p) => {
       // Guard: never let a teacher payment push paid past what's actually owed.
@@ -294,6 +361,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
       if (p.amount > pendingEarning) return;
       setTeacherPayments((prev) => [...prev, p]);
+    },
+    deleteTeacherPayments: (ids) => {
+      const idSet = new Set(ids);
+      setTeacherPayments((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
     upsertTeacherCustomPricesForTeacher: (teacherId, tenantId, prices) => {
@@ -367,6 +438,20 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     deleteCashMovement: (id) =>
       setCashMovements((prev) => prev.filter((x) => x.id !== id)),
 
+    addOpeningBalance: (b) => setOpeningBalances((prev) => [...prev, b]),
+    deleteOpeningBalances: (ids) => {
+      const idSet = new Set(ids);
+      setOpeningBalances((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
+
+    addImportBatch: (batch) => setImportBatches((prev) => [...prev, batch]),
+    markImportBatchRolledBack: (batchId) =>
+      setImportBatches((prev) =>
+        prev.map((b) =>
+          b.id === batchId ? { ...b, rolledBackAt: new Date().toISOString() } : b
+        )
+      ),
+
     weeklySessionPlans,
 
     addWeeklySessionPlan: (plan) =>
@@ -405,6 +490,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setCashMovements([]);
       setWeeklySessionPlans([]);
       setNotifications([]);
+      setOpeningBalances([]);
+      setImportBatches([]);
     },
 
     notifications,

@@ -25,6 +25,7 @@ import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansT
 import { StatCard } from "@/components/shared/StatCard";
 import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
@@ -139,7 +140,12 @@ function buildSessionColumns(
     {
       key: "status",
       header: "Durum",
-      render: (row) => <StatusBadge status={row.status} />,
+      render: (row) => (
+        <div className="flex flex-col items-end gap-1">
+          <StatusBadge status={row.status} />
+          {row.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+        </div>
+      ),
       className: "text-right",
       headerClassName: "text-right",
     },
@@ -317,7 +323,8 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
     mockEducationTypes,
     store.teachers,
     store.sessions,
-    store.payments
+    store.payments,
+    store.openingBalances
   );
 
   const today = new Date();
@@ -336,7 +343,8 @@ export function StudentDetailView({ studentId }: StudentDetailViewProps) {
     store.sessions,
     store.payments,
     caYear,
-    caMonth
+    caMonth,
+    store.openingBalances
   );
   const plannedSummary = getStudentPlannedSummary(studentId, store.sessions);
 

@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMockStore } from "@/lib/mock/store";
-import { formatCurrency } from "@/lib/helpers/finance";
+import { formatCurrency, getPaymentMethodLabel } from "@/lib/helpers/finance";
 import { getCashCategoryLabel } from "@/lib/helpers/cash";
 import type { CashMovement, CashMovementType, CashCategory, PaymentMethod } from "@/types";
 import { cn } from "@/lib/utils";
@@ -35,12 +35,7 @@ const EXPENSE_CATEGORIES: CashCategory[] = [
   "other",
 ];
 
-const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
-  { value: "cash", label: "Nakit" },
-  { value: "bank_transfer", label: "EFT / Havale" },
-  { value: "credit_card", label: "Kredi Kartı" },
-  { value: "other", label: "Diğer" },
-];
+const METHOD_VALUES: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -211,7 +206,7 @@ export function CashMovementFormDrawer({
             onValueChange={(v) => set("category", v as CashCategory)}
           >
             <SelectTrigger className="w-full">
-              <SelectValue />
+              <SelectValue>{(val: CashCategory) => getCashCategoryLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {categories.map((cat) => (
@@ -232,7 +227,13 @@ export function CashMovementFormDrawer({
               onValueChange={(v) => set("studentId", !v || v === "__none__" ? "" : v)}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Öğrenci seçin" />
+                <SelectValue placeholder="Öğrenci seçin">
+                  {(val: string) =>
+                    val === "__none__" || !val
+                      ? "Seçilmedi"
+                      : store.students.find((s) => s.id === val)?.fullName ?? "Seçilmedi"
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">Seçilmedi</SelectItem>
@@ -272,12 +273,12 @@ export function CashMovementFormDrawer({
             onValueChange={(v) => set("method", v as PaymentMethod)}
           >
             <SelectTrigger className="w-full">
-              <SelectValue />
+              <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {METHOD_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
+              {METHOD_VALUES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {getPaymentMethodLabel(m)}
                 </SelectItem>
               ))}
             </SelectContent>

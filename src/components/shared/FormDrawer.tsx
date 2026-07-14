@@ -21,6 +21,7 @@ interface FormDrawerProps {
   onSave?: () => void;
   saveLabel?: string;
   saving?: boolean;
+  saveDisabled?: boolean;
 }
 
 export function FormDrawer({
@@ -32,6 +33,7 @@ export function FormDrawer({
   onSave,
   saveLabel = "Kaydet",
   saving = false,
+  saveDisabled = false,
 }: FormDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={(isOpen: boolean) => onOpenChange(isOpen)}>
@@ -56,7 +58,7 @@ export function FormDrawer({
             Vazgeç
           </Button>
           {onSave && (
-            <Button onClick={onSave} disabled={saving}>
+            <Button onClick={onSave} disabled={saving || saveDisabled}>
               {saving ? "Kaydediliyor…" : saveLabel}
             </Button>
           )}

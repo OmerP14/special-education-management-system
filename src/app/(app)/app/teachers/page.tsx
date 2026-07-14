@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Search, ChevronRight } from "lucide-react";
+import { Plus, Search, ChevronRight, Users2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
-import { buildTeacherListItems, formatCurrency } from "@/lib/helpers/finance";
+import { buildTeacherListItems, findLikelyDuplicateTeachers, formatCurrency } from "@/lib/helpers/finance";
 import type { Teacher, TeacherListItem, TeacherStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -38,9 +38,10 @@ export default function TeachersPage() {
         store.teachers,
         mockEducationTypes,
         store.sessions,
-        store.teacherPayments
+        store.teacherPayments,
+        store.teacherCustomPrices
       ),
-    [store.teachers, store.sessions, store.teacherPayments]
+    [store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices]
   );
 
   const filtered = useMemo(() => {
@@ -59,6 +60,14 @@ export default function TeachersPage() {
   }, [allItems, search, statusFilter]);
 
   const activeCount = allItems.filter((t) => t.status === "active").length;
+
+  // Read-only advisory — never merges/transfers/deletes anything (Part 4).
+  // See findLikelyDuplicateTeachers's own doc comment for why "EKREM" vs
+  // "EKREM H" style pairs occur from import name normalization.
+  const duplicateCandidates = useMemo(
+    () => findLikelyDuplicateTeachers(store.teachers, store.sessions),
+    [store.teachers, store.sessions]
+  );
 
   const handleEdit = (row: TeacherListItem) => {
     const teacher = store.teachers.find((t) => t.id === row.id);
@@ -162,14 +171,21 @@ export default function TeachersPage() {
       key: "pendingEarnings",
       header: "Bekleyen Hakediş",
       render: (row) => (
-        <span
-          className={cn(
-            "tabular-nums font-semibold",
-            row.pendingEarnings > 0 ? "text-amber-600" : "text-muted-foreground"
+        <div className="flex flex-col items-end gap-0.5">
+          <span
+            className={cn(
+              "tabular-nums font-semibold",
+              row.pendingEarnings > 0 ? "text-amber-600" : "text-muted-foreground"
+            )}
+          >
+            {formatCurrency(row.pendingEarnings)}
+          </span>
+          {row.unknownSessionCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+              Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans
+            </span>
           )}
-        >
-          {formatCurrency(row.pendingEarnings)}
-        </span>
+        </div>
       ),
       className: "text-right",
       headerClassName: "text-right",
@@ -226,6 +242,37 @@ export default function TeachersPage() {
             </Button>
           }
         />
+
+        {/* Likely-duplicate teacher advisory — read-only, never auto-merges/
+            deletes. See findLikelyDuplicateTeachers in finance.ts. */}
+        {duplicateCandidates.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Users2 className="h-4 w-4 text-amber-700 shrink-0" />
+              <p className="text-sm font-semibold text-amber-800">
+                Olası Yinelenen Öğretmen Kayıtları
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              {duplicateCandidates.map((c) => (
+                <div key={`${c.teacherA.id}-${c.teacherB.id}`} className="text-xs text-amber-800">
+                  <Link href={`/app/teachers/${c.teacherA.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
+                    {c.teacherA.fullName}
+                  </Link>{" "}
+                  ({c.teacherASessionCount} seans) ile{" "}
+                  <Link href={`/app/teachers/${c.teacherB.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
+                    {c.teacherB.fullName}
+                  </Link>{" "}
+                  ({c.teacherBSessionCount} seans) aynı kişi olabilir.
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-amber-700">
+              Bu yalnızca bir öneridir — kayıtlar otomatik birleştirilmez veya silinmez. Birleştirmeden önce her iki
+              kaydı da inceleyin ve seansları/ödemeleri doğru öğretmene manuel olarak taşıyın.
+            </p>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

@@ -13,8 +13,8 @@ import {
   generateSessionDates,
   nextDayString,
   findDuplicateDateTimestamps,
-  findWeeklyPlanConflicts,
 } from "@/lib/helpers/weekly-plans";
+import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
 import { WeeklyPlanConflictWarning } from "@/components/sessions/WeeklyPlanConflictWarning";
 import type { WeeklySessionPlan } from "@/types";
 
@@ -27,12 +27,10 @@ interface ExtendPlanDrawerProps {
 export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerProps) {
   const store = useMockStore();
   const [newEndDate, setNewEndDate] = useState("");
-  const [conflictsAcknowledged, setConflictsAcknowledged] = useState(false);
 
   useEffect(() => {
     if (open) {
       setNewEndDate("");
-      setConflictsAcknowledged(false);
     }
   }, [open, plan.id]);
 
@@ -62,33 +60,31 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
     [candidateDates, plan.studentId, plan.teacherId, plan.educationTypeId, store.sessions]
   );
 
-  const datesToCreate = useMemo(
+  const datesAfterDuplicates = useMemo(
     () => candidateDates.filter((d) => !duplicateTimestamps.has(new Date(d).getTime())),
     [candidateDates, duplicateTimestamps]
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
-  const conflicts = useMemo(
+  // Conflicting dates are excluded from datesToCreate, never force-created.
+  const { datesToCreate, conflicts } = useMemo(
     () =>
-      datesToCreate.length === 0
-        ? { teacherConflicts: [], studentConflicts: [] }
-        : findWeeklyPlanConflicts(
-            datesToCreate,
+      datesAfterDuplicates.length === 0
+        ? { datesToCreate: [], conflicts: [] }
+        : partitionDatesByConflict(
+            datesAfterDuplicates,
             plan.studentId,
             plan.teacherId,
-            plan.educationTypeId,
-            store.sessions,
-            store.students,
-            mockEducationTypes
+            50,
+            store.sessions
           ),
-    [datesToCreate, plan.studentId, plan.teacherId, plan.educationTypeId, store.sessions, store.students]
+    [datesAfterDuplicates, plan.studentId, plan.teacherId, store.sessions]
   );
-  const hasConflicts = conflicts.teacherConflicts.length > 0 || conflicts.studentConflicts.length > 0;
 
   const totalBilling = datesToCreate.length * plan.studentPrice;
   const totalTeacherEarning = datesToCreate.length * plan.teacherEarning;
 
-  const canSave = isValidEndDate && (!hasConflicts || conflictsAcknowledged);
+  const canSave = isValidEndDate;
 
   const handleSave = () => {
     if (!canSave) return;
@@ -194,11 +190,10 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
           )}
 
           <WeeklyPlanConflictWarning
-            teacherConflicts={conflicts.teacherConflicts}
-            studentConflicts={conflicts.studentConflicts}
-            acknowledged={conflictsAcknowledged}
-            onAcknowledgedChange={setConflictsAcknowledged}
-            onNavigateAway={() => onOpenChange(false)}
+            conflicts={conflicts}
+            students={store.students}
+            teachers={store.teachers}
+            educationTypes={mockEducationTypes}
           />
 
           {datesToCreate.length > 0 && (

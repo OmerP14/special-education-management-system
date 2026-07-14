@@ -12,6 +12,8 @@ import {
   X,
   Check,
   CalendarClock,
+  UserSearch,
+  History,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -25,9 +27,14 @@ import {
   buildPaymentListItems,
   buildStudentDebtItems,
   buildPaymentPageStats,
+  getStudentTotalBilled,
+  getStudentTotalPaid,
+  getStudentNetBalance,
+  hasOnlyHistoricalNonBillableSessions,
   formatCurrency,
   formatDate,
 } from "@/lib/helpers/finance";
+import { normalizeName } from "@/lib/helpers/import-match";
 import {
   buildInstallmentRows,
   getIntervalLabel,
@@ -40,6 +47,7 @@ import type {
   DebtStatus,
   InstallmentRow,
   InstallmentStatus,
+  Student,
 } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -278,6 +286,90 @@ function DebtProgressBar({
   );
 }
 
+// ─── Zero-activity student result panel ────────────────────────────────────────
+// Shown when a search/dropdown selection resolves to a real student who simply
+// has no payment/debt/installment activity yet (e.g. a historical-only import).
+// Never fabricates a payment row — reads the exact same canonical finance
+// helpers (getStudentNetBalance/getStudentDebt) every other card uses, just
+// renders the ₺0 state explicitly instead of letting the student silently
+// disappear from search results.
+
+function ZeroActivityStudentCard({
+  student,
+  totalBilled,
+  totalPaid,
+  netBalance,
+  isHistoricalOnly,
+  onAddPayment,
+}: {
+  student: Student;
+  totalBilled: number;
+  totalPaid: number;
+  netBalance: number;
+  isHistoricalOnly: boolean;
+  onAddPayment: () => void;
+}) {
+  const hasOverpayment = netBalance < 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+            <UserSearch className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div>
+            <Link
+              href={`/app/students/${student.id}`}
+              className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
+            >
+              {student.fullName}
+            </Link>
+            <p className="text-xs text-muted-foreground">Ödeme/borç kaydı bulunan öğrenci listesinde görünmüyor</p>
+          </div>
+        </div>
+        <Button size="sm" variant="outline" onClick={onAddPayment}>
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          Ödeme Ekle
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahakkuk</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalBilled)}</p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahsilat</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalPaid)}</p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Kalan Borç</p>
+          <p className={cn("mt-0.5 text-sm font-bold tabular-nums", hasOverpayment ? "text-emerald-600" : "text-foreground")}>
+            {formatCurrency(Math.max(0, netBalance))}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1 text-xs text-muted-foreground">
+        {hasOverpayment && (
+          <p className="font-medium text-emerald-600">
+            Fazla Ödeme / Alacak Bakiyesi: {formatCurrency(Math.abs(netBalance))}
+          </p>
+        )}
+        <p>Henüz ödeme kaydı bulunmuyor.</p>
+        <p>Bu öğrencinin borcu bulunmuyor.</p>
+        {isHistoricalOnly && (
+          <p className="flex items-center gap-1 text-slate-600">
+            <History className="h-3 w-3" />
+            Geçmiş ders kayıtları borca dahil edilmemiştir.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Installment table ─────────────────────────────────────────────────────────
 
 function InstallmentTable({
@@ -392,6 +484,7 @@ export default function PaymentsPage() {
   const store = useMockStore();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [preselectedStudentId, setPreselectedStudentId] = useState<string | undefined>(undefined);
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>("all");
   const [search, setSearch] = useState("");
   const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatus | "all">("all");
@@ -418,9 +511,10 @@ export default function PaymentsPage() {
         store.payments,
         store.students,
         store.guardians,
-        store.sessions
+        store.sessions,
+        store.openingBalances
       ),
-    [store.payments, store.students, store.guardians, store.sessions]
+    [store.payments, store.students, store.guardians, store.sessions, store.openingBalances]
   );
 
   const stats = useMemo(
@@ -430,15 +524,21 @@ export default function PaymentsPage() {
         store.sessions,
         store.students,
         statsYear,
-        statsMonth
+        statsMonth,
+        store.openingBalances
       ),
-    [store.payments, store.sessions, store.students, statsYear, statsMonth]
+    [store.payments, store.sessions, store.students, statsYear, statsMonth, store.openingBalances]
   );
 
   const debtItems = useMemo(
-    () => buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments),
-    [store.students, store.guardians, store.sessions, store.payments]
+    () => buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances),
+    [store.students, store.guardians, store.sessions, store.payments, store.openingBalances]
   );
+
+  // Students already surfaced by the debt/payment overview (real billed, paid, or
+  // opening-balance activity) — everyone else is a "zero-activity" match: a real
+  // student the search must still be able to find (Part 1, requirement 1-2).
+  const debtItemStudentIds = useMemo(() => new Set(debtItems.map((d) => d.studentId)), [debtItems]);
 
   const today = new Date();
 
@@ -449,12 +549,12 @@ export default function PaymentsPage() {
   );
 
   const filteredInstallmentRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeName(search);
     return allInstallmentRows.filter((row) => {
       const matchSearch =
         !q ||
-        row.studentName.toLowerCase().includes(q) ||
-        (row.guardianName?.toLowerCase().includes(q) ?? false);
+        normalizeName(row.studentName).includes(q) ||
+        (row.guardianName ? normalizeName(row.guardianName).includes(q) : false);
       const matchStatus =
         instStatusFilter === "all" || row.displayStatus === instStatusFilter;
       const matchStudent =
@@ -463,17 +563,53 @@ export default function PaymentsPage() {
     });
   }, [allInstallmentRows, search, instStatusFilter, studentFilter]);
 
+  // A student with an installment plan already has a dedicated place they show up
+  // (the Taksit Planları table below) even if totalBilled/totalPaid/openingBalance
+  // are all still zero — never double-surface them as "zero activity" too.
+  const installmentStudentIds = useMemo(
+    () => new Set(allInstallmentRows.map((r) => r.studentId)),
+    [allInstallmentRows]
+  );
+
+  // Full-student-store search (Part 1) — every existing student must be
+  // searchable, not just ones with payment/debt/installment activity. Resolved
+  // separately from `filtered`/`filteredInstallmentRows` above (which only ever
+  // iterate students that already HAVE such activity) so a zero-activity match
+  // is surfaced via its own explicit result panel instead of a fabricated row.
+  const zeroActivityStudentMatches = useMemo(() => {
+    const hasNoActivity = (id: string) => !debtItemStudentIds.has(id) && !installmentStudentIds.has(id);
+    // An explicit dropdown pick is the strongest signal (requirement 3: "selected
+    // from the student dropdown/filter") — it wins over free-text search.
+    if (studentFilter !== "all") {
+      const picked = store.students.find((s) => s.id === studentFilter);
+      return picked && hasNoActivity(picked.id) ? [picked] : [];
+    }
+    const q = normalizeName(search);
+    if (!q) return [];
+    return store.students.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
+  }, [studentFilter, search, store.students, debtItemStudentIds, installmentStudentIds]);
+
   const handleEdit = (row: PaymentListItem) => {
     const payment = store.payments.find((p) => p.id === row.id);
     if (payment) {
+      setPreselectedStudentId(undefined);
       setEditingPayment(payment);
       setDrawerOpen(true);
     }
   };
 
+  const handleAddPaymentForStudent = (studentId: string) => {
+    setEditingPayment(null);
+    setPreselectedStudentId(studentId);
+    setDrawerOpen(true);
+  };
+
   const handleDrawerClose = (open: boolean) => {
     setDrawerOpen(open);
-    if (!open) setEditingPayment(null);
+    if (!open) {
+      setEditingPayment(null);
+      setPreselectedStudentId(undefined);
+    }
   };
 
   const editColumnEntry: Column<PaymentListItem> = {
@@ -511,12 +647,12 @@ export default function PaymentsPage() {
 
   // Apply all filters
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeName(search);
     return allItems.filter((item) => {
       const matchSearch =
         !q ||
-        item.studentName.toLowerCase().includes(q) ||
-        (item.guardianName?.toLowerCase().includes(q) ?? false) ||
+        normalizeName(item.studentName).includes(q) ||
+        (item.guardianName ? normalizeName(item.guardianName).includes(q) : false) ||
         item.methodLabel.toLowerCase().includes(q) ||
         (item.notes?.toLowerCase().includes(q) ?? false);
       const matchDebt = debtStatusFilter === "all" || item.debtStatus === debtStatusFilter;
@@ -553,7 +689,7 @@ export default function PaymentsPage() {
           title="Ödemeler"
           description={`${allItems.length} ödeme kaydı · ${thisMonthLabel}`}
           actions={
-            <Button size="sm" onClick={() => { setEditingPayment(null); setDrawerOpen(true); }}>
+            <Button size="sm" onClick={() => { setEditingPayment(null); setPreselectedStudentId(undefined); setDrawerOpen(true); }}>
               <Plus className="h-3.5 w-3.5 mr-1" />
               Ödeme Ekle
             </Button>
@@ -635,14 +771,13 @@ export default function PaymentsPage() {
                       />
                     </div>
 
-                    {/* Billed / Paid */}
+                    {/* Billed / Paid — explicitly labeled, never a bare "X / Y" */}
                     <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0">
                       <span className="text-xs text-muted-foreground">
-                        {formatCurrency(item.totalPaid)}
-                        <span className="text-muted-foreground/50">
-                          {" "}/{" "}
-                        </span>
-                        {formatCurrency(item.totalBilled)}
+                        Ödenen: <span className="font-medium text-foreground">{formatCurrency(item.totalPaid)}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Tahakkuk: <span className="font-medium text-foreground">{formatCurrency(item.totalBilled)}</span>
                       </span>
                       <span className="text-[10px] text-muted-foreground">{pct}% ödendi</span>
                     </div>
@@ -663,6 +798,24 @@ export default function PaymentsPage() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Zero-activity student matches — real students found by search/dropdown
+            that simply have no payment/debt/installment activity yet (Part 1). */}
+        {zeroActivityStudentMatches.length > 0 && (
+          <div className="space-y-3">
+            {zeroActivityStudentMatches.map((student) => (
+              <ZeroActivityStudentCard
+                key={student.id}
+                student={student}
+                totalBilled={getStudentTotalBilled(student.id, store.sessions)}
+                totalPaid={getStudentTotalPaid(student.id, store.payments)}
+                netBalance={getStudentNetBalance(student.id, store.sessions, store.payments, store.openingBalances)}
+                isHistoricalOnly={hasOnlyHistoricalNonBillableSessions(student.id, store.sessions)}
+                onAddPayment={() => handleAddPaymentForStudent(student.id)}
+              />
+            ))}
           </div>
         )}
 
@@ -838,6 +991,7 @@ export default function PaymentsPage() {
         open={drawerOpen}
         onOpenChange={handleDrawerClose}
         initialData={editingPayment ?? undefined}
+        preselectedStudentId={preselectedStudentId}
       />
     </>
   );

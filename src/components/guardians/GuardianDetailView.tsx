@@ -37,6 +37,7 @@ import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { StatCard } from "@/components/shared/StatCard";
 import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
@@ -61,7 +62,7 @@ import {
   buildGuardianCurrentAccountMovements,
 } from "@/lib/helpers/current-account";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
-import type { Student, Session, Payment, PaymentMethod } from "@/types";
+import type { Student, Session, Payment, PaymentMethod, OpeningBalance } from "@/types";
 import { cn, formatTitleCase } from "@/lib/utils";
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -122,7 +123,8 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 function buildStudentColumns(
   sessions: { id: string; studentId: string; studentPrice: number; sessionCount: number; status: string }[],
-  payments: { id: string; studentId: string; amount: number }[]
+  payments: { id: string; studentId: string; amount: number }[],
+  openingBalances: OpeningBalance[] = []
 ): Column<Student>[] {
   return [
     {
@@ -181,7 +183,8 @@ function buildStudentColumns(
         const debt = getStudentDebt(
           row.id,
           sessions as Parameters<typeof getStudentDebt>[1],
-          payments as Parameters<typeof getStudentDebt>[2]
+          payments as Parameters<typeof getStudentDebt>[2],
+          openingBalances
         );
         return (
           <span
@@ -368,7 +371,12 @@ function buildSessionColumns(
     {
       key: "status",
       header: "Durum",
-      render: (row) => <StatusBadge status={row.status} />,
+      render: (row) => (
+        <div className="flex flex-col items-end gap-1">
+          <StatusBadge status={row.status} />
+          {row.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+        </div>
+      ),
       className: "text-right",
       headerClassName: "text-right",
     },
@@ -441,7 +449,7 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
   const store = useMockStore();
 
   // ── Column builders ────────────────────────────────────────────────────────
-  const studentColumns = buildStudentColumns(store.sessions, store.payments);
+  const studentColumns = buildStudentColumns(store.sessions, store.payments, store.openingBalances);
   const paymentColumns = buildPaymentColumns(store.students);
   const sessionColumns = buildSessionColumns(store.students, store.teachers);
 
@@ -451,7 +459,8 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
     store.guardians,
     store.students,
     store.sessions,
-    store.payments
+    store.payments,
+    store.openingBalances
   );
   const rawGuardian = store.guardians.find((g) => g.id === guardianId);
 
@@ -544,7 +553,8 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
     store.sessions,
     store.payments,
     caYear,
-    caMonth
+    caMonth,
+    store.openingBalances
   );
   const plannedSummary = getGuardianPlannedSummary(guardianStudentIds, store.sessions);
 
@@ -841,7 +851,7 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
             {detail.students.length > 0 ? (
               <div className="divide-y divide-border/60">
                 {detail.students.map((student) => {
-                  const debt = getStudentDebt(student.id, store.sessions, store.payments);
+                  const debt = getStudentDebt(student.id, store.sessions, store.payments, store.openingBalances);
                   const studentTeachers = (student.assignedTeacherIds ?? [])
                     .map((id) => store.teachers.find((t) => t.id === id)?.fullName)
                     .filter(Boolean);

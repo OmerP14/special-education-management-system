@@ -1,4 +1,4 @@
-import type { Session, Student, EducationType, WeeklySessionPlan, WeeklyScheduleSlot } from "@/types";
+import type { Session, WeeklySessionPlan, WeeklyScheduleSlot } from "@/types";
 import { getSessionDisplayStatus } from "@/lib/helpers/finance";
 
 // ─── Date generation ────────────────────────────────────────────────────────────
@@ -78,81 +78,6 @@ export function findDuplicateDateTimestamps(
     if (existingTimestamps.has(t)) result.add(t);
   }
   return result;
-}
-
-// ─── Conflict detection ─────────────────────────────────────────────────────────
-
-export interface WeeklyPlanConflictRow {
-  date: string;
-  sessionId: string;
-  studentId: string;
-  studentName: string;
-  teacherId: string;
-  educationTypeId: string;
-  educationTypeName: string;
-}
-
-export interface WeeklyPlanConflictResult {
-  teacherConflicts: WeeklyPlanConflictRow[];
-  studentConflicts: WeeklyPlanConflictRow[];
-}
-
-/**
- * Checks whether the given teacher or student already has another
- * planned/in_progress session at any of the candidate `dates`.
- * Exact duplicates (same student+teacher+educationType+instant) are excluded
- * here — those are handled by duplicate protection, not conflict warnings.
- */
-export function findWeeklyPlanConflicts(
-  dates: string[],
-  studentId: string,
-  teacherId: string,
-  educationTypeId: string,
-  sessions: Session[],
-  students: Student[],
-  educationTypes: EducationType[]
-): WeeklyPlanConflictResult {
-  const dateTimestamps = new Set(dates.map((d) => new Date(d).getTime()));
-  const teacherConflicts: WeeklyPlanConflictRow[] = [];
-  const studentConflicts: WeeklyPlanConflictRow[] = [];
-
-  for (const s of sessions) {
-    if (!dateTimestamps.has(new Date(s.date).getTime())) continue;
-
-    const display = getSessionDisplayStatus(s);
-    if (display !== "planned" && display !== "in_progress") continue;
-
-    const isExactDuplicate =
-      s.studentId === studentId &&
-      s.teacherId === teacherId &&
-      s.educationTypeId === educationTypeId;
-    if (isExactDuplicate) continue;
-
-    const isTeacherMatch = s.teacherId === teacherId;
-    const isStudentMatch = s.studentId === studentId;
-    if (!isTeacherMatch && !isStudentMatch) continue;
-
-    const student = students.find((st) => st.id === s.studentId);
-    const et = educationTypes.find((e) => e.id === s.educationTypeId);
-    const row: WeeklyPlanConflictRow = {
-      date: s.date,
-      sessionId: s.id,
-      studentId: s.studentId,
-      studentName: student?.fullName ?? "—",
-      teacherId: s.teacherId,
-      educationTypeId: s.educationTypeId,
-      educationTypeName: et?.name ?? "—",
-    };
-    if (isTeacherMatch) teacherConflicts.push(row);
-    if (isStudentMatch) studentConflicts.push(row);
-  }
-
-  const byDate = (a: WeeklyPlanConflictRow, b: WeeklyPlanConflictRow) =>
-    new Date(a.date).getTime() - new Date(b.date).getTime();
-  teacherConflicts.sort(byDate);
-  studentConflicts.sort(byDate);
-
-  return { teacherConflicts, studentConflicts };
 }
 
 // ─── Plan status ────────────────────────────────────────────────────────────────

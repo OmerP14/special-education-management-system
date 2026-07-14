@@ -28,8 +28,8 @@ import {
 import {
   generateSessionDates,
   findDuplicateDateTimestamps,
-  findWeeklyPlanConflicts,
 } from "@/lib/helpers/weekly-plans";
+import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
 import { WeeklyPlanConflictWarning } from "@/components/sessions/WeeklyPlanConflictWarning";
 import type { Teacher, WeeklySessionPlan } from "@/types";
 import { cn } from "@/lib/utils";
@@ -145,7 +145,6 @@ export function WeeklyPlanFormDrawer({
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
-  const [conflictsAcknowledged, setConflictsAcknowledged] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -161,7 +160,6 @@ export function WeeklyPlanFormDrawer({
         if (preselectedStudentId) f.studentId = preselectedStudentId;
         setForm(f);
       }
-      setConflictsAcknowledged(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialData?.id, copyFromPlan?.id, preselectedStudentId]);
@@ -249,29 +247,29 @@ export function WeeklyPlanFormDrawer({
     [isEditing, generatedDates, form.studentId, form.teacherId, form.educationTypeId, store.sessions]
   );
 
-  const datesToCreate = useMemo(
+  const datesAfterDuplicates = useMemo(
     () => generatedDates.filter((d) => !duplicateTimestamps.has(new Date(d).getTime())),
     [generatedDates, duplicateTimestamps]
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
   // ── Conflict detection (teacher / student double-booking) ─────────────────
-  const conflicts = useMemo(
+  // Conflicting dates are never created — they're excluded from datesToCreate and
+  // surfaced as a skip list, so double-booking can't slip through even if the user
+  // ignores the warning (there is nothing to acknowledge or override).
+  const { datesToCreate, conflicts } = useMemo(
     () =>
-      isEditing || !form.studentId || !form.teacherId || !form.educationTypeId
-        ? { teacherConflicts: [], studentConflicts: [] }
-        : findWeeklyPlanConflicts(
-            datesToCreate,
+      isEditing || !form.studentId || !form.teacherId
+        ? { datesToCreate: datesAfterDuplicates, conflicts: [] }
+        : partitionDatesByConflict(
+            datesAfterDuplicates,
             form.studentId,
             form.teacherId,
-            form.educationTypeId,
-            store.sessions,
-            store.students,
-            mockEducationTypes
+            50,
+            store.sessions
           ),
-    [isEditing, datesToCreate, form.studentId, form.teacherId, form.educationTypeId, store.sessions, store.students]
+    [isEditing, datesAfterDuplicates, form.studentId, form.teacherId, store.sessions]
   );
-  const hasConflicts = conflicts.teacherConflicts.length > 0 || conflicts.studentConflicts.length > 0;
 
   // ── Financial preview ─────────────────────────────────────────────────────
   const totalBilling = datesToCreate.length * form.studentPrice;
@@ -336,7 +334,6 @@ export function WeeklyPlanFormDrawer({
     if (!form.studentId || !form.teacherId || !form.educationTypeId) return;
     if (!form.startDate || !form.endDate) return;
     if (activeSlots.length === 0) return;
-    if (!isEditing && hasConflicts && !conflictsAcknowledged) return;
     if (isEditing) {
       // Edit: just update plan record, don't touch existing sessions
       store.updateWeeklySessionPlan({
@@ -404,8 +401,7 @@ export function WeeklyPlanFormDrawer({
     !!form.startDate &&
     !!form.endDate &&
     activeSlots.length > 0 &&
-    (isEditing || generatedDates.length > 0) &&
-    (isEditing || !hasConflicts || conflictsAcknowledged);
+    (isEditing || generatedDates.length > 0);
 
   const saveLabel = isEditing
     ? "Planı Güncelle"
@@ -678,11 +674,10 @@ export function WeeklyPlanFormDrawer({
 
               {/* Conflict warnings */}
               <WeeklyPlanConflictWarning
-                teacherConflicts={conflicts.teacherConflicts}
-                studentConflicts={conflicts.studentConflicts}
-                acknowledged={conflictsAcknowledged}
-                onAcknowledgedChange={setConflictsAcknowledged}
-                onNavigateAway={() => onOpenChange(false)}
+                conflicts={conflicts}
+                students={store.students}
+                teachers={store.teachers}
+                educationTypes={mockEducationTypes}
               />
 
               {/* Generated count */}
@@ -756,8 +751,8 @@ export function WeeklyPlanFormDrawer({
                 </div>
               )}
 
-              {/* All generated dates were duplicates */}
-              {generatedDates.length > 0 && datesToCreate.length === 0 && (
+              {/* All generated dates were duplicates (conflicts are explained above instead) */}
+              {generatedDates.length > 0 && datesToCreate.length === 0 && conflicts.length === 0 && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
                   <p className="text-xs text-amber-700 dark:text-amber-400">

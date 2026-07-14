@@ -9,7 +9,6 @@ import {
   Clock,
   BarChart2,
   FileText,
-  TrendingUp,
   Hash,
 } from "lucide-react";
 import {
@@ -21,12 +20,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import {
   formatCurrency,
   formatDate,
   formatTime,
+  resolveTeacherEarningStatus,
 } from "@/lib/helpers/finance";
 import type { CalendarEventRelations } from "@/lib/helpers/calendar";
+import type { TeacherCustomPrice } from "@/types";
 
 // ─── Info row ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +92,7 @@ interface SessionDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   relations: CalendarEventRelations | null;
   onEdit?: () => void;
+  teacherCustomPrices?: TeacherCustomPrice[];
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -99,6 +102,7 @@ export function SessionDetailDrawer({
   onOpenChange,
   relations,
   onEdit,
+  teacherCustomPrices = [],
 }: SessionDetailDrawerProps) {
   if (!relations) return null;
 
@@ -107,6 +111,7 @@ export function SessionDetailDrawer({
   const totalStudentAmount = session.studentPrice * session.sessionCount;
   const totalTeacherEarning = session.teacherEarning * session.sessionCount;
   const centerProfit = totalStudentAmount - totalTeacherEarning;
+  const earningStatus = resolveTeacherEarningStatus(session, teacher ?? undefined, teacherCustomPrices);
 
   return (
     <Sheet open={open} onOpenChange={(o) => onOpenChange(o)}>
@@ -211,18 +216,37 @@ export function SessionDetailDrawer({
               label={`Öğrenci Ücreti (${session.sessionCount} × ₺${session.studentPrice})`}
               value={formatCurrency(totalStudentAmount)}
             />
-            <FinanceRow
-              label={`Öğretmen Hakedişi (${session.sessionCount} × ₺${session.teacherEarning})`}
-              value={formatCurrency(totalTeacherEarning)}
-              variant="warning"
-            />
+            {earningStatus === "unknown" ? (
+              <div className="flex items-center justify-between text-sm py-1">
+                <span className="text-muted-foreground">Öğretmen Hakedişi</span>
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                  Hakediş bekliyor
+                </span>
+              </div>
+            ) : (
+              <FinanceRow
+                label={`Öğretmen Hakedişi (${session.sessionCount} × ₺${session.teacherEarning})`}
+                value={formatCurrency(totalTeacherEarning)}
+                variant="warning"
+              />
+            )}
             <div className="border-t border-border/60 pt-1.5 mt-1">
               <FinanceRow
                 label="Merkez Kârı"
                 value={formatCurrency(centerProfit)}
                 variant="success"
               />
+              {earningStatus === "unknown" && (
+                <p className="text-[10px] text-amber-700">
+                  Öğretmen hakedişi hesaplanamadığı için bu tutar kesin değildir.
+                </p>
+              )}
             </div>
+            {session.billingMode === "historical_non_billable" && (
+              <p className="pt-1.5 text-[10px] text-muted-foreground">
+                Bu seans geçmiş kayıt olarak aktarıldı — yukarıdaki tutarlar öğrenci borcuna/tahakkuka dahil edilmez.
+              </p>
+            )}
           </div>
 
           <Separator className="my-3" />
@@ -230,7 +254,10 @@ export function SessionDetailDrawer({
           {/* Status & notes */}
           <div className="divide-y divide-border/50">
             <InfoRow icon={BarChart2} label="Durum">
-              <StatusBadge status={session.status} />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <StatusBadge status={session.status} />
+                {session.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+              </div>
             </InfoRow>
 
             {session.notes && (

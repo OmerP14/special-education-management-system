@@ -1,5 +1,6 @@
 export { StatCard } from "./StatCard";
-export { StatusBadge } from "./StatusBadge";
+export { StatusBadge, EarningStatusBadge } from "./StatusBadge";
+export { HistoricalRecordBadge } from "./HistoricalRecordBadge";
 export { EmptyState } from "./EmptyState";
 export { DataTable } from "./DataTable";
 export type { Column } from "./DataTable";

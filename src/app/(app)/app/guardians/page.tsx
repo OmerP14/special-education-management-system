@@ -85,9 +85,10 @@ export default function GuardiansPage() {
         store.guardians,
         store.students,
         store.sessions,
-        store.payments
+        store.payments,
+        store.openingBalances
       ),
-    [store.guardians, store.students, store.sessions, store.payments]
+    [store.guardians, store.students, store.sessions, store.payments, store.openingBalances]
   );
 
   // ─── Aggregate stats ────────────────────────────────────────────────────────

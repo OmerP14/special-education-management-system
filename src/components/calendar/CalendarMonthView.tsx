@@ -1,5 +1,6 @@
 "use client";
 
+import { History } from "lucide-react";
 import {
   isSameDay,
   getMonthDays,
@@ -22,12 +23,14 @@ function DayCell({
   isToday,
   events,
   onEventClick,
+  onShowMore,
 }: {
   date: Date;
   isCurrentMonth: boolean;
   isToday: boolean;
   events: CalendarEvent[];
   onEventClick: (id: string) => void;
+  onShowMore: (date: Date) => void;
 }) {
   const visible = events.slice(0, MAX_CHIPS);
   const overflow = events.length - MAX_CHIPS;
@@ -62,17 +65,27 @@ function DayCell({
             key={event.id}
             onClick={() => onEventClick(event.id)}
             className={cn(
-              "w-full truncate rounded px-1.5 py-0.5 text-left text-[10px] font-medium leading-tight transition-opacity hover:opacity-80",
+              "flex w-full items-center gap-0.5 truncate rounded px-1.5 py-0.5 text-left text-[10px] font-medium leading-tight transition-opacity hover:opacity-80",
               SESSION_STATUS_PILL_COLORS[event.status]
             )}
           >
-            {event.timeStr} {event.studentName}
+            {event.billingMode === "historical_non_billable" && (
+              <History className="h-2.5 w-2.5 shrink-0 opacity-60">
+                <title>Geçmiş kayıt — borca dahil değil</title>
+              </History>
+            )}
+            <span className="truncate">
+              {event.timeStr} {event.studentName}
+            </span>
           </button>
         ))}
         {overflow > 0 && (
-          <p className="px-1.5 text-[10px] font-medium text-muted-foreground">
+          <button
+            onClick={() => onShowMore(date)}
+            className="w-full truncate rounded px-1.5 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground hover:underline"
+          >
             +{overflow} daha
-          </p>
+          </button>
         )}
       </div>
     </div>
@@ -86,6 +99,8 @@ interface CalendarMonthViewProps {
   month: number; // 0-indexed
   events: CalendarEvent[];
   onEventClick: (eventId: string) => void;
+  /** Called when "+N daha" is clicked — the page drills into that day's full list. */
+  onShowMore: (date: Date) => void;
 }
 
 export function CalendarMonthView({
@@ -93,6 +108,7 @@ export function CalendarMonthView({
   month,
   events,
   onEventClick,
+  onShowMore,
 }: CalendarMonthViewProps) {
   const today = new Date();
   const days = getMonthDays(year, month);
@@ -123,6 +139,7 @@ export function CalendarMonthView({
               isToday={isSameDay(day, today)}
               events={dayEvents}
               onEventClick={onEventClick}
+              onShowMore={onShowMore}
             />
           );
         })}

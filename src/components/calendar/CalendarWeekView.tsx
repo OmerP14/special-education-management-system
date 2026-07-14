@@ -1,10 +1,13 @@
 "use client";
 
+import { History } from "lucide-react";
 import {
   isSameDay,
   getSessionsForDate,
+  layoutOverlappingEvents,
   SESSION_STATUS_BLOCK_COLORS,
   type CalendarEvent,
+  type EventLayout,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
 
@@ -36,29 +39,43 @@ function getEventHeight(durationMinutes: number): number {
 
 function EventBlock({
   event,
+  layout,
   onClick,
 }: {
   event: CalendarEvent;
+  layout: EventLayout;
   onClick: () => void;
 }) {
   const top = getEventTop(event);
   const height = getEventHeight(event.durationMinutes);
+  const { col, totalCols } = layout;
+  const widthPct = 100 / totalCols;
 
   return (
     <button
       onClick={onClick}
-      style={{ top, height, left: 2, right: 2 }}
+      style={{
+        top,
+        height,
+        left: `calc(${col * widthPct}% + 2px)`,
+        width: `calc(${widthPct}% - ${totalCols > 1 ? 3 : 4}px)`,
+      }}
       className={cn(
-        "absolute rounded-md px-1.5 py-1 text-left transition-all overflow-hidden",
+        "absolute rounded-md px-1.5 py-1 text-left transition-all overflow-hidden z-0 hover:z-10",
         "focus:outline-none focus:ring-2 focus:ring-primary/50",
         SESSION_STATUS_BLOCK_COLORS[event.status]
       )}
     >
+      {event.billingMode === "historical_non_billable" && (
+        <History className="absolute right-1 top-1 h-2.5 w-2.5 opacity-60">
+          <title>Geçmiş kayıt — borca dahil değil</title>
+        </History>
+      )}
       <p className="text-[10px] font-bold leading-none truncate">{event.timeStr}</p>
       <p className="text-[11px] font-semibold leading-tight mt-0.5 truncate">
         {event.studentName}
       </p>
-      {height > 40 && (
+      {height > 40 && totalCols === 1 && (
         <p className="text-[10px] opacity-70 leading-tight truncate">
           {event.teacherName}
         </p>
@@ -80,6 +97,8 @@ function DayColumn({
   isToday: boolean;
   onEventClick: (id: string) => void;
 }) {
+  const eventLayout = layoutOverlappingEvents(events);
+
   return (
     <div className="relative flex-1 border-l border-border/60 min-w-0">
       {/* Hour grid lines */}
@@ -97,6 +116,7 @@ function DayColumn({
           <EventBlock
             key={event.id}
             event={event}
+            layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
             onClick={() => onEventClick(event.id)}
           />
         ))}

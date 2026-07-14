@@ -23,20 +23,23 @@ import {
   calculateTeacherSessionEarning,
   getTeacherCustomPriceForEducationType,
   getStudentGuardian,
+  getSessionStatusLabel,
   formatCurrency,
 } from "@/lib/helpers/finance";
+import { checkSessionConflict } from "@/lib/helpers/session-conflict";
+import { SessionConflictError } from "@/components/sessions/SessionConflictError";
 import type { Session, SessionStatus, Teacher } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: { value: SessionStatus; label: string }[] = [
-  { value: "planned", label: "Planlandı" },
-  { value: "completed", label: "Tamamlandı" },
-  { value: "cancelled", label: "İptal" },
-  { value: "no_show", label: "Gelmedi" },
-  { value: "makeup", label: "Telafi" },
-];
+  "planned",
+  "completed",
+  "cancelled",
+  "no_show",
+  "makeup",
+].map((value) => ({ value: value as SessionStatus, label: getSessionStatusLabel(value as SessionStatus) }));
 
 const BILLABLE_STATUSES: SessionStatus[] = ["completed", "no_show", "makeup"];
 
@@ -232,15 +235,40 @@ export function SessionFormDrawer({
     }
   };
 
+  // ── Scheduling / conflict check ─────────────────────────────────────────────
+  const startsAt = form.date
+    ? form.time
+      ? `${form.date}T${form.time}:00`
+      : `${form.date}T00:00:00`
+    : null;
+  const sessionDurationMinutes = initialData?.durationMinutes ?? 50;
+
+  const conflictResult = useMemo(() => {
+    if (!startsAt || !form.studentId || !form.teacherId) {
+      return { hasConflict: false, isDuplicate: false, conflictType: null, conflictingSessions: [], message: null };
+    }
+    return checkSessionConflict({
+      sessions: store.sessions,
+      studentId: form.studentId,
+      teacherId: form.teacherId,
+      startsAt,
+      durationMinutes: sessionDurationMinutes,
+      excludeSessionId: initialData?.id,
+      educationTypeId: form.educationTypeId || undefined,
+      fee: form.studentPrice,
+    });
+  }, [startsAt, form.studentId, form.teacherId, form.educationTypeId, form.studentPrice, sessionDurationMinutes, store.sessions, initialData?.id]);
+
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = () => {
     if (!form.studentId || !form.teacherId || !form.educationTypeId || !form.date) return;
     if (isLoss && !lossAcknowledged) return;
     if (isIncompatible && !incompatibilityAcknowledged) return;
+    if (conflictResult.hasConflict) return;
 
     const tenantId = initialData?.tenantId ?? "tenant-1";
     const id = initialData?.id ?? `session-${Date.now()}`;
-    const dateStr = form.time ? `${form.date}T${form.time}:00` : `${form.date}T00:00:00`;
+    const dateStr = startsAt!;
 
     const session: Session = {
       id,
@@ -249,7 +277,7 @@ export function SessionFormDrawer({
       teacherId: form.teacherId,
       educationTypeId: form.educationTypeId,
       date: dateStr,
-      durationMinutes: initialData?.durationMinutes ?? 50,
+      durationMinutes: sessionDurationMinutes,
       sessionCount: initialData?.sessionCount ?? 1,
       studentPrice: form.studentPrice,
       teacherEarning: form.teacherEarningPrice,
@@ -258,6 +286,9 @@ export function SessionFormDrawer({
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
       recurringGroupId: initialData?.recurringGroupId,
       weeklyPlanId: initialData?.weeklyPlanId,
+      // A manual override is a deliberate, confirmed value — only the untouched
+      // auto-calc path with no configured price is a genuine 0-fallback.
+      teacherEarningStatus: noCustomPriceWarning && !manualEarningMode ? "unknown" : "calculated",
     };
 
     if (isEditing) {
@@ -362,6 +393,7 @@ export function SessionFormDrawer({
       description="Seans bilgilerini girin. Fiyatlar anlaşmaya göre otomatik hesaplanır."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Seans Ekle"}
+      saveDisabled={conflictResult.hasConflict}
     >
       <div className="space-y-5">
 
@@ -515,6 +547,14 @@ export function SessionFormDrawer({
             <Input id="session-time" type="time" value={form.time} onChange={(e) => set("time", e.target.value)} />
           </div>
         </div>
+
+        {/* Zamanlama çakışması */}
+        <SessionConflictError
+          result={conflictResult}
+          students={store.students}
+          teachers={store.teachers}
+          educationTypes={mockEducationTypes}
+        />
 
         {/* Seans Ücreti */}
         <div className="space-y-1.5">

@@ -1,10 +1,13 @@
 "use client";
 
+import { History } from "lucide-react";
 import {
   isSameDay,
   getSessionsForDate,
+  layoutOverlappingEvents,
   SESSION_STATUS_BLOCK_COLORS,
   type CalendarEvent,
+  type EventLayout,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
 
@@ -34,31 +37,48 @@ function getEventHeight(durationMinutes: number): number {
 
 function EventBlock({
   event,
+  layout,
   onClick,
 }: {
   event: CalendarEvent;
+  layout: EventLayout;
   onClick: () => void;
 }) {
   const top = getEventTop(event);
   const height = getEventHeight(event.durationMinutes);
+  const { col, totalCols } = layout;
+  const widthPct = 100 / totalCols;
 
   return (
     <button
       onClick={onClick}
-      style={{ top, height, left: 4, right: 4 }}
+      style={{
+        top,
+        height,
+        left: `calc(${col * widthPct}% + 4px)`,
+        width: `calc(${widthPct}% - ${totalCols > 1 ? 6 : 8}px)`,
+      }}
       className={cn(
-        "absolute rounded-lg px-2.5 py-1.5 text-left transition-all overflow-hidden",
+        "absolute rounded-lg px-2.5 py-1.5 text-left transition-all overflow-hidden z-0 hover:z-10",
         "focus:outline-none focus:ring-2 focus:ring-primary/50",
         SESSION_STATUS_BLOCK_COLORS[event.status]
       )}
     >
-      <p className="text-xs font-bold leading-none">{event.timeStr}</p>
-      <p className="text-sm font-semibold leading-tight mt-0.5">{event.studentName}</p>
-      {height > 52 && (
-        <p className="text-xs opacity-70 leading-tight mt-0.5">{event.teacherName}</p>
+      {event.billingMode === "historical_non_billable" && (
+        <History
+          className="absolute right-1.5 top-1.5 h-3 w-3 opacity-60"
+          aria-label="Geçmiş kayıt — borca dahil değil"
+        >
+          <title>Geçmiş kayıt — borca dahil değil</title>
+        </History>
       )}
-      {height > 68 && (
-        <p className="text-[10px] opacity-60 leading-tight mt-0.5">
+      <p className="text-xs font-bold leading-none">{event.timeStr}</p>
+      <p className="text-sm font-semibold leading-tight mt-0.5 truncate">{event.studentName}</p>
+      {height > 52 && totalCols === 1 && (
+        <p className="text-xs opacity-70 leading-tight mt-0.5 truncate">{event.teacherName}</p>
+      )}
+      {height > 68 && totalCols === 1 && (
+        <p className="text-[10px] opacity-60 leading-tight mt-0.5 truncate">
           {event.educationTypeName}
         </p>
       )}
@@ -98,6 +118,7 @@ export function CalendarDayView({ date, events, onEventClick }: CalendarDayViewP
   const today = new Date();
   const isToday = isSameDay(date, today);
   const dayEvents = getSessionsForDate(events, date);
+  const eventLayout = layoutOverlappingEvents(dayEvents);
 
   const dateLabel = new Intl.DateTimeFormat("tr-TR", {
     weekday: "long",
@@ -168,6 +189,7 @@ export function CalendarDayView({ date, events, onEventClick }: CalendarDayViewP
               <EventBlock
                 key={event.id}
                 event={event}
+                layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
                 onClick={() => onEventClick(event.id)}
               />
             ))}

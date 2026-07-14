@@ -5,10 +5,9 @@ import type {
   Guardian,
   StudentCurrentAccount,
   StudentMonthlyAccountRow,
+  OpeningBalance,
 } from "@/types";
-
-// Must match BILLABLE_STATUSES in finance.ts
-const BILLABLE: Session["status"][] = ["completed", "no_show", "makeup"];
+import { getStudentLastActivityDate, getStudentDebtActivityDate, getOpeningBalanceNet, isBillableSession } from "./finance";
 
 // ─── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -29,19 +28,22 @@ function isInMonth(dateStr: string, year: number, month: number): boolean {
 
 // ─── Core helpers ──────────────────────────────────────────────────────────────
 
-/** Total billed – total paid for a student in all months before `year/month`. */
+/** Total billed – total paid for a student in all months before `year/month`,
+ *  plus any migrated opening balance dated before `year/month` (Devir Bakiyesi —
+ *  never counted as billed/paid, only as a carried-in net balance). */
 export function getPreviousBalance(
   studentId: string,
   sessions: Session[],
   payments: Payment[],
   year: number,
-  month: number
+  month: number,
+  openingBalances: OpeningBalance[] = []
 ): number {
   const prevBilled = sessions
     .filter(
       (s) =>
         s.studentId === studentId &&
-        BILLABLE.includes(s.status) &&
+        isBillableSession(s) &&
         isBeforeMonth(s.date, year, month)
     )
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
@@ -50,7 +52,12 @@ export function getPreviousBalance(
     .filter((p) => p.studentId === studentId && isBeforeMonth(p.date, year, month))
     .reduce((sum, p) => sum + p.amount, 0);
 
-  return prevBilled - prevPaid;
+  const prevOpeningBalance = getOpeningBalanceNet(
+    studentId,
+    openingBalances.filter((b) => isBeforeMonth(b.date, year, month))
+  );
+
+  return prevBilled - prevPaid + prevOpeningBalance;
 }
 
 /** Session billing total for a student in `year/month`. */
@@ -64,7 +71,7 @@ export function getCurrentMonthBilled(
     .filter(
       (s) =>
         s.studentId === studentId &&
-        BILLABLE.includes(s.status) &&
+        isBillableSession(s) &&
         isInMonth(s.date, year, month)
     )
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
@@ -89,15 +96,16 @@ export function buildStudentCurrentAccount(
   sessions: Session[],
   payments: Payment[],
   year: number,
-  month: number
+  month: number,
+  openingBalances: OpeningBalance[] = []
 ): StudentCurrentAccount {
-  const previousBalance = getPreviousBalance(studentId, sessions, payments, year, month);
+  const previousBalance = getPreviousBalance(studentId, sessions, payments, year, month, openingBalances);
   const currentMonthBilled = getCurrentMonthBilled(studentId, sessions, year, month);
   const currentMonthPaid = getCurrentMonthPaid(studentId, payments, year, month);
   const currentBalance = previousBalance + currentMonthBilled - currentMonthPaid;
 
   const totalBilled = sessions
-    .filter((s) => s.studentId === studentId && BILLABLE.includes(s.status))
+    .filter((s) => s.studentId === studentId && isBillableSession(s))
     .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
 
   const totalPaid = payments
@@ -113,7 +121,7 @@ export function buildStudentCurrentAccount(
     currentBalance,
     totalBilled,
     totalPaid,
-    remainingDebt: Math.max(0, totalBilled - totalPaid),
+    remainingDebt: Math.max(0, totalBilled - totalPaid + getOpeningBalanceNet(studentId, openingBalances)),
   };
 }
 
@@ -132,12 +140,13 @@ export function buildStudentMonthlyAccountRows(
   sessions: Session[],
   payments: Payment[],
   year: number,
-  month: number
+  month: number,
+  openingBalances: OpeningBalance[] = []
 ): StudentMonthlyAccountRow[] {
   return students
     .map((student) => {
       const guardian = guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
-      const account = buildStudentCurrentAccount(student.id, sessions, payments, year, month);
+      const account = buildStudentCurrentAccount(student.id, sessions, payments, year, month, openingBalances);
       return {
         studentId: student.id,
         studentName: student.fullName,
@@ -152,6 +161,8 @@ export function buildStudentMonthlyAccountRows(
         // "Alacak devri" label) since that view is a full running statement, not a
         // debt report; this wrapper is the only place the two diverge on purpose.
         currentBalance: Math.max(0, account.currentBalance),
+        lastActivityDate: getStudentLastActivityDate(student.id, sessions, payments),
+        lastDebtActivityDate: getStudentDebtActivityDate(student.id, sessions, payments),
       } satisfies StudentMonthlyAccountRow;
     })
     .filter(
@@ -167,7 +178,8 @@ export function buildGuardianCurrentAccountSummary(
   sessions: Session[],
   payments: Payment[],
   year: number,
-  month: number
+  month: number,
+  openingBalances: OpeningBalance[] = []
 ): {
   previousBalance: number;
   currentMonthBilled: number;
@@ -180,17 +192,19 @@ export function buildGuardianCurrentAccountSummary(
   let currentMonthPaid = 0;
   let totalBilled = 0;
   let totalPaid = 0;
+  let openingBalanceNet = 0;
 
   for (const id of guardianStudentIds) {
-    previousBalance += getPreviousBalance(id, sessions, payments, year, month);
+    previousBalance += getPreviousBalance(id, sessions, payments, year, month, openingBalances);
     currentMonthBilled += getCurrentMonthBilled(id, sessions, year, month);
     currentMonthPaid += getCurrentMonthPaid(id, payments, year, month);
     totalBilled += sessions
-      .filter((s) => s.studentId === id && BILLABLE.includes(s.status))
+      .filter((s) => s.studentId === id && isBillableSession(s))
       .reduce((sum, s) => sum + s.studentPrice * s.sessionCount, 0);
     totalPaid += payments
       .filter((p) => p.studentId === id)
       .reduce((sum, p) => sum + p.amount, 0);
+    openingBalanceNet += getOpeningBalanceNet(id, openingBalances);
   }
 
   return {
@@ -198,7 +212,7 @@ export function buildGuardianCurrentAccountSummary(
     currentMonthBilled,
     currentMonthPaid,
     currentBalance: previousBalance + currentMonthBilled - currentMonthPaid,
-    totalDebt: Math.max(0, totalBilled - totalPaid),
+    totalDebt: Math.max(0, totalBilled - totalPaid + openingBalanceNet),
   };
 }
 
@@ -239,7 +253,7 @@ export function buildGuardianCurrentAccountMovements(
       .filter(
         (s) =>
           s.studentId === studentId &&
-          BILLABLE.includes(s.status) &&
+          isBillableSession(s) &&
           isInMonth(s.date, year, month)
       )
       .forEach((s) => {

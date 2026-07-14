@@ -16,15 +16,8 @@ import {
 } from "@/components/ui/select";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
+import { getStudentStatusLabel } from "@/lib/helpers/finance";
 import type { Student, StudentStatus } from "@/types";
-
-// ─── Status labels ─────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<StudentStatus, string> = {
-  active: "Aktif",
-  on_hold: "Beklemede",
-  inactive: "Pasif",
-};
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -197,12 +190,12 @@ export function StudentFormDrawer({
           <Label>Durum</Label>
           <Select value={form.status} onValueChange={(v) => set("status", v as StudentStatus)}>
             <SelectTrigger>
-              <SelectValue>{STATUS_LABELS[form.status]}</SelectValue>
+              <SelectValue>{(val: StudentStatus) => getStudentStatusLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="active">Aktif</SelectItem>
-              <SelectItem value="on_hold">Beklemede</SelectItem>
-              <SelectItem value="inactive">Pasif</SelectItem>
+              <SelectItem value="active">{getStudentStatusLabel("active")}</SelectItem>
+              <SelectItem value="on_hold">{getStudentStatusLabel("on_hold")}</SelectItem>
+              <SelectItem value="inactive">{getStudentStatusLabel("inactive")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

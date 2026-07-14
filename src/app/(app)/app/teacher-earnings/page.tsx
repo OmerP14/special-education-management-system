@@ -113,11 +113,16 @@ const columns: Column<TeacherEarningListItem>[] = [
   {
     key: "totalEarning",
     header: "Toplam Hakediş",
-    render: (row) => (
-      <span className="tabular-nums font-semibold text-right block">
-        {formatCurrency(row.totalEarning)}
-      </span>
-    ),
+    render: (row) =>
+      row.teacherEarningStatus === "unknown" ? (
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 float-right">
+          Hakediş bekliyor
+        </span>
+      ) : (
+        <span className="tabular-nums font-semibold text-right block">
+          {formatCurrency(row.totalEarning)}
+        </span>
+      ),
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -148,6 +153,13 @@ const columns: Column<TeacherEarningListItem>[] = [
 // ─── Monthly summary table columns ────────────────────────────────────────────
 
 function MonthlySummaryStatusBadge({ summary }: { summary: MonthlyTeacherEarningSummary }) {
+  if (summary.pendingEarning === 0 && summary.unknownSessionCount > 0) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+        Hakediş bekliyor
+      </span>
+    );
+  }
   if (summary.pendingEarning === 0) {
     return (
       <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -158,7 +170,7 @@ function MonthlySummaryStatusBadge({ summary }: { summary: MonthlyTeacherEarning
   if (summary.paidEarning === 0) {
     return (
       <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-        Bekliyor
+        Bekleyen Hakediş
       </span>
     );
   }
@@ -173,7 +185,7 @@ function MonthlySummaryStatusBadge({ summary }: { summary: MonthlyTeacherEarning
 
 const STATUS_FILTERS: { value: EarningStatus | "all"; label: string }[] = [
   { value: "all", label: "Tümü" },
-  { value: "pending", label: "Bekliyor" },
+  { value: "pending", label: "Bekleyen Hakediş" },
   { value: "paid", label: "Ödendi" },
 ];
 
@@ -215,9 +227,10 @@ export default function TeacherEarningsPage() {
         store.sessions,
         store.teachers,
         store.students,
-        mockEducationTypes
+        mockEducationTypes,
+        store.teacherCustomPrices
       ),
-    [store.teacherEarnings, store.sessions, store.teachers, store.students]
+    [store.teacherEarnings, store.sessions, store.teachers, store.students, store.teacherCustomPrices]
   );
 
   // KPI stats — always current month for "Bu Ay", all-time for paid/pending
@@ -228,15 +241,16 @@ export default function TeacherEarningsPage() {
         store.sessions,
         store.teacherPayments,
         currentYear,
-        currentMonth
+        currentMonth,
+        store.teacherCustomPrices
       ),
-    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherCustomPrices]
   );
 
   // Teacher overview — all-time totals
   const overviewItems = useMemo(
-    () => buildTeacherEarningOverviewItems(store.teachers, store.sessions, store.teacherPayments),
-    [store.teachers, store.sessions, store.teacherPayments]
+    () => buildTeacherEarningOverviewItems(store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices),
+    [store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices]
   );
 
   // Monthly summary — always current month
@@ -247,9 +261,10 @@ export default function TeacherEarningsPage() {
         store.sessions,
         store.teacherPayments,
         currentYear,
-        currentMonth
+        currentMonth,
+        store.teacherCustomPrices
       ),
-    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherCustomPrices]
   );
 
   // Derive available months from session dates in list items
@@ -328,9 +343,13 @@ export default function TeacherEarningsPage() {
           variant="success"
         />
         <StatCard
-          title="Bekleyen Hakediş"
+          title="Toplam Bekleyen Hakediş"
           value={formatCurrency(stats.pendingTotal)}
-          description="Ödeme bekliyor"
+          description={
+            stats.unresolvedSessionCount > 0
+              ? `Tüm dönemlerden ödenmemiş toplam · Hakediş ayarı bekleniyor — ${stats.unresolvedSessionCount} seans`
+              : "Tüm dönemlerden ödenmemiş toplam"
+          }
           icon={Clock}
           variant={stats.pendingTotal > 0 ? "warning" : "success"}
         />
@@ -376,6 +395,11 @@ export default function TeacherEarningsPage() {
                     <p className="text-xs text-muted-foreground">
                       {item.earningCount} hakediş kaydı
                     </p>
+                    {item.unknownSessionCount > 0 && (
+                      <p className="text-[11px] text-amber-600">
+                        Hakediş ayarı bekleniyor — {item.unknownSessionCount} seans
+                      </p>
+                    )}
                     <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                       <div
                         className={cn("h-full rounded-full transition-all", barClass)}
@@ -384,14 +408,14 @@ export default function TeacherEarningsPage() {
                     </div>
                   </div>
 
-                  {/* Paid / Pending */}
+                  {/* Ödenen (paid) vs Bilinen Hakediş (known total) — explicitly
+                      labeled, never a bare "X / Y" */}
                   <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0">
                     <span className="text-xs text-muted-foreground">
-                      <span className="text-emerald-600 font-medium">
-                        {formatCurrency(item.paidEarning)}
-                      </span>
-                      <span className="text-muted-foreground/50"> / </span>
-                      {formatCurrency(item.totalEarning)}
+                      Ödenen: <span className="text-emerald-600 font-medium">{formatCurrency(item.paidEarning)}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Bilinen Hakediş: {formatCurrency(item.totalEarning)}
                     </span>
                     <span className="text-[10px] text-muted-foreground">{pct}% ödendi</span>
                   </div>
@@ -401,6 +425,10 @@ export default function TeacherEarningsPage() {
                     {item.pendingEarning > 0 ? (
                       <span className="tabular-nums text-sm font-semibold text-amber-600">
                         {formatCurrency(item.pendingEarning)}
+                      </span>
+                    ) : item.unknownSessionCount > 0 ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        Hakediş bekliyor
                       </span>
                     ) : (
                       <span className="text-xs text-emerald-600 font-medium">Tamamı ödendi</span>
@@ -483,6 +511,11 @@ export default function TeacherEarningsPage() {
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">
                       {formatCurrency(row.totalEarning)}
+                      {row.unknownSessionCount > 0 && (
+                        <p className="text-[10px] font-normal text-amber-600">
+                          Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-emerald-600 hidden md:table-cell">
                       {formatCurrency(row.paidEarning)}
@@ -619,6 +652,13 @@ export default function TeacherEarningsPage() {
       </div>
 
       {/* Detail table */}
+      {stats.unresolvedSessionCount > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+          Hakediş ayarı bekleniyor — {stats.unresolvedSessionCount} seans için maaş modeli/fiyat tanımlanmadı. Bu
+          seanslar aşağıdaki listede görünmez, çünkü henüz gerçek bir hakediş kaydı oluşmadı. İlgili öğretmenin
+          detay sayfasından fiyat tanımlayıp &quot;Eksik Hakedişleri Yeniden Hesapla&quot; ile çözebilirsiniz.
+        </div>
+      )}
       <DataTable
         data={filtered}
         columns={columns}

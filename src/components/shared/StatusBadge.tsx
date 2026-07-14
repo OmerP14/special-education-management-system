@@ -93,3 +93,36 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     </span>
   );
 }
+
+// ─── Earning-specific status badge ─────────────────────────────────────────────
+// EarningStatus ("pending"/"paid") shares its raw values with InstallmentStatus,
+// so the generic STATUS_CONFIG above uses the installment-appropriate "Bekliyor"
+// for "pending". A teacher-earning row needs more specific wording ("Bekleyen
+// Hakediş") so it doesn't read like a generic pending state — this never touches
+// the shared config, so installment rows elsewhere are unaffected.
+
+const EARNING_STATUS_CONFIG: Record<EarningStatus, { label: string; className: string }> = {
+  pending: {
+    label: "Bekleyen Hakediş",
+    className: "bg-amber-100 text-amber-700 border-amber-200",
+  },
+  paid: {
+    label: "Ödendi",
+    className: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  },
+};
+
+export function EarningStatusBadge({ status, className }: { status: EarningStatus; className?: string }) {
+  const config = EARNING_STATUS_CONFIG[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+        config.className,
+        className
+      )}
+    >
+      {config.label}
+    </span>
+  );
+}

@@ -33,7 +33,9 @@ export default function DashboardPage() {
     store.payments,
     store.teacherPayments,
     store.students,
-    store.teachers
+    store.teachers,
+    store.openingBalances,
+    store.teacherCustomPrices
   );
 
   const recentSessions = [...store.sessions]
@@ -115,7 +117,11 @@ export default function DashboardPage() {
             value={formatCurrency(stats.pendingEarnings)}
             icon={Banknote}
             variant="warning"
-            description="Ödenmemiş kazanç"
+            description={
+              stats.unknownEarningSessionCount > 0
+                ? `Ödenmemiş kazanç · Hakediş ayarı bekleniyor — ${stats.unknownEarningSessionCount} seans`
+                : "Ödenmemiş kazanç"
+            }
             className="transition-colors hover:border-primary/40"
           />
         </Link>
@@ -127,11 +133,13 @@ export default function DashboardPage() {
           sessions={store.sessions}
           payments={store.payments}
           students={store.students}
+          openingBalances={store.openingBalances}
         />
         <TeacherEarningsCard
           teacherPayments={store.teacherPayments}
           teachers={store.teachers}
           sessions={store.sessions}
+          teacherCustomPrices={store.teacherCustomPrices}
         />
         <SessionStatusBreakdown sessions={store.sessions} />
       </div>

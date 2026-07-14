@@ -14,15 +14,24 @@ import {
   Tag,
   TrendingUp,
   Pencil,
+  RefreshCw,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
 import { TeacherPaymentHistoryTab } from "@/components/teachers/TeacherPaymentHistoryTab";
 import { StatCard } from "@/components/shared/StatCard";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { StatusBadge, EarningStatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
@@ -34,6 +43,9 @@ import {
   getTeacherIncludedQuotaUsage,
   getTeacherExtraSessionCount,
   getTeacherPaymentModelLabel,
+  resolveTeacherEarningStatus,
+  buildEarningRecalculationPreview,
+  applyEarningRecalculation,
   formatCurrency,
   formatDate,
   formatTime,
@@ -41,6 +53,8 @@ import {
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type {
   Session,
+  Teacher,
+  TeacherCustomPrice,
   TeacherEarning,
   TeacherStudentRow,
   TeacherPriceRow,
@@ -60,7 +74,9 @@ interface EarningDisplayRow {
 // ─── Session column builder ────────────────────────────────────────────────────
 
 function buildSessionColumns(
-  students: { id: string; fullName: string }[]
+  students: { id: string; fullName: string }[],
+  teacher: Teacher | undefined,
+  teacherCustomPrices: TeacherCustomPrice[]
 ): Column<Session>[] {
   return [
     {
@@ -121,11 +137,16 @@ function buildSessionColumns(
     {
       key: "earning",
       header: "Hakediş",
-      render: (row) => (
-        <span className="tabular-nums font-medium">
-          {formatCurrency(row.teacherEarning * row.sessionCount)}
-        </span>
-      ),
+      render: (row) =>
+        resolveTeacherEarningStatus(row, teacher, teacherCustomPrices) === "unknown" ? (
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+            Hakediş bekliyor
+          </span>
+        ) : (
+          <span className="tabular-nums font-medium">
+            {formatCurrency(row.teacherEarning * row.sessionCount)}
+          </span>
+        ),
       className: "text-right",
       headerClassName: "text-right",
     },
@@ -272,7 +293,7 @@ const earningColumns: Column<EarningDisplayRow>[] = [
   {
     key: "status",
     header: "Durum",
-    render: (row) => <StatusBadge status={row.earning.status} />,
+    render: (row) => <EarningStatusBadge status={row.earning.status} />,
     className: "text-right",
     headerClassName: "text-right",
   },
@@ -312,7 +333,16 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   const store = useMockStore();
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
-  const sessionColumns = buildSessionColumns(store.students);
+  const [recalcOpen, setRecalcOpen] = useState(false);
+  const [recalcApplied, setRecalcApplied] = useState(false);
+  // Snapshot of how many sessions were actually resolved by the last apply —
+  // `recalcPreview` itself is recomputed live from the store every render, so
+  // right after applying it immediately reflects the NEW (now-resolved) state
+  // and would otherwise always read back as 0. Never used for anything but
+  // display; the store update itself is already complete by the time this is set.
+  const [recalcAppliedCount, setRecalcAppliedCount] = useState(0);
+  const rawTeacher = store.teachers.find((t) => t.id === teacherId);
+  const sessionColumns = buildSessionColumns(store.students, rawTeacher, store.teacherCustomPrices);
   const detail = buildTeacherDetail(
     teacherId,
     store.teachers,
@@ -354,6 +384,33 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  // ─── Unknown-earning recalculation preview (requirement 5) ─────────────────
+  // Recomputed live off current store state every render — cheap (bounded by
+  // this one teacher's own session count) and guarantees the preview shown in
+  // the dialog always reflects the custom prices/settings as they are right now.
+
+  const recalcPreview = rawTeacher
+    ? buildEarningRecalculationPreview(rawTeacher, store.sessions, store.teacherCustomPrices, store.students, mockEducationTypes)
+    : [];
+  const recalcResolvable = recalcPreview.filter((r) => r.recalculatedEarning !== null);
+  const recalcStillUnresolved = recalcPreview.filter((r) => r.recalculatedEarning === null);
+  const recalcEstimatedImpact = recalcResolvable.reduce(
+    (sum, r) => sum + (r.recalculatedEarning! - r.session.teacherEarning) * r.session.sessionCount,
+    0
+  );
+
+  function handleApplyRecalculation() {
+    const updatedSessions = applyEarningRecalculation(recalcPreview);
+    setRecalcAppliedCount(updatedSessions.length);
+    updatedSessions.forEach((s) => store.updateSession(s));
+    setRecalcApplied(true);
+  }
+
+  function closeRecalcDialog(open: boolean) {
+    setRecalcOpen(open);
+    if (!open) setRecalcApplied(false);
+  }
 
   // ─── Enrich earnings for display ───────────────────────────────────────────
 
@@ -653,7 +710,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     },
     {
       key: "earnings",
-      label: "Hakedişler",
+      label: "Hakediş Kayıtları",
       badge: detail.earnings.length,
       content: earningsContent,
     },
@@ -665,8 +722,6 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
       content: <TeacherPaymentHistoryTab teacherId={teacherId} />,
     },
   ];
-
-  const rawTeacher = store.teachers.find((t) => t.id === teacherId);
 
   return (
     <>
@@ -723,6 +778,12 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {detail.unknownSessionCount > 0 && (
+                  <Button size="sm" variant="outline" onClick={() => setRecalcOpen(true)}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    Eksik Hakedişleri Yeniden Hesapla
+                  </Button>
+                )}
                 {detail.pendingEarnings > 0 && (
                   <Button size="sm" onClick={() => setPayOpen(true)}>
                     Ödeme Yap
@@ -758,16 +819,20 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
             variant="default"
           />
           <StatCard
-            title="Aylık Hakediş"
+            title="Bu Ayki Hakediş"
             value={formatCurrency(detail.monthlyEarnings)}
-            description="Bu ay"
+            description="Seçili takvim ayı"
             icon={TrendingUp}
             variant="success"
           />
           <StatCard
-            title="Bekleyen Hakediş"
+            title="Toplam Bekleyen Hakediş"
             value={formatCurrency(detail.pendingEarnings)}
-            description="Ödenmemiş"
+            description={
+              detail.unknownSessionCount > 0
+                ? `Tüm dönemlerden ödenmemiş toplam · Hakediş ayarı bekleniyor — ${detail.unknownSessionCount} seans`
+                : "Tüm dönemlerden ödenmemiş toplam"
+            }
             icon={AlertCircle}
             variant={detail.pendingEarnings > 0 ? "warning" : "success"}
           />
@@ -789,6 +854,105 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
         onOpenChange={setPayOpen}
         preselectedTeacherId={teacherId}
       />
+
+      {/* Eksik Hakedişleri Yeniden Hesapla — preview before applying (requirement 5).
+          Never touches sessions that already resolved; never creates a TeacherPayment. */}
+      <Dialog open={recalcOpen} onOpenChange={closeRecalcDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Eksik Hakedişleri Yeniden Hesapla</DialogTitle>
+            <DialogDescription>
+              {recalcPreview.length > 0
+                ? `${detail.fullName} için hakediş ayarı bekleyen ${recalcPreview.length} seans bulundu. Güncel öğretmen ücret ayarlarıyla yeniden hesaplanacak.`
+                : `${detail.fullName} için hesaplanamamış seans kalmadı — tüm hakedişler zaten hesaplanmış.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {recalcApplied ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {recalcAppliedCount > 0
+                ? `${recalcAppliedCount} seansın hakedişi güncellendi.`
+                : "Güncellenecek seans bulunamadı — hesaplanamamış seans kalmamıştı."}
+            </div>
+          ) : recalcPreview.length === 0 ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Bu öğretmen için hesaplanamamış seans kalmadı. Tekrar çalıştırmak güvenlidir; hiçbir kaydı değiştirmez.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-muted/40 p-3 text-center">
+                  <p className="text-lg font-bold tabular-nums">{recalcPreview.length}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Yeniden Hesaplanacak</p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 p-3 text-center">
+                  <p className="text-lg font-bold tabular-nums text-emerald-700">{recalcResolvable.length}</p>
+                  <p className="text-[10px] text-emerald-700 uppercase tracking-wide">Hesaplanabilir</p>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-3 text-center">
+                  <p className="text-lg font-bold tabular-nums text-amber-700">{recalcStillUnresolved.length}</p>
+                  <p className="text-[10px] text-amber-700 uppercase tracking-wide">Ayarı Eksik</p>
+                </div>
+              </div>
+
+              {recalcResolvable.length > 0 && (
+                <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Tahmini Hakediş Etkisi</span>
+                  <span className="font-semibold tabular-nums text-emerald-600">
+                    +{formatCurrency(recalcEstimatedImpact)}
+                  </span>
+                </div>
+              )}
+
+              {recalcStillUnresolved.length > 0 && (
+                <p className="text-xs text-amber-700">
+                  {recalcStillUnresolved.length} seans için maaş modeli/fiyat hâlâ tanımlanmadı — bu seanslar
+                  &quot;Hakediş bekliyor&quot; olarak kalacak.
+                </p>
+              )}
+
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+                {recalcPreview.map((r) => (
+                  <div key={r.session.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground truncate">{r.studentName}</p>
+                      <p className="text-muted-foreground">
+                        {formatDate(r.session.date)} · {r.educationTypeName}
+                      </p>
+                    </div>
+                    {r.recalculatedEarning !== null ? (
+                      <span className="font-semibold tabular-nums text-emerald-600 shrink-0">
+                        {formatCurrency(r.recalculatedEarning)}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        Ayar Eksik
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {recalcApplied || recalcPreview.length === 0 ? (
+              <Button size="sm" onClick={() => closeRecalcDialog(false)}>
+                Kapat
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setRecalcOpen(false)}>
+                  Vazgeç
+                </Button>
+                <Button size="sm" onClick={handleApplyRecalculation} disabled={recalcResolvable.length === 0}>
+                  {recalcResolvable.length} Seansı Güncelle
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -20,6 +20,7 @@ import {
   getStudentTotalBilled,
   getStudentTotalPaid,
   getStudentGuardian,
+  getPaymentMethodLabel,
   formatCurrency,
   formatDate,
 } from "@/lib/helpers/finance";
@@ -41,16 +42,11 @@ import { cn } from "@/lib/utils";
 
 type PaymentMode = "single" | "installment";
 
-const METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
-  { value: "cash", label: "Nakit" },
-  { value: "bank_transfer", label: "Banka Havalesi" },
-  { value: "credit_card", label: "Kredi Kartı" },
-  { value: "other", label: "Diğer" },
-];
+const METHOD_VALUES: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
 
 const INTERVAL_OPTIONS: { value: InstallmentInterval; label: string }[] = [
-  { value: "monthly", label: "Aylık" },
-  { value: "weekly", label: "Haftalık" },
+  { value: "monthly", label: getIntervalLabel("monthly") },
+  { value: "weekly", label: getIntervalLabel("weekly") },
   { value: "custom", label: "Özel Aralık" },
 ];
 
@@ -409,12 +405,16 @@ function SinglePaymentForm({
       <div className="space-y-1.5">
         <Label>Öğrenci</Label>
         <Select
-          value={form.studentId || "__none__"}
-          onValueChange={(val) => { if (val && val !== "__none__") set("studentId", val); }}
+          value={form.studentId}
+          onValueChange={(val) => { if (val) set("studentId", val); }}
           disabled={isEditing}
         >
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="Öğrenci seçin" />
+            <SelectValue placeholder="Öğrenci seçiniz">
+              {(val: string) =>
+                students.find((s) => s.id === val)?.fullName ?? "Öğrenci seçiniz"
+              }
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {students.map((s) => (
@@ -459,12 +459,12 @@ function SinglePaymentForm({
           onValueChange={(val) => set("method", val as PaymentMethod)}
         >
           <SelectTrigger className="w-full">
-            <SelectValue />
+            <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {METHOD_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+            {METHOD_VALUES.map((m) => (
+              <SelectItem key={m} value={m}>
+                {getPaymentMethodLabel(m)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -569,11 +569,15 @@ function InstallmentPlanForm({
       <div className="space-y-1.5">
         <Label>Öğrenci</Label>
         <Select
-          value={form.studentId || "__none__"}
-          onValueChange={(val) => { if (val && val !== "__none__") set("studentId", val); }}
+          value={form.studentId}
+          onValueChange={(val) => { if (val) set("studentId", val); }}
         >
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="Öğrenci seçin" />
+            <SelectValue placeholder="Öğrenci seçiniz">
+              {(val: string) =>
+                students.find((s) => s.id === val)?.fullName ?? "Öğrenci seçiniz"
+              }
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {students.map((s) => (
@@ -636,7 +640,11 @@ function InstallmentPlanForm({
           onValueChange={(val) => set("interval", val as InstallmentInterval)}
         >
           <SelectTrigger className="w-full">
-            <SelectValue />
+            <SelectValue>
+              {(val: InstallmentInterval) =>
+                INTERVAL_OPTIONS.find((opt) => opt.value === val)?.label ?? getIntervalLabel(val)
+              }
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {INTERVAL_OPTIONS.map((opt) => (
@@ -672,12 +680,12 @@ function InstallmentPlanForm({
           onValueChange={(val) => set("method", val as PaymentMethod)}
         >
           <SelectTrigger className="w-full">
-            <SelectValue />
+            <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {METHOD_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
+            {METHOD_VALUES.map((m) => (
+              <SelectItem key={m} value={m}>
+                {getPaymentMethodLabel(m)}
               </SelectItem>
             ))}
           </SelectContent>
