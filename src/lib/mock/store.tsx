@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Student,
   Guardian,
@@ -15,6 +15,8 @@ import type {
   WeeklySessionPlan,
   OpeningBalance,
   ImportBatch,
+  TeacherMergeHistory,
+  EducationType,
 } from "@/types";
 import { mockStudents, mockGuardians, DEMO_STUDENTS, DEMO_GUARDIANS } from "@/lib/mock/students";
 import { mockTeachers } from "@/lib/mock/teachers";
@@ -26,6 +28,7 @@ import { mockTeacherCustomPrices } from "@/lib/mock/teacher-custom-prices";
 import { mockInstallmentPlans } from "@/lib/mock/installment-plans";
 import { mockCashMovements } from "@/lib/mock/cash-movements";
 import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
+import { mockEducationTypes } from "@/lib/mock/education-types";
 import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
@@ -34,6 +37,8 @@ import {
   calculateSessionTeacherEarning,
   getTeacherEarningTotals,
 } from "@/lib/helpers/finance";
+import { buildTeacherMergePreview } from "@/lib/helpers/teacher-merge";
+import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/education-types";
 
 // Upserts the TeacherEarning ledger row for a single session, keyed by sessionId so
 // re-saving the same completed session updates the existing row instead of duplicating it.
@@ -112,6 +117,7 @@ interface MockStore {
   students: Student[];
   guardians: Guardian[];
   teachers: Teacher[];
+  educationTypes: EducationType[];
   sessions: Session[];
   payments: Payment[];
   teacherEarnings: TeacherEarning[];
@@ -131,6 +137,15 @@ interface MockStore {
   addTeacher: (t: Teacher) => void;
   updateTeacher: (t: Teacher) => void;
   deleteTeachers: (ids: string[]) => void;
+  addEducationType: (et: EducationType) => void;
+  updateEducationType: (et: EducationType) => void;
+  setEducationTypeStatus: (id: string, status: EducationType["status"]) => void;
+  /** Silently no-ops if the type is referenced by any session/student/teacher/
+   *  weekly plan/custom price — re-validated against current data right before
+   *  writing, never trusting caller UI state (same reasoning as mergeTeachers
+   *  below). The Settings UI itself disables Sil in that case; this is the
+   *  backstop — see getEducationTypeUsage/canDeleteEducationType. */
+  deleteEducationType: (id: string) => void;
   addSession: (s: Session) => void;
   updateSession: (s: Session) => void;
   deleteSessions: (ids: string[]) => void;
@@ -156,6 +171,20 @@ interface MockStore {
   deleteOpeningBalances: (ids: string[]) => void;
   addImportBatch: (batch: ImportBatch) => void;
   markImportBatchRolledBack: (batchId: string) => void;
+  teacherMergeHistory: TeacherMergeHistory[];
+  /** Reassigns every Session/TeacherEarning/TeacherPayment/TeacherCustomPrice/
+   *  WeeklySessionPlan owned by the duplicate over to the primary, archives the
+   *  duplicate, and records a TeacherMergeHistory entry. Silently no-ops (like
+   *  addTeacherPayment above) if either teacher is missing, they're the same
+   *  teacher, the duplicate is already archived, or buildTeacherMergePreview
+   *  finds a conflict — a merge never runs on stale/unsafe UI state. */
+  mergeTeachers: (params: { primaryTeacherId: string; duplicateTeacherId: string; reason?: string }) => void;
+  /** Reverses a still-active merge: moves every reassigned row back to the
+   *  duplicate (only rows still owned by the primary — never touches a row a
+   *  later, unrelated edit moved elsewhere) and restores the duplicate's
+   *  archived status. No-ops if the merge id doesn't exist or was already
+   *  rolled back. */
+  rollbackTeacherMerge: (mergeId: string) => void;
   weeklySessionPlans: WeeklySessionPlan[];
   addWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
@@ -173,8 +202,13 @@ const MockStoreContext = createContext<MockStore | null>(null);
 
 export function MockDataProvider({ children }: { children: ReactNode }) {
   const [students, setStudents] = useState<Student[]>(mockStudents);
+  const studentsRef = useRef(students);
+  studentsRef.current = students;
   const [guardians, setGuardians] = useState<Guardian[]>(mockGuardians);
   const [teachers, setTeachers] = useState<Teacher[]>(mockTeachers);
+  const [educationTypes, setEducationTypes] = useState<EducationType[]>(mockEducationTypes);
+  const educationTypesRef = useRef(educationTypes);
+  educationTypesRef.current = educationTypes;
   const [sessions, setSessions] = useState<Session[]>(mockSessions);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -190,6 +224,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [teacherCustomPrices, setTeacherCustomPrices] = useState<TeacherCustomPrice[]>(
     mockTeacherCustomPrices
   );
+  // Refs so mergeTeachers/rollbackTeacherMerge always compute against a single
+  // consistent, current snapshot across every array they touch at once — same
+  // reasoning as teachersRef/teacherPaymentsRef above.
+  const teacherEarningsRef = useRef(teacherEarnings);
+  teacherEarningsRef.current = teacherEarnings;
+  const teacherCustomPricesRef = useRef(teacherCustomPrices);
+  teacherCustomPricesRef.current = teacherCustomPrices;
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
     mockInstallmentPlans
   );
@@ -203,6 +244,11 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [weeklySessionPlans, setWeeklySessionPlans] = useState<WeeklySessionPlan[]>(
     mockWeeklySessionPlans
   );
+  const weeklySessionPlansRef = useRef(weeklySessionPlans);
+  weeklySessionPlansRef.current = weeklySessionPlans;
+  const [teacherMergeHistory, setTeacherMergeHistory] = useState<TeacherMergeHistory[]>([]);
+  const teacherMergeHistoryRef = useRef(teacherMergeHistory);
+  teacherMergeHistoryRef.current = teacherMergeHistory;
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const AUTO_COMPLETE_THRESHOLD_MS =
@@ -259,10 +305,21 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value: MockStore = {
+  // Memoized so this object keeps a stable reference across renders that
+  // don't touch any of the data below — e.g. toggling the sidebar re-renders
+  // MockDataProvider (it's an ancestor in the tree) but none of THESE
+  // dependencies change, so the memo bails out and every `useMockStore()`
+  // consumer across the whole app correctly skips re-rendering too. Every
+  // action below is safe to omit from the dependency list: each one only
+  // closes over a stable setState function or a `*Ref.current` read (never a
+  // plain state variable by value), so a "stale" version from an earlier
+  // memoized call behaves identically to a freshly-created one.
+  const value: MockStore = useMemo<MockStore>(
+    () => ({
     students,
     guardians,
     teachers,
+    educationTypes,
     sessions,
     payments,
     teacherEarnings,
@@ -272,6 +329,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     cashMovements,
     openingBalances,
     importBatches,
+    teacherMergeHistory,
 
     addStudent: (s) => setStudents((prev) => [...prev, s]),
     updateStudent: (s) =>
@@ -306,13 +364,251 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeachers((prev) =>
         prev.map((x) =>
           x.id === t.id
-            ? { ...t, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            ? {
+                ...t,
+                importBatchId: x.importBatchId,
+                // The manual edit form has no concept of archive/merge state —
+                // never let a plain edit silently wipe it out from under a
+                // merged-away record (same reasoning as importBatchId above).
+                archivedAt: x.archivedAt,
+                archivedReason: x.archivedReason,
+                mergedIntoTeacherId: x.mergedIntoTeacherId,
+                updatedAt: new Date().toISOString(),
+              }
             : x
         )
       ),
     deleteTeachers: (ids) => {
       const idSet = new Set(ids);
       setTeachers((prev) => prev.filter((x) => !idSet.has(x.id)));
+    },
+
+    addEducationType: (et) => setEducationTypes((prev) => [...prev, et]),
+    updateEducationType: (et) =>
+      setEducationTypes((prev) =>
+        prev.map((x) =>
+          x.id === et.id ? { ...et, createdAt: x.createdAt, updatedAt: new Date().toISOString() } : x
+        )
+      ),
+    setEducationTypeStatus: (id, status) =>
+      setEducationTypes((prev) =>
+        prev.map((x) =>
+          x.id === id ? { ...x, status, updatedAt: new Date().toISOString() } : x
+        )
+      ),
+    deleteEducationType: (id) => {
+      const usage = getEducationTypeUsage(id, {
+        sessions: sessionsRef.current,
+        students: studentsRef.current,
+        teachers: teachersRef.current,
+        weeklySessionPlans: weeklySessionPlansRef.current,
+        teacherCustomPrices: teacherCustomPricesRef.current,
+      });
+      if (!canDeleteEducationType(usage)) return;
+      setEducationTypes((prev) => prev.filter((x) => x.id !== id));
+    },
+
+    mergeTeachers: ({ primaryTeacherId, duplicateTeacherId, reason }) => {
+      if (primaryTeacherId === duplicateTeacherId) return;
+      const primary = teachersRef.current.find((t) => t.id === primaryTeacherId);
+      const duplicate = teachersRef.current.find((t) => t.id === duplicateTeacherId);
+      if (!primary || !duplicate) return;
+      if (duplicate.status === "archived") return;
+
+      // Never trust the caller's UI state — recompute the safety check against
+      // the current store right before writing anything.
+      const preview = buildTeacherMergePreview(
+        primary,
+        duplicate,
+        sessionsRef.current,
+        teacherEarningsRef.current,
+        teacherPaymentsRef.current,
+        teacherCustomPricesRef.current,
+        weeklySessionPlansRef.current,
+        educationTypesRef.current
+      );
+      if (!preview.isSafe) return;
+
+      const now = new Date().toISOString();
+
+      const movedSessionIds = sessionsRef.current
+        .filter((s) => s.teacherId === duplicateTeacherId)
+        .map((s) => s.id);
+      const movedTeacherEarningIds = teacherEarningsRef.current
+        .filter((e) => e.teacherId === duplicateTeacherId)
+        .map((e) => e.id);
+      const movedTeacherPaymentIds = teacherPaymentsRef.current
+        .filter((p) => p.teacherId === duplicateTeacherId)
+        .map((p) => p.id);
+      const movedWeeklyPlanIds = weeklySessionPlansRef.current
+        .filter((w) => w.teacherId === duplicateTeacherId)
+        .map((w) => w.id);
+
+      // Custom prices don't just flip teacherId — a conflicting educationTypeId
+      // would leave two rows under one teacher (see teacher-merge.ts), so those
+      // are dropped from the live array (never happens in practice since a
+      // conflict there makes preview.isSafe false above; the branch exists so
+      // rollback stays correct even if this rule is ever relaxed later).
+      const duplicatePrices = teacherCustomPricesRef.current.filter(
+        (cp) => cp.teacherId === duplicateTeacherId
+      );
+      const primaryEducationTypeIds = new Set(
+        teacherCustomPricesRef.current
+          .filter((cp) => cp.teacherId === primaryTeacherId)
+          .map((cp) => cp.educationTypeId)
+      );
+      const priceIdsToMove = duplicatePrices
+        .filter((cp) => !primaryEducationTypeIds.has(cp.educationTypeId))
+        .map((cp) => cp.id);
+      const droppedPrices = duplicatePrices.filter((cp) =>
+        primaryEducationTypeIds.has(cp.educationTypeId)
+      );
+
+      const movedSessionIdSet = new Set(movedSessionIds);
+      setSessions((prev) =>
+        prev.map((s) =>
+          movedSessionIdSet.has(s.id) ? { ...s, teacherId: primaryTeacherId, updatedAt: now } : s
+        )
+      );
+      const movedEarningIdSet = new Set(movedTeacherEarningIds);
+      setTeacherEarnings((prev) =>
+        prev.map((e) => (movedEarningIdSet.has(e.id) ? { ...e, teacherId: primaryTeacherId } : e))
+      );
+      const movedPaymentIdSet = new Set(movedTeacherPaymentIds);
+      setTeacherPayments((prev) =>
+        prev.map((p) =>
+          movedPaymentIdSet.has(p.id) ? { ...p, teacherId: primaryTeacherId, updatedAt: now } : p
+        )
+      );
+      const movedPlanIdSet = new Set(movedWeeklyPlanIds);
+      setWeeklySessionPlans((prev) =>
+        prev.map((w) =>
+          movedPlanIdSet.has(w.id) ? { ...w, teacherId: primaryTeacherId, updatedAt: now } : w
+        )
+      );
+      const priceIdsToMoveSet = new Set(priceIdsToMove);
+      setTeacherCustomPrices((prev) =>
+        prev
+          .filter((cp) => cp.teacherId !== duplicateTeacherId)
+          .concat(
+            duplicatePrices
+              .filter((cp) => priceIdsToMoveSet.has(cp.id))
+              .map((cp) => ({ ...cp, teacherId: primaryTeacherId }))
+          )
+      );
+      setTeachers((prev) =>
+        prev.map((t) =>
+          t.id === duplicateTeacherId
+            ? {
+                ...t,
+                status: "archived" as const,
+                archivedAt: now,
+                archivedReason: `${primary.fullName} ile birleştirildi`,
+                mergedIntoTeacherId: primaryTeacherId,
+                updatedAt: now,
+              }
+            : t
+        )
+      );
+
+      const historyEntry: TeacherMergeHistory = {
+        id: `merge-${duplicateTeacherId}-${Date.now()}`,
+        tenantId: primary.tenantId,
+        primaryTeacherId,
+        primaryTeacherName: primary.fullName,
+        duplicateTeacherId,
+        duplicateTeacherName: duplicate.fullName,
+        mergedAt: now,
+        mergedBy: "Sistem Kullanıcısı",
+        reason: reason?.trim() || `${duplicate.fullName} → ${primary.fullName} birleştirildi`,
+        moved: {
+          sessions: movedSessionIds.length,
+          teacherEarnings: movedTeacherEarningIds.length,
+          teacherPayments: movedTeacherPaymentIds.length,
+          teacherCustomPrices: priceIdsToMove.length,
+          weeklyPlans: movedWeeklyPlanIds.length,
+        },
+        snapshot: {
+          duplicateTeacher: duplicate,
+          movedSessionIds,
+          movedTeacherEarningIds,
+          movedTeacherPaymentIds,
+          movedWeeklyPlanIds,
+          movedTeacherCustomPriceIds: priceIdsToMove,
+          droppedTeacherCustomPrices: droppedPrices,
+        },
+      };
+      setTeacherMergeHistory((prev) => [...prev, historyEntry]);
+    },
+
+    rollbackTeacherMerge: (mergeId) => {
+      const entry = teacherMergeHistoryRef.current.find((h) => h.id === mergeId);
+      if (!entry || entry.rolledBackAt) return;
+
+      const now = new Date().toISOString();
+      const { primaryTeacherId, duplicateTeacherId, snapshot } = entry;
+      const movedSessionIdSet = new Set(snapshot.movedSessionIds);
+      const movedEarningIdSet = new Set(snapshot.movedTeacherEarningIds);
+      const movedPaymentIdSet = new Set(snapshot.movedTeacherPaymentIds);
+      const movedPlanIdSet = new Set(snapshot.movedWeeklyPlanIds);
+      const movedPriceIdSet = new Set(snapshot.movedTeacherCustomPriceIds);
+
+      // Only flip back rows still owned by the primary — if something else
+      // reassigned one of these since the merge, that later, unrelated change
+      // is left alone rather than overwritten.
+      setSessions((prev) =>
+        prev.map((s) =>
+          movedSessionIdSet.has(s.id) && s.teacherId === primaryTeacherId
+            ? { ...s, teacherId: duplicateTeacherId, updatedAt: now }
+            : s
+        )
+      );
+      setTeacherEarnings((prev) =>
+        prev.map((e) =>
+          movedEarningIdSet.has(e.id) && e.teacherId === primaryTeacherId
+            ? { ...e, teacherId: duplicateTeacherId }
+            : e
+        )
+      );
+      setTeacherPayments((prev) =>
+        prev.map((p) =>
+          movedPaymentIdSet.has(p.id) && p.teacherId === primaryTeacherId
+            ? { ...p, teacherId: duplicateTeacherId, updatedAt: now }
+            : p
+        )
+      );
+      setWeeklySessionPlans((prev) =>
+        prev.map((w) =>
+          movedPlanIdSet.has(w.id) && w.teacherId === primaryTeacherId
+            ? { ...w, teacherId: duplicateTeacherId, updatedAt: now }
+            : w
+        )
+      );
+      setTeacherCustomPrices((prev) => [
+        ...prev.map((cp) =>
+          movedPriceIdSet.has(cp.id) && cp.teacherId === primaryTeacherId
+            ? { ...cp, teacherId: duplicateTeacherId }
+            : cp
+        ),
+        ...snapshot.droppedTeacherCustomPrices,
+      ]);
+      setTeachers((prev) =>
+        prev.map((t) =>
+          t.id === duplicateTeacherId
+            ? {
+                ...t,
+                status: snapshot.duplicateTeacher.status,
+                archivedAt: undefined,
+                archivedReason: undefined,
+                mergedIntoTeacherId: undefined,
+                updatedAt: now,
+              }
+            : t
+        )
+      );
+      setTeacherMergeHistory((prev) =>
+        prev.map((h) => (h.id === mergeId ? { ...h, rolledBackAt: now } : h))
+      );
     },
 
     addSession: (s) => {
@@ -481,6 +777,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setStudents([...DEMO_STUDENTS]);
       setGuardians([...DEMO_GUARDIANS]);
       setTeachers([...mockTeachers]);
+      setEducationTypes([...mockEducationTypes]);
       setSessions([]);
       setPayments([]);
       setTeacherEarnings([]);
@@ -492,6 +789,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setNotifications([]);
       setOpeningBalances([]);
       setImportBatches([]);
+      setTeacherMergeHistory([]);
     },
 
     notifications,
@@ -521,7 +819,29 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         })
       );
     },
-  };
+    }),
+    // Action functions are intentionally omitted below; see the comment above
+    // `value` for why that's safe (each one only closes over a stable setState
+    // function or a ref read).
+    [
+      students,
+      guardians,
+      teachers,
+      educationTypes,
+      sessions,
+      payments,
+      teacherEarnings,
+      teacherPayments,
+      teacherCustomPrices,
+      installmentPlans,
+      cashMovements,
+      openingBalances,
+      importBatches,
+      teacherMergeHistory,
+      weeklySessionPlans,
+      notifications,
+    ]
+  );
 
   return (
     <MockStoreContext.Provider value={value}>

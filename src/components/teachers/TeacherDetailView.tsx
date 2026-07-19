@@ -30,12 +30,12 @@ import {
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
 import { TeacherPaymentHistoryTab } from "@/components/teachers/TeacherPaymentHistoryTab";
+import { TeacherMergeHistoryTab } from "@/components/teachers/TeacherMergeHistoryTab";
 import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge, EarningStatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildTeacherDetail,
@@ -52,6 +52,7 @@ import {
 } from "@/lib/helpers/finance";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type {
+  EducationType,
   Session,
   Teacher,
   TeacherCustomPrice,
@@ -76,7 +77,8 @@ interface EarningDisplayRow {
 function buildSessionColumns(
   students: { id: string; fullName: string }[],
   teacher: Teacher | undefined,
-  teacherCustomPrices: TeacherCustomPrice[]
+  teacherCustomPrices: TeacherCustomPrice[],
+  educationTypes: EducationType[]
 ): Column<Session>[] {
   return [
     {
@@ -117,7 +119,7 @@ function buildSessionColumns(
       key: "educationType",
       header: "Eğitim Türü",
       render: (row) => {
-        const et = mockEducationTypes.find((e) => e.id === row.educationTypeId);
+        const et = educationTypes.find((e) => e.id === row.educationTypeId);
         return (
           <span className="text-muted-foreground">{et?.name ?? "—"}</span>
         );
@@ -341,12 +343,28 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   // and would otherwise always read back as 0. Never used for anything but
   // display; the store update itself is already complete by the time this is set.
   const [recalcAppliedCount, setRecalcAppliedCount] = useState(0);
+  const [mergeRollbackConfirmOpen, setMergeRollbackConfirmOpen] = useState(false);
   const rawTeacher = store.teachers.find((t) => t.id === teacherId);
-  const sessionColumns = buildSessionColumns(store.students, rawTeacher, store.teacherCustomPrices);
+  const sessionColumns = buildSessionColumns(
+    store.students,
+    rawTeacher,
+    store.teacherCustomPrices,
+    store.educationTypes
+  );
+  const mergeHistoryCount = store.teacherMergeHistory.filter(
+    (h) => h.primaryTeacherId === teacherId || h.duplicateTeacherId === teacherId
+  ).length;
+  // The single merge that archived this record, if it is itself a merged-away
+  // duplicate — used for the banner + quick rollback below. Always at most one
+  // active (non-rolled-back) entry can have this teacher as duplicateTeacherId,
+  // since mergeTeachers refuses to merge an already-archived teacher.
+  const archivingMerge = store.teacherMergeHistory.find(
+    (h) => h.duplicateTeacherId === teacherId && !h.rolledBackAt
+  );
   const detail = buildTeacherDetail(
     teacherId,
     store.teachers,
-    mockEducationTypes,
+    store.educationTypes,
     store.students,
     store.guardians,
     store.sessions,
@@ -391,7 +409,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   // the dialog always reflects the custom prices/settings as they are right now.
 
   const recalcPreview = rawTeacher
-    ? buildEarningRecalculationPreview(rawTeacher, store.sessions, store.teacherCustomPrices, store.students, mockEducationTypes)
+    ? buildEarningRecalculationPreview(rawTeacher, store.sessions, store.teacherCustomPrices, store.students, store.educationTypes)
     : [];
   const recalcResolvable = recalcPreview.filter((r) => r.recalculatedEarning !== null);
   const recalcStillUnresolved = recalcPreview.filter((r) => r.recalculatedEarning === null);
@@ -419,7 +437,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
       const session = store.sessions.find((s) => s.id === earning.sessionId);
       if (!session) return null;
       const student = store.students.find((s) => s.id === session.studentId);
-      const et = mockEducationTypes.find((e) => e.id === session.educationTypeId);
+      const et = store.educationTypes.find((e) => e.id === session.educationTypeId);
       return {
         earning,
         studentId: session.studentId,
@@ -721,6 +739,12 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
       badge: store.teacherPayments.filter((p) => p.teacherId === teacherId).length,
       content: <TeacherPaymentHistoryTab teacherId={teacherId} />,
     },
+    {
+      key: "merges",
+      label: "Birleştirme Geçmişi",
+      badge: mergeHistoryCount,
+      content: <TeacherMergeHistoryTab teacherId={teacherId} />,
+    },
   ];
 
   return (
@@ -734,6 +758,25 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
           <ArrowLeft className="h-3.5 w-3.5" />
           Öğretmenler
         </Link>
+
+        {/* Archived-via-merge banner */}
+        {rawTeacher?.status === "archived" && archivingMerge && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm text-slate-700">
+              Bu kayıt{" "}
+              <Link
+                href={`/app/teachers/${archivingMerge.primaryTeacherId}`}
+                className="font-medium underline underline-offset-2 hover:text-slate-900"
+              >
+                {archivingMerge.primaryTeacherName}
+              </Link>{" "}
+              ile birleştirildi — {formatDate(archivingMerge.mergedAt)}.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => setMergeRollbackConfirmOpen(true)}>
+              Birleştirmeyi Geri Al
+            </Button>
+          </div>
+        )}
 
         {/* Header card */}
         <Card>
@@ -789,14 +832,16 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                     Ödeme Yap
                   </Button>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditOpen(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                  Düzenle
-                </Button>
+                {detail.status !== "archived" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                    Düzenle
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -950,6 +995,40 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                 </Button>
               </>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick rollback from the archived-record banner above — same action as
+          the row-level "Geri Al" in the Birleştirme Geçmişi tab. */}
+      <Dialog open={mergeRollbackConfirmOpen} onOpenChange={setMergeRollbackConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Birleştirmeyi Geri Al</DialogTitle>
+            <DialogDescription>
+              {archivingMerge && (
+                <>
+                  &quot;{detail.fullName}&quot; yeniden etkinleştirilecek ve {archivingMerge.moved.sessions} seans,{" "}
+                  {archivingMerge.moved.teacherEarnings} hakediş, {archivingMerge.moved.teacherPayments} ödeme,{" "}
+                  {archivingMerge.moved.teacherCustomPrices} özel fiyat ve {archivingMerge.moved.weeklyPlans}{" "}
+                  haftalık plan bu kayda geri taşınacak.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeRollbackConfirmOpen(false)}>
+              Vazgeç
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (archivingMerge) store.rollbackTeacherMerge(archivingMerge.id);
+                setMergeRollbackConfirmOpen(false);
+              }}
+            >
+              Geri Al
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

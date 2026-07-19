@@ -647,7 +647,9 @@ export function getTeacherPriceRows(
 /** Trailing tokens that commonly stand in for "Hoca" (teacher) in source
  *  sheets — stripped one at a time from the end so "ekrem h" and "ekrem hoca"
  *  both collapse to "ekrem" for comparison purposes only. */
-const TEACHER_HONORIFIC_TOKENS = new Set(["hoca", "h", "öğretmen", "ogretmen", "abi", "hanım", "hanim"]);
+const TEACHER_HONORIFIC_TOKENS = new Set([
+  "hoca", "h", "öğretmen", "ogretmen", "öğrt", "ogrt", "abi", "hanım", "hanim",
+]);
 
 function stripTrailingTeacherHonorific(normalized: string): string {
   const tokens = normalized.split(" ");
@@ -670,13 +672,16 @@ export interface DuplicateTeacherCandidate {
 /** Flags teacher pairs whose names normalize to the same person once a
  *  trailing honorific/abbreviation is stripped — e.g. "EKREM" vs "EKREM H".
  *  Read-only: callers decide what (if anything) to do with the recommendation;
- *  this never mutates `teachers`/`sessions` or picks a "correct" record. */
+ *  this never mutates `teachers`/`sessions` or picks a "correct" record.
+ *  Archived teachers (already merged into someone else) are excluded — they've
+ *  already been resolved and shouldn't be re-suggested. */
 export function findLikelyDuplicateTeachers(teachers: Teacher[], sessions: Session[]): DuplicateTeacherCandidate[] {
+  const active = teachers.filter((t) => t.status !== "archived");
   const results: DuplicateTeacherCandidate[] = [];
-  for (let i = 0; i < teachers.length; i++) {
-    for (let j = i + 1; j < teachers.length; j++) {
-      const a = teachers[i]!;
-      const b = teachers[j]!;
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i]!;
+      const b = active[j]!;
       const strippedA = stripTrailingTeacherHonorific(normalizeName(a.fullName));
       const strippedB = stripTrailingTeacherHonorific(normalizeName(b.fullName));
       if (!strippedA || strippedA !== strippedB) continue;
@@ -1552,6 +1557,7 @@ export function getTeacherStatusLabel(status: TeacherStatus): string {
   const labels: Record<TeacherStatus, string> = {
     active: "Aktif",
     inactive: "Pasif",
+    archived: "Arşivlendi",
   };
   return labels[status];
 }

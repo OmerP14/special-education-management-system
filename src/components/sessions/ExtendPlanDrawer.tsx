@@ -6,7 +6,6 @@ import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
 import {
@@ -36,7 +35,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
 
   const student = store.students.find((s) => s.id === plan.studentId);
   const teacher = store.teachers.find((t) => t.id === plan.teacherId);
-  const educationType = mockEducationTypes.find((et) => et.id === plan.educationTypeId);
+  const educationType = store.educationTypes.find((et) => et.id === plan.educationTypeId);
 
   const minDate = nextDayString(plan.endDate);
   const isValidEndDate = !!newEndDate && newEndDate >= minDate;
@@ -193,7 +192,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
             conflicts={conflicts}
             students={store.students}
             teachers={store.teachers}
-            educationTypes={mockEducationTypes}
+            educationTypes={store.educationTypes}
           />
 
           {datesToCreate.length > 0 && (

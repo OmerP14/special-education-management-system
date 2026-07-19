@@ -17,7 +17,6 @@ import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildTeacherEarningListItems,
@@ -227,7 +226,7 @@ export default function TeacherEarningsPage() {
         store.sessions,
         store.teachers,
         store.students,
-        mockEducationTypes,
+        store.educationTypes,
         store.teacherCustomPrices
       ),
     [store.teacherEarnings, store.sessions, store.teachers, store.students, store.teacherCustomPrices]
@@ -633,7 +632,7 @@ export default function TeacherEarningsPage() {
             className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="all">Tüm Eğitim Türleri</option>
-            {mockEducationTypes.map((et) => (
+            {store.educationTypes.map((et) => (
               <option key={et.id} value={et.id}>
                 {et.name}
               </option>

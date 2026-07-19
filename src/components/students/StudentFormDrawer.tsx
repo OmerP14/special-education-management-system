@@ -14,9 +14,9 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import { getStudentStatusLabel } from "@/lib/helpers/finance";
+import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import type { Student, StudentStatus } from "@/types";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
@@ -96,6 +96,17 @@ export function StudentFormDrawer({
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
+
+  // Active-only for new selections, but never drops a type the student is
+  // already tagged with (an inactive type must stay visible/checked on an
+  // existing record — see AGENTS §5/§6).
+  const activeEducationTypes = getActiveEducationTypes(store.educationTypes);
+  const educationTypeOptions = [
+    ...activeEducationTypes,
+    ...store.educationTypes.filter(
+      (et) => et.status === "inactive" && form.educationTypeIds.includes(et.id)
+    ),
+  ];
 
   const toggleEducationType = (id: string) => {
     setForm((prev) => ({
@@ -251,7 +262,7 @@ export function StudentFormDrawer({
         <div className="space-y-2">
           <Label>Eğitim Türleri</Label>
           <div className="space-y-2">
-            {mockEducationTypes.map((et) => (
+            {educationTypeOptions.map((et) => (
               <label
                 key={et.id}
                 className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
@@ -263,7 +274,12 @@ export function StudentFormDrawer({
                   onChange={() => toggleEducationType(et.id)}
                 />
                 <div>
-                  <p className="text-sm font-medium">{et.name}</p>
+                  <p className="text-sm font-medium">
+                    {et.name}
+                    {et.status === "inactive" && (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">(Pasif)</span>
+                    )}
+                  </p>
                   {et.description && (
                     <p className="text-xs text-muted-foreground">{et.description}</p>
                   )}

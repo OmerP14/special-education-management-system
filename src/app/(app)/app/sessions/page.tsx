@@ -22,7 +22,6 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildSessionListItems,
@@ -255,7 +254,7 @@ function SessionsPageContent() {
         store.sessions,
         store.students,
         store.teachers,
-        mockEducationTypes,
+        store.educationTypes,
         store.teacherCustomPrices
       ),
     [store.sessions, store.students, store.teachers, store.teacherCustomPrices]
@@ -532,7 +531,7 @@ function SessionsPageContent() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Eğitim Türleri</option>
-              {mockEducationTypes.map((et) => (
+              {store.educationTypes.map((et) => (
                 <option key={et.id} value={et.id}>
                   {et.name}
                 </option>

@@ -16,7 +16,6 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { ExtendPlanDrawer } from "@/components/sessions/ExtendPlanDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { formatDate, formatCurrency } from "@/lib/helpers/finance";
 import {
   computeWeeklyPlanStatus,
@@ -115,7 +114,7 @@ function PlanCard({
 
   const now = new Date();
   const teacher = store.teachers.find((t) => t.id === plan.teacherId);
-  const educationType = mockEducationTypes.find((et) => et.id === plan.educationTypeId);
+  const educationType = store.educationTypes.find((et) => et.id === plan.educationTypeId);
 
   const status = computeWeeklyPlanStatus(plan, now);
   const statusConfig = PLAN_STATUS_CONFIG[status];

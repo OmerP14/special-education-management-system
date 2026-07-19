@@ -13,10 +13,10 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import { getTeacherStatusLabel } from "@/lib/helpers/finance";
-import type { Teacher, TeacherStatus, TeacherEarningType } from "@/types";
+import { getActiveEducationTypes } from "@/lib/helpers/education-types";
+import type { EducationType, Teacher, TeacherStatus, TeacherEarningType } from "@/types";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,10 +87,11 @@ function buildEmptyForm(): FormState {
 
 function buildFormFromTeacher(
   teacher: Teacher,
-  existingCustomPrices: Record<string, number | undefined>
+  existingCustomPrices: Record<string, number | undefined>,
+  educationTypes: EducationType[]
 ): FormState {
   const hasCustomBranch =
-    !!teacher.customBranch && !mockEducationTypes.some((et) => et.id === teacher.customBranch);
+    !!teacher.customBranch && !educationTypes.some((et) => et.id === teacher.customBranch);
   return {
     fullName: teacher.fullName,
     phone: teacher.phone,
@@ -140,14 +141,18 @@ export function TeacherFormDrawer({
   };
 
   const [form, setForm] = useState<FormState>(() =>
-    initialData ? buildFormFromTeacher(initialData, buildExistingPricesMap()) : buildEmptyForm()
+    initialData
+      ? buildFormFromTeacher(initialData, buildExistingPricesMap(), store.educationTypes)
+      : buildEmptyForm()
   );
 
   useEffect(() => {
     if (open) {
       const map = buildExistingPricesMap();
       setForm(
-        initialData ? buildFormFromTeacher(initialData, map) : buildEmptyForm()
+        initialData
+          ? buildFormFromTeacher(initialData, map, store.educationTypes)
+          : buildEmptyForm()
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,6 +160,17 @@ export function TeacherFormDrawer({
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
+
+  // Active-only for new specialization picks, but never drops one the teacher
+  // is already assigned (an inactive type must stay visible/checked on an
+  // existing record — see AGENTS §5/§6).
+  const activeEducationTypes = getActiveEducationTypes(store.educationTypes);
+  const specializationOptions = [
+    ...activeEducationTypes,
+    ...store.educationTypes.filter(
+      (et) => et.status === "inactive" && form.specializationIds.includes(et.id)
+    ),
+  ];
 
   const toggleSpecialization = (id: string) => {
     setForm((prev) => ({
@@ -289,7 +305,7 @@ export function TeacherFormDrawer({
         <div className="space-y-2">
           <Label>Uzmanlık Alanları</Label>
           <div className="space-y-2">
-            {mockEducationTypes.map((et) => {
+            {specializationOptions.map((et) => {
               const checked = form.specializationIds.includes(et.id);
               return (
                 <label
@@ -303,7 +319,12 @@ export function TeacherFormDrawer({
                     onChange={() => toggleSpecialization(et.id)}
                   />
                   <div>
-                    <p className="text-sm font-medium">{et.name}</p>
+                    <p className="text-sm font-medium">
+                      {et.name}
+                      {et.status === "inactive" && (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">(Pasif)</span>
+                      )}
+                    </p>
                     {et.description && (
                       <p className="text-xs text-muted-foreground">{et.description}</p>
                     )}
@@ -448,7 +469,7 @@ export function TeacherFormDrawer({
                   fiyat tanımsız kalır ve seans kaydında uyarı gösterilir.
                 </p>
                 <div className="space-y-2">
-                  {mockEducationTypes
+                  {store.educationTypes
                     .filter((et) => form.specializationIds.includes(et.id))
                     .map((et) => (
                       <div key={et.id} className="flex items-center gap-3">

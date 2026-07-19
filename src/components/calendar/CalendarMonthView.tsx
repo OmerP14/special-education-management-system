@@ -69,6 +69,10 @@ function DayCell({
               SESSION_STATUS_PILL_COLORS[event.status]
             )}
           >
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: event.educationTypeColor }}
+            />
             {event.billingMode === "historical_non_billable" && (
               <History className="h-2.5 w-2.5 shrink-0 opacity-60">
                 <title>Geçmiş kayıt — borca dahil değil</title>

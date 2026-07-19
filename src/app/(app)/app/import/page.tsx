@@ -44,8 +44,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { TeacherMergeHistorySection } from "@/components/teachers/TeacherMergeHistorySection";
+import { EducationTypeFormDrawer } from "@/components/settings/EducationTypeFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDateTime, calculateTeacherSessionEarning } from "@/lib/helpers/finance";
 import type {
@@ -670,6 +671,7 @@ function RepairPanel({
   const [draft, setDraft] = useState<Record<string, string>>(initialValues);
   const [createTeacher, setCreateTeacher] = useState(false);
   const [justApplied, setJustApplied] = useState(false);
+  const [newEducationTypeFieldKey, setNewEducationTypeFieldKey] = useState<string | null>(null);
 
   function set(key: string, value: string) {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -782,13 +784,24 @@ function RepairPanel({
               </>
             )}
             {f.kind === "educationTypeSelect" && (
-              <select value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass}>
+              <select
+                value={draft[f.key] ?? ""}
+                onChange={(e) => {
+                  if (e.target.value === "__create_new__") {
+                    setNewEducationTypeFieldKey(f.key);
+                    return;
+                  }
+                  set(f.key, e.target.value);
+                }}
+                className={repairInputClass}
+              >
                 <option value="">— Seçin —</option>
-                {mockEducationTypes.map((et) => (
+                {store.educationTypes.map((et) => (
                   <option key={et.id} value={et.name}>
                     {et.name}
                   </option>
                 ))}
+                <option value="__create_new__">+ Yeni Eğitim Türü Ekle…</option>
               </select>
             )}
             {f.kind === "paymentMethodSelect" && (
@@ -821,6 +834,14 @@ function RepairPanel({
         </button>
         {justApplied && <span className="text-[11px] text-muted-foreground">Satır yeniden doğrulandı.</span>}
       </div>
+      <EducationTypeFormDrawer
+        open={newEducationTypeFieldKey !== null}
+        onOpenChange={(open) => { if (!open) setNewEducationTypeFieldKey(null); }}
+        onSaved={(et) => {
+          if (newEducationTypeFieldKey) set(newEducationTypeFieldKey, et.name);
+          setNewEducationTypeFieldKey(null);
+        }}
+      />
     </div>
   );
 }
@@ -1189,7 +1210,7 @@ export default function ImportPage() {
     });
     const patchedSheet: ParsedSheet = { ...task.sheet, headers: patchedHeaders, rows: patchedRows };
 
-    const freshRows = buildStagedRows(task.type, mode, patchedSheet, mapping, currentStoreSnapshot(), mockEducationTypes);
+    const freshRows = buildStagedRows(task.type, mode, patchedSheet, mapping, currentStoreSnapshot(), store.educationTypes);
     return freshRows[rowIndex] ?? null;
   }
 
@@ -1276,8 +1297,8 @@ export default function ImportPage() {
     const teacherId = createdTeacher?.id ?? teacherRes!.teacher!.id;
     const isFromLedger = ledgerSheets.some((u) => u.key === entry.sheetKey);
     const educationTypeId = isFromLedger
-      ? ledgerEducationTypeId || mockEducationTypes[0]?.id || ""
-      : matrixEducationTypeId[entry.sheetKey] || mockEducationTypes[0]?.id || "";
+      ? ledgerEducationTypeId || store.educationTypes[0]?.id || ""
+      : matrixEducationTypeId[entry.sheetKey] || store.educationTypes[0]?.id || "";
     const startsAt = `${dateStr}T${timeStr}:00`;
 
     const duplicate = findDuplicateSession(studentId, teacherId, educationTypeId, startsAt, sessionDuplicateIndex);
@@ -1361,7 +1382,7 @@ export default function ImportPage() {
     const { classicTasks: ct, matrixSheets: ms, ledgerSheets: ls } = computeTaskSets(disabled);
 
     const classicInputs = ct.map((t) => ({ type: t.type, sheet: t.sheet, mapping: mappingForTask(t) }));
-    const classicResults = buildMultiImportPreview(classicInputs, mode, currentStoreSnapshot(), mockEducationTypes);
+    const classicResults = buildMultiImportPreview(classicInputs, mode, currentStoreSnapshot(), store.educationTypes);
 
     // Threaded forward into matrix/ledger processing so a student or teacher created
     // by an earlier classic task in this SAME run is immediately resolvable there too
@@ -1372,7 +1393,7 @@ export default function ImportPage() {
     const workingTeachers = [...store.teachers, ...classicResults.filter((r) => r.type === "teachers").flatMap((r) => teachersFromRows(r.rows))];
 
     const matrixEntries: PreviewTaskEntry[] = ms.map((u) => {
-      const eduId = matrixEducationTypeId[u.key] || mockEducationTypes[0]?.id || "";
+      const eduId = matrixEducationTypeId[u.key] || store.educationTypes[0]?.id || "";
       const rows = convertMatrixSheetToSessionCandidates(u.sheet, workingTeachers, workingStudents, eduId, workingSessions, mode, store.teacherCustomPrices);
       workingSessions = [...workingSessions, ...sessionsFromRows(rows)];
       return { type: "sessions", sheetKey: u.key, sheetLabel: `${u.sheet.name} (Zaman Çizelgesi Matrisi)`, rows };
@@ -1381,7 +1402,7 @@ export default function ImportPage() {
     let skippedRowCount = 0;
     let ledgerEntries: PreviewTaskEntry[] = [];
     if (ls.length > 0) {
-      const eduIdForLedger = ledgerEducationTypeId || mockEducationTypes[0]?.id || "";
+      const eduIdForLedger = ledgerEducationTypeId || store.educationTypes[0]?.id || "";
       // The "LİSTE" reference sheet participates automatically whenever it's present
       // in the upload, regardless of how (or whether) it was itself classified — the
       // user never has to separately "assign" it to anything.
@@ -1875,6 +1896,7 @@ export default function ImportPage() {
         )}
 
         {importHistorySection}
+        <TeacherMergeHistorySection />
         {rollbackDialog}
         {repairDrawer}
       </div>
@@ -2239,11 +2261,11 @@ export default function ImportPage() {
                         Bu sayfa bir zaman çizelgesi matrisi gibi görünüyor. Seansa dönüştürülecek — hangi eğitim türü için?
                       </p>
                       <select
-                        value={matrixEducationTypeId[u.key] ?? mockEducationTypes[0]?.id ?? ""}
+                        value={matrixEducationTypeId[u.key] ?? store.educationTypes[0]?.id ?? ""}
                         onChange={(e) => setMatrixEducationTypeId((prev) => ({ ...prev, [u.key]: e.target.value }))}
                         className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                       >
-                        {mockEducationTypes.map((et) => (
+                        {store.educationTypes.map((et) => (
                           <option key={et.id} value={et.id}>
                             {et.name}
                           </option>
@@ -2277,11 +2299,11 @@ export default function ImportPage() {
             <p className="mb-2 text-sm font-semibold text-foreground">{STUDENT_LEDGER_RESULT_LABEL} — Eğitim Türü</p>
             <p className="mb-2 text-xs text-muted-foreground">Bu format eğitim türü içermez; tüm öğrenci sayfaları için tek bir tür seçin.</p>
             <select
-              value={ledgerEducationTypeId || mockEducationTypes[0]?.id || ""}
+              value={ledgerEducationTypeId || store.educationTypes[0]?.id || ""}
               onChange={(e) => setLedgerEducationTypeId(e.target.value)}
               className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-xs"
             >
-              {mockEducationTypes.map((et) => (
+              {store.educationTypes.map((et) => (
                 <option key={et.id} value={et.id}>
                   {et.name}
                 </option>
@@ -2889,6 +2911,7 @@ export default function ImportPage() {
       {step === "preview" && previewStep}
 
       {importHistorySection}
+      <TeacherMergeHistorySection />
       {rollbackDialog}
       {repairDrawer}
     </div>

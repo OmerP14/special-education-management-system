@@ -24,7 +24,6 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { ReportViewer, type ReportSummaryCard } from "@/components/reports/ReportViewer";
 import { ReportFilterBar } from "@/components/reports/ReportFilterBar";
 import type { Column } from "@/components/shared/DataTable";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildStudentDebtItems,
@@ -747,8 +746,8 @@ export default function ReportsPage() {
     [store.students]
   );
   const edTypeOptions = useMemo(
-    () => mockEducationTypes.map((et) => ({ id: et.id, label: et.name })),
-    []
+    () => store.educationTypes.map((et) => ({ id: et.id, label: et.name })),
+    [store.educationTypes]
   );
 
   const { start, end } = useMemo(() => resolveReportDateRange(filters), [filters]);
@@ -777,11 +776,11 @@ export default function ReportsPage() {
       if (s) parts.push(`Öğrenci: ${s.fullName}`);
     }
     if (filters.educationTypeId) {
-      const et = mockEducationTypes.find((x) => x.id === filters.educationTypeId);
+      const et = store.educationTypes.find((x) => x.id === filters.educationTypeId);
       if (et) parts.push(`Eğitim Türü: ${et.name}`);
     }
     return parts.join(" · ");
-  }, [filters, start, end, store.teachers, store.students]);
+  }, [filters, start, end, store.teachers, store.students, store.educationTypes]);
 
   // ─── Filtered entity slices — shared by every report below ───────────────
   const filteredSessions = useMemo(
@@ -1067,7 +1066,7 @@ export default function ReportsPage() {
 
   function renderSessionStatusReport() {
     const breakdown = buildSessionStatusBreakdown(filteredSessions);
-    const rows = buildSessionListItems(filteredSessions, store.students, store.teachers, mockEducationTypes);
+    const rows = buildSessionListItems(filteredSessions, store.students, store.teachers, store.educationTypes);
 
     const summaryCards: ReportSummaryCard[] = [
       { title: "Tamamlanan", value: breakdown.completed, icon: CheckCircle2, variant: "success" },

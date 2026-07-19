@@ -9,18 +9,27 @@ import { Input } from "@/components/ui/input";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
-import { mockEducationTypes } from "@/lib/mock/education-types";
+import { TeacherMergeDrawer } from "@/components/teachers/TeacherMergeDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { buildTeacherListItems, findLikelyDuplicateTeachers, formatCurrency } from "@/lib/helpers/finance";
+import {
+  buildTeacherListItems,
+  findLikelyDuplicateTeachers,
+  formatCurrency,
+  type DuplicateTeacherCandidate,
+} from "@/lib/helpers/finance";
 import type { Teacher, TeacherListItem, TeacherStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Status filter options ─────────────────────────────────────────────────────
+// "all" deliberately excludes archived (merged-away) teachers — they're only
+// ever visible via the explicit "Arşivlenmiş" filter (Teacher Merge requirement:
+// hidden from the normal list, visible only in the Archived filter).
 
 const STATUS_FILTERS: { value: TeacherStatus | "all"; label: string }[] = [
   { value: "all", label: "Tümü" },
   { value: "active", label: "Aktif" },
   { value: "inactive", label: "Pasif" },
+  { value: "archived", label: "Arşivlenmiş" },
 ];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -31,12 +40,14 @@ export default function TeachersPage() {
   const [statusFilter, setStatusFilter] = useState<TeacherStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [mergeQueue, setMergeQueue] = useState<DuplicateTeacherCandidate[]>([]);
+  const [mergeDrawerOpen, setMergeDrawerOpen] = useState(false);
 
   const allItems = useMemo(
     () =>
       buildTeacherListItems(
         store.teachers,
-        mockEducationTypes,
+        store.educationTypes,
         store.sessions,
         store.teacherPayments,
         store.teacherCustomPrices
@@ -54,7 +65,7 @@ export default function TeachersPage() {
         (item.email?.toLowerCase().includes(q) ?? false) ||
         item.specializationNames.some((s) => s.toLowerCase().includes(q));
       const matchesStatus =
-        statusFilter === "all" || item.status === statusFilter;
+        statusFilter === "all" ? item.status !== "archived" : item.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [allItems, search, statusFilter]);
@@ -80,6 +91,20 @@ export default function TeachersPage() {
   const handleDrawerClose = (open: boolean) => {
     setDrawerOpen(open);
     if (!open) setEditingTeacher(null);
+  };
+
+  // "İncele" and "Birleştir" both open the same drawer — the drawer itself IS the
+  // review screen (full preview + conflict check before anything is confirmed),
+  // so a separate read-only view would just duplicate that UI. Bulk "Tümünü
+  // İncele" opens the same drawer with every candidate queued — see its own doc
+  // comment for why that never auto-merges.
+  const openMergeDrawer = (candidate: DuplicateTeacherCandidate) => {
+    setMergeQueue([candidate]);
+    setMergeDrawerOpen(true);
+  };
+  const openMergeReviewAll = () => {
+    setMergeQueue(duplicateCandidates);
+    setMergeDrawerOpen(true);
   };
 
   const columns: Column<TeacherListItem>[] = [
@@ -200,14 +225,17 @@ export default function TeachersPage() {
     {
       key: "edit",
       header: "",
-      render: (row) => (
-        <button
-          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-          onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
-        >
-          Düzenle
-        </button>
-      ),
+      render: (row) =>
+        row.status === "archived" ? (
+          <span className="text-xs text-muted-foreground/30">—</span>
+        ) : (
+          <button
+            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+          >
+            Düzenle
+          </button>
+        ),
       className: "text-right w-20",
       headerClassName: "text-right w-20",
     },
@@ -243,33 +271,65 @@ export default function TeachersPage() {
           }
         />
 
-        {/* Likely-duplicate teacher advisory — read-only, never auto-merges/
-            deletes. See findLikelyDuplicateTeachers in finance.ts. */}
+        {/* Likely-duplicate teacher advisory. Suggestions only — nothing here
+            merges/deletes by itself; every merge still goes through the full
+            preview/conflict/confirm drawer. See findLikelyDuplicateTeachers in
+            finance.ts. */}
         {duplicateCandidates.length > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Users2 className="h-4 w-4 text-amber-700 shrink-0" />
-              <p className="text-sm font-semibold text-amber-800">
-                Olası Yinelenen Öğretmen Kayıtları
-              </p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users2 className="h-4 w-4 text-amber-700 shrink-0" />
+                <p className="text-sm font-semibold text-amber-800">
+                  Olası Yinelenen Öğretmen Kayıtları
+                </p>
+              </div>
+              {duplicateCandidates.length > 1 && (
+                <button
+                  onClick={openMergeReviewAll}
+                  className="text-xs font-medium text-amber-800 underline underline-offset-2 hover:text-amber-900 shrink-0"
+                >
+                  Tümünü İncele ({duplicateCandidates.length})
+                </button>
+              )}
             </div>
             <div className="space-y-1.5">
               {duplicateCandidates.map((c) => (
-                <div key={`${c.teacherA.id}-${c.teacherB.id}`} className="text-xs text-amber-800">
-                  <Link href={`/app/teachers/${c.teacherA.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
-                    {c.teacherA.fullName}
-                  </Link>{" "}
-                  ({c.teacherASessionCount} seans) ile{" "}
-                  <Link href={`/app/teachers/${c.teacherB.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
-                    {c.teacherB.fullName}
-                  </Link>{" "}
-                  ({c.teacherBSessionCount} seans) aynı kişi olabilir.
+                <div
+                  key={`${c.teacherA.id}-${c.teacherB.id}`}
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs text-amber-800"
+                >
+                  <span>
+                    <Link href={`/app/teachers/${c.teacherA.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
+                      {c.teacherA.fullName}
+                    </Link>{" "}
+                    ({c.teacherASessionCount} seans) ile{" "}
+                    <Link href={`/app/teachers/${c.teacherB.id}`} className="font-medium underline underline-offset-2 hover:text-amber-900">
+                      {c.teacherB.fullName}
+                    </Link>{" "}
+                    ({c.teacherBSessionCount} seans) aynı kişi olabilir.
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => openMergeDrawer(c)}
+                      className="font-medium text-amber-800 underline underline-offset-2 hover:text-amber-900"
+                    >
+                      İncele
+                    </button>
+                    <button
+                      onClick={() => openMergeDrawer(c)}
+                      className="font-medium text-amber-900 underline underline-offset-2 hover:text-amber-950"
+                    >
+                      Birleştir
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
             <p className="text-[11px] text-amber-700">
-              Bu yalnızca bir öneridir — kayıtlar otomatik birleştirilmez veya silinmez. Birleştirmeden önce her iki
-              kaydı da inceleyin ve seansları/ödemeleri doğru öğretmene manuel olarak taşıyın.
+              Bu yalnızca bir öneridir — kayıtlar otomatik birleştirilmez veya silinmez.
+              &quot;Birleştir&quot; ile açılan ekranda taşınacak kayıtları ve olası çakışmaları
+              onaylamadan hiçbir veri değişmez.
             </p>
           </div>
         )}
@@ -331,6 +391,12 @@ export default function TeachersPage() {
         open={drawerOpen}
         onOpenChange={handleDrawerClose}
         initialData={editingTeacher ?? undefined}
+      />
+
+      <TeacherMergeDrawer
+        open={mergeDrawerOpen}
+        onOpenChange={setMergeDrawerOpen}
+        queue={mergeQueue}
       />
     </>
   );

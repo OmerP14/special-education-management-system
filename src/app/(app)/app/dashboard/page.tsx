@@ -158,6 +158,7 @@ export default function DashboardPage() {
           sessions={recentSessions}
           students={store.students}
           teachers={store.teachers}
+          educationTypes={store.educationTypes}
         />
       </div>
     </div>

@@ -20,6 +20,9 @@ export interface CalendarEvent {
   teacherName: string;
   educationTypeId: string;
   educationTypeName: string;
+  /** Falls back to a neutral gray when the education type is missing/unresolved
+   *  — never leaves a session card with no accent at all. */
+  educationTypeColor: string;
   status: SessionStatus;
   studentPrice: number;
   teacherEarning: number;
@@ -113,6 +116,7 @@ export function buildCalendarEvents(
       teacherName: teacher?.fullName ?? "—",
       educationTypeId: session.educationTypeId,
       educationTypeName: et?.name ?? "—",
+      educationTypeColor: et?.color ?? "#9ca3af",
       status: session.status,
       studentPrice: session.studentPrice,
       teacherEarning: session.teacherEarning,

@@ -50,15 +50,15 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={cn("rounded-lg border border-border overflow-hidden", className)}>
+    <div className={cn("rounded-lg border border-border", className)}>
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableRow className="sticky top-0 z-10 bg-muted hover:bg-muted">
             {columns.map((col) => (
               <TableHead
                 key={col.key}
                 className={cn(
-                  "text-xs font-semibold uppercase tracking-wide text-muted-foreground h-10",
+                  "h-10 text-xs font-semibold uppercase tracking-wide text-muted-foreground",
                   col.headerClassName
                 )}
               >
@@ -72,15 +72,15 @@ export function DataTable<T>({
             <TableRow
               key={keyExtractor(row)}
               className={cn(
-                "border-border",
-                onRowClick && "cursor-pointer hover:bg-muted/30"
+                "border-border transition-colors",
+                onRowClick && "cursor-pointer hover:bg-muted/40"
               )}
               onClick={() => onRowClick?.(row)}
             >
               {columns.map((col) => (
                 <TableCell
                   key={col.key}
-                  className={cn("py-3 text-sm", col.className)}
+                  className={cn("py-3.5 text-sm", col.className)}
                 >
                   {col.render(row)}
                 </TableCell>

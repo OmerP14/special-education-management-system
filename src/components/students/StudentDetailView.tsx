@@ -29,7 +29,6 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildStudentDetail,
@@ -47,13 +46,14 @@ import {
 } from "@/lib/helpers/installments";
 import { buildStudentCurrentAccount } from "@/lib/helpers/current-account";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
-import type { Session, Payment, PaymentMethod, InstallmentPlan } from "@/types";
+import type { Session, Payment, PaymentMethod, InstallmentPlan, EducationType } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Column builders ───────────────────────────────────────────────────────────
 
 function buildSessionColumns(
-  teachers: { id: string; fullName: string }[]
+  teachers: { id: string; fullName: string }[],
+  educationTypes: EducationType[]
 ): Column<Session>[] {
   return [
     {
@@ -98,7 +98,7 @@ function buildSessionColumns(
       key: "educationType",
       header: "Eğitim Türü",
       render: (row) => {
-        const et = mockEducationTypes.find((e) => e.id === row.educationTypeId);
+        const et = educationTypes.find((e) => e.id === row.educationTypeId);
         return (
           <span className="text-muted-foreground">{et?.name ?? "—"}</span>
         );
@@ -315,12 +315,12 @@ interface StudentDetailViewProps {
 export function StudentDetailView({ studentId }: StudentDetailViewProps) {
   const store = useMockStore();
   const [editOpen, setEditOpen] = useState(false);
-  const sessionColumns = buildSessionColumns(store.teachers);
+  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(
     studentId,
     store.students,
     store.guardians,
-    mockEducationTypes,
+    store.educationTypes,
     store.teachers,
     store.sessions,
     store.payments,

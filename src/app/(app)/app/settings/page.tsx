@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, RotateCcw, AlertTriangle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { Settings, RotateCcw, AlertTriangle, CheckCircle2, GraduationCap, ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,26 @@ export default function SettingsPage() {
         title="Ayarlar"
         description="Kurum ve hesap ayarları"
       />
+
+      {/* Eğitim Türleri */}
+      <Link href="/app/settings/education-types" className="block">
+        <Card className="transition-colors hover:border-primary/40">
+          <CardContent className="flex items-center justify-between gap-3 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <GraduationCap className="h-4.5 w-4.5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Eğitim Türleri</p>
+                <p className="text-xs text-muted-foreground">
+                  {store.educationTypes.length} eğitim türü · Süre, ücret ve renk ayarlarını yönetin
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </Link>
 
       {/* Demo data reset */}
       <Card>

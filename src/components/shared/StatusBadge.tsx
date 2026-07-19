@@ -52,6 +52,10 @@ const STATUS_CONFIG: Record<AnyStatus, { label: string; className: string }> = {
     label: "Pasif",
     className: "bg-gray-100 text-gray-600 border-gray-200",
   },
+  archived: {
+    label: "Arşivlendi",
+    className: "bg-slate-100 text-slate-600 border-slate-200",
+  },
   on_hold: {
     label: "Beklemede",
     className: "bg-amber-100 text-amber-700 border-amber-200",

@@ -57,9 +57,10 @@ function EventBlock({
         height,
         left: `calc(${col * widthPct}% + 4px)`,
         width: `calc(${widthPct}% - ${totalCols > 1 ? 6 : 8}px)`,
+        borderLeft: `3px solid ${event.educationTypeColor}`,
       }}
       className={cn(
-        "absolute rounded-lg px-2.5 py-1.5 text-left transition-all overflow-hidden z-0 hover:z-10",
+        "absolute rounded-lg pl-2 pr-2.5 py-1.5 text-left transition-all overflow-hidden z-0 hover:z-10",
         "focus:outline-none focus:ring-2 focus:ring-primary/50",
         SESSION_STATUS_BLOCK_COLORS[event.status]
       )}

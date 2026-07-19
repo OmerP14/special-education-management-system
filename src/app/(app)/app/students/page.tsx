@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
@@ -38,7 +37,7 @@ export default function StudentsPage() {
       buildStudentListItems(
         store.students,
         store.guardians,
-        mockEducationTypes,
+        store.educationTypes,
         store.teachers,
         store.sessions,
         store.payments,

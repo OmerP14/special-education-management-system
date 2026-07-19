@@ -20,14 +20,29 @@ export interface User {
 }
 
 // ─── Education Type ────────────────────────────────────────────────────────────
+export type EducationTypeStatus = "active" | "inactive";
+
 export interface EducationType {
   id: string;
   tenantId: string;
   name: string;
   description?: string;
+  /** Hex color, drawn from EDUCATION_TYPE_COLOR_PALETTE — used consistently for
+   *  calendar session cards, the calendar legend, and filter badges. */
+  color: string;
+  defaultDurationMinutes: number;
   defaultStudentPrice: number;
+  /** Informational reference only (shown in Teacher price rows) — never a
+   *  fallback in actual earning calculation, see calculateTeacherSessionEarning
+   *  in finance.ts. Real teacher-specific earning lives on TeacherCustomPrice;
+   *  this field is intentionally not editable from Settings → Eğitim Türleri. */
   defaultTeacherEarning: number;
+  /** "inactive" hides the type from new-record selectors everywhere but never
+   *  changes how it renders on historical records/reports — see
+   *  getActiveEducationTypes/getEducationTypeLabel in education-types.ts. */
+  status: EducationTypeStatus;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── Student ───────────────────────────────────────────────────────────────────
@@ -67,7 +82,11 @@ export interface Guardian {
 }
 
 // ─── Teacher ───────────────────────────────────────────────────────────────────
-export type TeacherStatus = "active" | "inactive";
+/** "archived" is set ONLY by the Teacher Merge workflow (see TeacherMergeHistory) —
+ *  never manually selectable in the edit form. An archived teacher keeps every one
+ *  of its historical Session/TeacherEarning/TeacherPayment rows intact for audit;
+ *  only NEW activity is redirected to whichever teacher absorbed it. */
+export type TeacherStatus = "active" | "inactive" | "archived";
 export type TeacherEarningType =
   | "per_session"
   | "monthly_salary"
@@ -94,6 +113,12 @@ export interface Teacher {
   createdAt: string;
   updatedAt?: string;
   importBatchId?: string;
+  /** Set together with status:"archived" when this record was merged away —
+   *  see TeacherMergeHistory. Never set directly; only mergeTeachers/rollback
+   *  in the store write these three fields. */
+  archivedAt?: string;
+  archivedReason?: string;
+  mergedIntoTeacherId?: string;
 }
 
 // ─── Session ───────────────────────────────────────────────────────────────────
@@ -964,4 +989,60 @@ export interface EditedImportRecord {
   entityType: ImportEntityType;
   id: string;
   label: string;
+}
+
+// ─── Teacher Merge (duplicate-teacher consolidation) ───────────────────────────
+// A merge never deletes the duplicate teacher or any of its historical rows — it
+// reassigns every Session/TeacherEarning/TeacherPayment/TeacherCustomPrice/
+// WeeklySessionPlan.teacherId from the duplicate to the primary, then archives
+// the duplicate (status:"archived"). Reports/Dashboard/Calendar all derive from
+// these same arrays, so they update for free — nothing else needs to know a
+// merge happened. See lib/helpers/teacher-merge.ts and store.mergeTeachers.
+
+export interface TeacherMergeMovedCounts {
+  sessions: number;
+  teacherEarnings: number;
+  teacherPayments: number;
+  teacherCustomPrices: number;
+  weeklyPlans: number;
+}
+
+/**
+ * Everything needed to reverse a merge without touching any record that wasn't
+ * part of it. Only ids are kept for the reassigned entities (rollback just flips
+ * teacherId back); teacherCustomPrice rows dropped for conflicting with a price
+ * the primary already had are kept in full (they were removed from the live
+ * array entirely, so there's no id left to flip back — the whole row must be
+ * recreated). See rollbackTeacherMerge in store.tsx.
+ */
+export interface TeacherMergeSnapshot {
+  /** Full duplicate Teacher record exactly as it was immediately before archiving. */
+  duplicateTeacher: Teacher;
+  movedSessionIds: string[];
+  movedTeacherEarningIds: string[];
+  movedTeacherPaymentIds: string[];
+  movedWeeklyPlanIds: string[];
+  movedTeacherCustomPriceIds: string[];
+  /** Custom price rows that existed on the duplicate but were NOT moved because
+   *  the primary already had a price for that educationTypeId — buildTeacherMergePreview
+   *  flags this as a blocking conflict, so in practice this is always empty at the
+   *  moment a merge is actually confirmed; kept for defense-in-depth. */
+  droppedTeacherCustomPrices: TeacherCustomPrice[];
+}
+
+export interface TeacherMergeHistory {
+  id: string;
+  tenantId: string;
+  primaryTeacherId: string;
+  /** Snapshot of names at merge time — stays readable even if the primary is
+   *  later renamed or (via a later merge) archived itself. */
+  primaryTeacherName: string;
+  duplicateTeacherId: string;
+  duplicateTeacherName: string;
+  mergedAt: string;
+  mergedBy: string;
+  reason: string;
+  moved: TeacherMergeMovedCounts;
+  snapshot: TeacherMergeSnapshot;
+  rolledBackAt?: string;
 }

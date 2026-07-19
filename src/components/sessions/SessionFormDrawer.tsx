@@ -16,8 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
+import { getEducationTypeById, getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
   calculateTeacherSessionEarning,
@@ -87,6 +87,7 @@ interface FormState {
   educationTypeId: string;
   date: string;
   time: string;
+  durationMinutes: number;
   studentPrice: number;
   teacherEarningPrice: number;
   status: SessionStatus;
@@ -99,6 +100,7 @@ const EMPTY_FORM: FormState = {
   educationTypeId: "",
   date: "",
   time: "",
+  durationMinutes: 50,
   studentPrice: 0,
   teacherEarningPrice: 0,
   status: "planned",
@@ -116,6 +118,7 @@ function buildFromSession(session: Session): FormState {
     educationTypeId: session.educationTypeId,
     date: dateStr,
     time: timeStr,
+    durationMinutes: session.durationMinutes,
     studentPrice: session.studentPrice,
     teacherEarningPrice: session.teacherEarning,
     status: session.status,
@@ -203,14 +206,33 @@ export function SessionFormDrawer({
     setManualEarningAcknowledged(false);
     setForm((prev) => {
       const teacher = prev.teacherId ? store.teachers.find((t) => t.id === prev.teacherId) : null;
-      const defaultStudent = getDefaultStudentPrice(etId, mockEducationTypes);
+      const defaultStudent = getDefaultStudentPrice(etId, store.educationTypes);
+      // Prefills only — never touches durationMinutes/studentPrice on any
+      // session that already exists, since this only runs from the form's own
+      // Select onChange (see AGENTS §9: changing the EducationType default
+      // later must not retroactively change existing sessions).
+      const defaultDuration =
+        getEducationTypeById(etId, store.educationTypes)?.defaultDurationMinutes ?? prev.durationMinutes;
       if (teacher && !teacherMatchesEducationType(teacher, etId)) {
-        return { ...prev, educationTypeId: etId, teacherId: "", studentPrice: defaultStudent, teacherEarningPrice: 0 };
+        return {
+          ...prev,
+          educationTypeId: etId,
+          teacherId: "",
+          studentPrice: defaultStudent,
+          teacherEarningPrice: 0,
+          durationMinutes: defaultDuration,
+        };
       }
       const teacherEarningPrice = teacher
         ? (calculateTeacherSessionEarning(teacher, etId, defaultStudent, store.teacherCustomPrices) ?? 0)
         : 0;
-      return { ...prev, educationTypeId: etId, studentPrice: defaultStudent, teacherEarningPrice };
+      return {
+        ...prev,
+        educationTypeId: etId,
+        studentPrice: defaultStudent,
+        teacherEarningPrice,
+        durationMinutes: defaultDuration,
+      };
     });
   };
 
@@ -241,8 +263,6 @@ export function SessionFormDrawer({
       ? `${form.date}T${form.time}:00`
       : `${form.date}T00:00:00`
     : null;
-  const sessionDurationMinutes = initialData?.durationMinutes ?? 50;
-
   const conflictResult = useMemo(() => {
     if (!startsAt || !form.studentId || !form.teacherId) {
       return { hasConflict: false, isDuplicate: false, conflictType: null, conflictingSessions: [], message: null };
@@ -252,12 +272,12 @@ export function SessionFormDrawer({
       studentId: form.studentId,
       teacherId: form.teacherId,
       startsAt,
-      durationMinutes: sessionDurationMinutes,
+      durationMinutes: form.durationMinutes,
       excludeSessionId: initialData?.id,
       educationTypeId: form.educationTypeId || undefined,
       fee: form.studentPrice,
     });
-  }, [startsAt, form.studentId, form.teacherId, form.educationTypeId, form.studentPrice, sessionDurationMinutes, store.sessions, initialData?.id]);
+  }, [startsAt, form.studentId, form.teacherId, form.educationTypeId, form.studentPrice, form.durationMinutes, store.sessions, initialData?.id]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = () => {
@@ -277,7 +297,7 @@ export function SessionFormDrawer({
       teacherId: form.teacherId,
       educationTypeId: form.educationTypeId,
       date: dateStr,
-      durationMinutes: sessionDurationMinutes,
+      durationMinutes: form.durationMinutes,
       sessionCount: initialData?.sessionCount ?? 1,
       studentPrice: form.studentPrice,
       teacherEarning: form.teacherEarningPrice,
@@ -338,7 +358,7 @@ export function SessionFormDrawer({
     ? (store.teachers.find((t) => t.id === form.teacherId)?.fullName ?? form.teacherId)
     : null;
   const educationTypeDisplayName = form.educationTypeId
-    ? (mockEducationTypes.find((et) => et.id === form.educationTypeId)?.name ?? form.educationTypeId)
+    ? (store.educationTypes.find((et) => et.id === form.educationTypeId)?.name ?? form.educationTypeId)
     : null;
   const statusDisplayLabel = STATUS_OPTIONS.find((o) => o.value === form.status)?.label ?? form.status;
 
@@ -356,10 +376,17 @@ export function SessionFormDrawer({
   }, [store.teachers, form.educationTypeId, form.teacherId]);
 
   const filteredEducationTypeOptions = useMemo(() => {
-    if (!form.teacherId || !selectedTeacher) return mockEducationTypes;
-    if (selectedTeacher.specializations.length === 0) return mockEducationTypes;
-    return mockEducationTypes.filter((et) => selectedTeacher.specializations.includes(et.id));
-  }, [form.teacherId, selectedTeacher]);
+    // Active-only for new selections, but never drops an already-selected
+    // inactive type (editing a historical session must keep it visible).
+    const active = getActiveEducationTypes(store.educationTypes);
+    const base =
+      form.educationTypeId && !active.some((et) => et.id === form.educationTypeId)
+        ? [...active, ...store.educationTypes.filter((et) => et.id === form.educationTypeId)]
+        : active;
+    if (!form.teacherId || !selectedTeacher) return base;
+    if (selectedTeacher.specializations.length === 0) return base;
+    return base.filter((et) => selectedTeacher.specializations.includes(et.id));
+  }, [store.educationTypes, form.teacherId, form.educationTypeId, selectedTeacher]);
 
   const studentOptions = useMemo(() => {
     const active = store.students.filter((s) => s.status !== "inactive");
@@ -548,12 +575,25 @@ export function SessionFormDrawer({
           </div>
         </div>
 
+        {/* Süre — prefilled from the education type's default, always overridable */}
+        <div className="space-y-1.5">
+          <Label htmlFor="session-duration">Süre (dakika)</Label>
+          <NumericInput
+            id="session-duration"
+            min={1}
+            integer
+            value={form.durationMinutes}
+            onValueChange={(v) => set("durationMinutes", v ?? 0)}
+            className="w-28"
+          />
+        </div>
+
         {/* Zamanlama çakışması */}
         <SessionConflictError
           result={conflictResult}
           students={store.students}
           teachers={store.teachers}
-          educationTypes={mockEducationTypes}
+          educationTypes={store.educationTypes}
         />
 
         {/* Seans Ücreti */}

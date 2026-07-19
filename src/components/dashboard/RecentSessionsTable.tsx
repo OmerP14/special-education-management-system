@@ -1,19 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { Session, Student, Teacher } from "@/types";
+import type { EducationType, Session, Student, Teacher } from "@/types";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatDateTime, formatCurrency } from "@/lib/helpers/finance";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 
 interface RecentSessionsTableProps {
   sessions: Session[];
   students: Student[];
   teachers: Teacher[];
+  educationTypes: EducationType[];
 }
 
-export function RecentSessionsTable({ sessions, students, teachers }: RecentSessionsTableProps) {
+export function RecentSessionsTable({ sessions, students, teachers, educationTypes }: RecentSessionsTableProps) {
   const router = useRouter();
 
   // No dedicated session detail route exists in this app (sessions are edited via a
@@ -45,7 +45,7 @@ export function RecentSessionsTable({ sessions, students, teachers }: RecentSess
       key: "educationType",
       header: "Eğitim Türü",
       render: (row) => {
-        const et = mockEducationTypes.find((e) => e.id === row.educationTypeId);
+        const et = educationTypes.find((e) => e.id === row.educationTypeId);
         return <span className="text-muted-foreground">{et?.name ?? "—"}</span>;
       },
       className: "hidden md:table-cell",

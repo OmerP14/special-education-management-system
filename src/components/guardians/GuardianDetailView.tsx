@@ -41,7 +41,6 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import {
   buildGuardianDetail,
@@ -62,7 +61,7 @@ import {
   buildGuardianCurrentAccountMovements,
 } from "@/lib/helpers/current-account";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
-import type { Student, Session, Payment, PaymentMethod, OpeningBalance } from "@/types";
+import type { Student, Session, Payment, PaymentMethod, OpeningBalance, EducationType } from "@/types";
 import { cn, formatTitleCase } from "@/lib/utils";
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -124,7 +123,8 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 function buildStudentColumns(
   sessions: { id: string; studentId: string; studentPrice: number; sessionCount: number; status: string }[],
   payments: { id: string; studentId: string; amount: number }[],
-  openingBalances: OpeningBalance[] = []
+  openingBalances: OpeningBalance[] = [],
+  educationTypes: EducationType[] = []
 ): Column<Student>[] {
   return [
     {
@@ -145,7 +145,7 @@ function buildStudentColumns(
       header: "Eğitim Türleri",
       render: (row) => {
         const names = row.educationTypeIds
-          .map((id) => mockEducationTypes.find((et) => et.id === id)?.name)
+          .map((id) => educationTypes.find((et) => et.id === id)?.name)
           .filter(Boolean);
         return names.length > 0 ? (
           <div className="flex flex-wrap gap-1">
@@ -286,7 +286,8 @@ function buildPaymentColumns(
 
 function buildSessionColumns(
   students: { id: string; fullName: string }[],
-  teachers: { id: string; fullName: string }[]
+  teachers: { id: string; fullName: string }[],
+  educationTypes: EducationType[]
 ): Column<Session>[] {
   return [
     {
@@ -347,7 +348,7 @@ function buildSessionColumns(
       key: "educationType",
       header: "Eğitim Türü",
       render: (row) => {
-        const et = mockEducationTypes.find((e) => e.id === row.educationTypeId);
+        const et = educationTypes.find((e) => e.id === row.educationTypeId);
         return (
           <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
             {et?.name ?? "—"}
@@ -449,9 +450,14 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
   const store = useMockStore();
 
   // ── Column builders ────────────────────────────────────────────────────────
-  const studentColumns = buildStudentColumns(store.sessions, store.payments, store.openingBalances);
+  const studentColumns = buildStudentColumns(
+    store.sessions,
+    store.payments,
+    store.openingBalances,
+    store.educationTypes
+  );
   const paymentColumns = buildPaymentColumns(store.students);
-  const sessionColumns = buildSessionColumns(store.students, store.teachers);
+  const sessionColumns = buildSessionColumns(store.students, store.teachers, store.educationTypes);
 
   // ── Core data ──────────────────────────────────────────────────────────────
   const detail = buildGuardianDetail(
@@ -607,7 +613,7 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
     for (const session of detail.sessions) {
       const teacher = store.teachers.find((t) => t.id === session.teacherId);
       const student = detail.students.find((s) => s.id === session.studentId);
-      const et = mockEducationTypes.find((e) => e.id === session.educationTypeId);
+      const et = store.educationTypes.find((e) => e.id === session.educationTypeId);
       events.push({
         id: `ev-session-${session.id}`,
         type: "session_created",
@@ -856,7 +862,7 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
                     .map((id) => store.teachers.find((t) => t.id === id)?.fullName)
                     .filter(Boolean);
                   const educationTypeNames = student.educationTypeIds
-                    .map((id) => mockEducationTypes.find((et) => et.id === id)?.name)
+                    .map((id) => store.educationTypes.find((et) => et.id === id)?.name)
                     .filter(Boolean);
                   const lastCompletedSession = store.sessions
                     .filter((s) => s.studentId === student.id && s.status === "completed")

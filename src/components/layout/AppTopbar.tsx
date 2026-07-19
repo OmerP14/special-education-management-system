@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, Check, ChevronDown, Menu } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { Bell, Check, ChevronDown, PanelLeft } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,13 +12,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSidebar } from "@/components/ui/sidebar";
 import { useMockStore } from "@/lib/mock/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
+import { resolveNavBreadcrumb } from "@/lib/nav";
 import { cn } from "@/lib/utils";
-
-interface AppTopbarProps {
-  onMenuToggle?: () => void;
-}
 
 const MOCK_USER = {
   name: "Yönetici",
@@ -25,9 +27,21 @@ const MOCK_USER = {
   initials: "YN",
 };
 
-export function AppTopbar({ onMenuToggle }: AppTopbarProps) {
+interface AppTopbarProps {
+  sidebarVisible: boolean;
+  onToggleSidebar: () => void;
+}
+
+export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
   const { notifications, markAllNotificationsRead, students, teachers } = store;
+  const pathname = usePathname();
+  const breadcrumb = resolveNavBreadcrumb(pathname);
+  // On mobile the sidebar is always a Sheet overlay with its own open/closed
+  // state (openMobile) — our desktop visible/hidden state doesn't apply there,
+  // so this same header button drives a DIFFERENT action on mobile: open/close
+  // the drawer, via the primitive's own mobile-aware toggle.
+  const { isMobile, toggleSidebar, openMobile } = useSidebar();
 
   const unreadCount = notifications.filter((n) => !n.readAt).length;
   const hasUnread = unreadCount > 0;
@@ -36,18 +50,54 @@ export function AppTopbar({ onMenuToggle }: AppTopbarProps) {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-background px-4 lg:px-6">
-      {/* Left – mobile menu toggle */}
-      <button
-        className="lg:hidden flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent transition-colors"
-        onClick={onMenuToggle}
-      >
-        <Menu className="h-5 w-5" />
-      </button>
+  // One consistent icon, regardless of state — only the accessible label
+  // changes. Matches the reference apps (Notion, Linear, ChatGPT): a single,
+  // unassuming toggle, not a different icon per state.
+  const sidebarLabel = isMobile
+    ? openMobile
+      ? "Menüyü Kapat"
+      : "Menüyü Aç"
+    : sidebarVisible
+      ? "Menüyü Gizle"
+      : "Menüyü Göster";
 
-      {/* Spacer on desktop */}
-      <div className="hidden lg:block" />
+  return (
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 lg:px-5">
+      {/* Left – sidebar toggle + breadcrumb. This button is the ONLY way to
+          restore a hidden sidebar — it lives here, outside the Sidebar
+          itself, so it stays reachable while hidden. */}
+      <div className="flex min-w-0 items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={sidebarLabel}
+                onClick={isMobile ? toggleSidebar : onToggleSidebar}
+                className="text-muted-foreground hover:text-foreground"
+              />
+            }
+          >
+            <PanelLeft className="h-4 w-4" />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{sidebarLabel}</TooltipContent>
+        </Tooltip>
+        {breadcrumb && (
+          <>
+            <Separator orientation="vertical" className="h-4" />
+            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+              {breadcrumb.groupLabel && (
+                <>
+                  <span className="truncate text-muted-foreground">{breadcrumb.groupLabel}</span>
+                  <span className="text-muted-foreground/40">/</span>
+                </>
+              )}
+              <span className="truncate font-medium text-foreground">{breadcrumb.pageLabel}</span>
+            </nav>
+          </>
+        )}
+      </div>
 
       {/* Right – actions */}
       <div className="flex items-center gap-2">
@@ -55,7 +105,7 @@ export function AppTopbar({ onMenuToggle }: AppTopbarProps) {
         {/* ── Notification bell ──────────────────────────────────────────────── */}
         <DropdownMenu onOpenChange={(open) => { if (open && hasUnread) markAllNotificationsRead(); }}>
           <DropdownMenuTrigger
-            className="relative flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent transition-colors focus-visible:outline-none"
+            className="relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell className="h-4 w-4" />
             {hasUnread && (
@@ -161,7 +211,7 @@ export function AppTopbar({ onMenuToggle }: AppTopbarProps) {
         {/* ── User menu ──────────────────────────────────────────────────────── */}
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none"
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Avatar className="h-7 w-7">
               <AvatarFallback className="bg-primary text-primary-foreground text-xs">

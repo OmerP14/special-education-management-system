@@ -1,0 +1,344 @@
+Implement dynamic Education Types managed from Settings.
+
+This is the next planned feature after the navigation cleanup.
+
+The current system uses fixed education/session types such as:
+
+- Dil Terapisi
+- Ergoterapi
+- ABA
+- Floortime
+- Grup Eğitimi
+- Bireysel Eğitim
+
+These must no longer be hard-coded across the application.
+
+The institution must be able to create and manage its own education types from Settings.
+
+Do not implement group sessions yet.
+Do not redesign Finance yet.
+This task is only about dynamic Education Types and their safe integration.
+
+====================================================
+1. Add Settings → Education Types
+====================================================
+
+Create a new Settings section/page:
+
+Ayarlar
+→ Eğitim Türleri
+
+Add a clear management table.
+
+Columns:
+
+- Eğitim Türü
+- Varsayılan Süre
+- Varsayılan Öğrenci Ücreti
+- Renk
+- Durum
+- Kullanım
+- İşlemler
+
+Actions:
+
+- Eğitim Türü Ekle
+- Düzenle
+- Aktif/Pasif yap
+- Sil
+
+====================================================
+2. EducationType model
+====================================================
+
+Add a canonical EducationType entity.
+
+Suggested fields:
+
+- id
+- name
+- code or slug
+- description
+- color
+- defaultDurationMinutes
+- defaultStudentFee
+- status: active | inactive
+- createdAt
+- updatedAt
+
+Optional migration metadata may be added if useful.
+
+Do not store teacher earning on this entity.
+
+Teacher earning remains teacher-specific and will be handled in the next task.
+
+====================================================
+3. Create/Edit form
+====================================================
+
+Fields:
+
+- Eğitim Türü Adı
+- Açıklama
+- Takvim Rengi
+- Varsayılan Seans Süresi
+- Varsayılan Öğrenci Ücreti
+- Durum
+
+Validation:
+
+- name required
+- trimmed name
+- duplicate normalized name blocked
+- duration must be positive
+- fee cannot be negative
+- color required or assigned from a safe default palette
+
+Show clear Turkish validation messages.
+
+====================================================
+4. Existing data migration
+====================================================
+
+Seed existing hard-coded education types into the new EducationType store.
+
+Preserve current behavior and labels.
+
+Existing sessions, students, teachers, weekly plans, reports and imports must continue to resolve their education type correctly.
+
+Do not lose historical references.
+
+If the current models store education type as a string, introduce a safe compatibility/migration layer.
+
+Preferred long-term target:
+
+educationTypeId
+
+But do not break existing mock data during migration.
+
+====================================================
+5. Replace hard-coded options
+====================================================
+
+Replace fixed education-type dropdowns and filters with the canonical EducationType collection in:
+
+- Student create/edit
+- Teacher create/edit
+- Session create/edit
+- Weekly Session Plan
+- Calendar filters
+- Session filters
+- Teacher custom prices
+- Reports
+- Excel Import mapping/repair
+- Any other touched education-type selector
+
+Only active education types should appear in new record forms.
+
+Inactive types must remain visible on historical records and reports.
+
+====================================================
+6. Delete and deactivate rules
+====================================================
+
+Never delete an education type that is already referenced.
+
+If used by any:
+
+- student
+- teacher
+- session
+- weekly plan
+- custom teacher price
+- imported record
+- historical record
+
+disable Delete and explain:
+
+"Bu eğitim türü mevcut kayıtlarda kullanıldığı için silinemez. Pasife alabilirsiniz."
+
+Allow permanent delete only when usage count is zero.
+
+Deactivation:
+
+- hides it from new selections
+- does not change existing records
+- does not remove it from historical reports
+- can be reversed
+
+====================================================
+7. Usage count
+====================================================
+
+Show usage count in Settings.
+
+At minimum include:
+
+- sessions
+- students
+- teachers
+- weekly plans
+- custom prices
+
+A detail popover or drawer may show the breakdown.
+
+Use canonical helpers for the usage count.
+
+====================================================
+8. Calendar color
+====================================================
+
+Use the education type's selected color consistently in:
+
+- Calendar session cards
+- Calendar legend
+- Filters/badges where appropriate
+
+Ensure text remains readable against the selected color.
+
+Do not allow inaccessible combinations.
+
+====================================================
+9. Default values in session creation
+====================================================
+
+When an education type is selected in Session Form:
+
+- default duration should prefill from EducationType
+- default student fee should prefill from EducationType
+
+The user may still override the session fee when allowed by the current system.
+
+Changing the EducationType default later must not retroactively change existing sessions.
+
+====================================================
+10. Excel Import behavior
+====================================================
+
+Import must resolve education types against the canonical list.
+
+Use normalized matching.
+
+If an imported education type does not exist:
+
+- do not silently map it to another type
+- show it as unresolved
+- allow the user to:
+  - match it to an existing education type
+  - create a new education type directly from the repair flow
+
+Newly created types must then become available throughout the application.
+
+====================================================
+11. Reports and exports
+====================================================
+
+Reports and CSV/PDF exports must use the EducationType display name from the canonical entity.
+
+Historical inactive types must still display correctly.
+
+Do not expose raw ids.
+
+====================================================
+12. UI/UX
+====================================================
+
+Keep the Settings experience simple and professional.
+
+Suggested layout:
+
+- page title and short explanation
+- active/inactive filter
+- search
+- compact table
+- add button
+- edit drawer
+
+Use Turkish labels consistently.
+
+Avoid excessive cards or decorative UI.
+
+====================================================
+13. Architecture
+====================================================
+
+Use one canonical source for education types.
+
+Do not duplicate hard-coded arrays in components.
+
+Provide helpers such as:
+
+- getEducationTypeById
+- getActiveEducationTypes
+- getEducationTypeLabel
+- getEducationTypeUsage
+- normalizeEducationTypeName
+
+Avoid formulas or lookups duplicated across screens.
+
+====================================================
+14. QA
+====================================================
+
+Test in a disposable harness or with clean rollback:
+
+A. Add a new type:
+"Oyun Terapisi"
+
+Expected:
+- appears in Settings
+- appears in new session form
+- appears in teacher/student selectors where relevant
+- available in filters
+
+B. Edit:
+"Oyun Terapisi" → "Oyun Temelli Terapi"
+
+Expected:
+- existing references remain intact
+- display name updates everywhere
+- no duplicate entity created
+
+C. Deactivate:
+
+Expected:
+- hidden from new forms
+- historical records still display it
+- filters/reports remain safe
+
+D. Delete unused type:
+
+Expected:
+- deleted successfully
+
+E. Attempt to delete used type:
+
+Expected:
+- blocked with clear explanation
+
+F. Import unknown type:
+
+Expected:
+- unresolved until matched or created
+
+G. Existing legacy types:
+
+Expected:
+- no data loss
+- no broken session, teacher or report rows
+
+Run:
+
+- npx tsc --noEmit
+- eslint on every touched file
+
+Return:
+
+- files changed
+- model/store architecture
+- migration/compatibility strategy
+- hard-coded options removed
+- Settings UI changes
+- import changes
+- QA results
+- any remaining hard-coded education-type usage

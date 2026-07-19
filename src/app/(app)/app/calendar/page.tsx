@@ -20,7 +20,6 @@ import { CalendarMonthView } from "@/components/calendar/CalendarMonthView";
 import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
 import { CalendarDayView } from "@/components/calendar/CalendarDayView";
 import { CalendarAgendaView } from "@/components/calendar/CalendarAgendaView";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -29,6 +28,7 @@ import {
   getCalendarEventRelations,
   getWeekDays,
 } from "@/lib/helpers/calendar";
+import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import type { Session, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -145,9 +145,9 @@ export default function CalendarPage() {
         store.sessions,
         store.students,
         store.teachers,
-        mockEducationTypes
+        store.educationTypes
       ),
-    [store.sessions, store.students, store.teachers]
+    [store.sessions, store.students, store.teachers, store.educationTypes]
   );
 
   // Apply filters
@@ -176,10 +176,10 @@ export default function CalendarPage() {
       store.sessions,
       store.students,
       store.teachers,
-      mockEducationTypes,
+      store.educationTypes,
       store.guardians
     );
-  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.guardians]);
+  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.guardians, store.educationTypes]);
 
   // Navigation
   const navigate = useCallback(
@@ -452,7 +452,7 @@ export default function CalendarPage() {
                 className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Tüm Eğitim Türleri</option>
-                {mockEducationTypes.map((et) => (
+                {store.educationTypes.map((et) => (
                   <option key={et.id} value={et.id}>
                     {et.name}
                   </option>
@@ -484,6 +484,21 @@ export default function CalendarPage() {
             </span>
           )}
         </div>
+
+        {/* Education type legend — the colored accent on each session card */}
+        {getActiveEducationTypes(store.educationTypes).length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-3">
+            {getActiveEducationTypes(store.educationTypes).map((et) => (
+              <div key={et.id} className="flex items-center gap-1.5">
+                <div
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: et.color }}
+                />
+                <span className="text-xs text-muted-foreground">{et.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Calendar view — always agenda on mobile */}
         {isMobile ? (

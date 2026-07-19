@@ -15,8 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { mockEducationTypes } from "@/lib/mock/education-types";
 import { useMockStore } from "@/lib/mock/store";
+import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
   calculateTeacherSessionEarning,
@@ -191,7 +191,7 @@ export function WeeklyPlanFormDrawer({
   const handleEducationTypeChange = (etId: string) => {
     setForm((prev) => {
       const teacher = prev.teacherId ? store.teachers.find((t) => t.id === prev.teacherId) : null;
-      const defaultStudent = getDefaultStudentPrice(etId, mockEducationTypes);
+      const defaultStudent = getDefaultStudentPrice(etId, store.educationTypes);
       if (teacher && !teacherMatchesEducationType(teacher, etId)) {
         return { ...prev, educationTypeId: etId, teacherId: "", studentPrice: defaultStudent, teacherEarning: 0 };
       }
@@ -306,10 +306,15 @@ export function WeeklyPlanFormDrawer({
   }, [store.teachers, form.educationTypeId, form.teacherId]);
 
   const filteredEducationTypeOptions = useMemo(() => {
-    if (!form.teacherId || !selectedTeacher) return mockEducationTypes;
-    if (selectedTeacher.specializations.length === 0) return mockEducationTypes;
-    return mockEducationTypes.filter((et) => selectedTeacher.specializations.includes(et.id));
-  }, [form.teacherId, selectedTeacher]);
+    const active = getActiveEducationTypes(store.educationTypes);
+    const base =
+      form.educationTypeId && !active.some((et) => et.id === form.educationTypeId)
+        ? [...active, ...store.educationTypes.filter((et) => et.id === form.educationTypeId)]
+        : active;
+    if (!form.teacherId || !selectedTeacher) return base;
+    if (selectedTeacher.specializations.length === 0) return base;
+    return base.filter((et) => selectedTeacher.specializations.includes(et.id));
+  }, [store.educationTypes, form.teacherId, form.educationTypeId, selectedTeacher]);
 
   const studentOptions = useMemo(() => {
     const active = store.students.filter((s) => s.status !== "inactive");
@@ -326,7 +331,7 @@ export function WeeklyPlanFormDrawer({
     ? (store.teachers.find((t) => t.id === form.teacherId)?.fullName ?? null)
     : null;
   const educationTypeDisplayName = form.educationTypeId
-    ? (mockEducationTypes.find((et) => et.id === form.educationTypeId)?.name ?? null)
+    ? (store.educationTypes.find((et) => et.id === form.educationTypeId)?.name ?? null)
     : null;
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -677,7 +682,7 @@ export function WeeklyPlanFormDrawer({
                 conflicts={conflicts}
                 students={store.students}
                 teachers={store.teachers}
-                educationTypes={mockEducationTypes}
+                educationTypes={store.educationTypes}
               />
 
               {/* Generated count */}
