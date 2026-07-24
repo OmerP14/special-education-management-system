@@ -2,12 +2,14 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Search, ChevronRight, Users2 } from "lucide-react";
+import { Plus, Search, ChevronRight, Users2, Pencil, GraduationCap, UserCheck, Banknote } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
 import { TeacherMergeDrawer } from "@/components/teachers/TeacherMergeDrawer";
 import { useMockStore } from "@/lib/mock/store";
@@ -19,6 +21,14 @@ import {
 } from "@/lib/helpers/finance";
 import type { Teacher, TeacherListItem, TeacherStatus } from "@/types";
 import { cn } from "@/lib/utils";
+
+function initialsOf(fullName: string): string {
+  return fullName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+}
 
 // ─── Status filter options ─────────────────────────────────────────────────────
 // "all" deliberately excludes archived (merged-away) teachers — they're only
@@ -50,9 +60,9 @@ export default function TeachersPage() {
         store.educationTypes,
         store.sessions,
         store.teacherPayments,
-        store.teacherCustomPrices
+        store.teacherEducationTypeAssignments
       ),
-    [store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices]
+    [store.teachers, store.sessions, store.teacherPayments, store.teacherEducationTypeAssignments]
   );
 
   const filtered = useMemo(() => {
@@ -63,7 +73,7 @@ export default function TeachersPage() {
         item.fullName.toLowerCase().includes(q) ||
         item.phone.includes(q) ||
         (item.email?.toLowerCase().includes(q) ?? false) ||
-        item.specializationNames.some((s) => s.toLowerCase().includes(q));
+        item.educationTypeNames.some((s) => s.toLowerCase().includes(q));
       const matchesStatus =
         statusFilter === "all" ? item.status !== "archived" : item.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -71,6 +81,7 @@ export default function TeachersPage() {
   }, [allItems, search, statusFilter]);
 
   const activeCount = allItems.filter((t) => t.status === "active").length;
+  const totalPendingEarnings = allItems.reduce((sum, t) => sum + t.pendingEarnings, 0);
 
   // Read-only advisory — never merges/transfers/deletes anything (Part 4).
   // See findLikelyDuplicateTeachers's own doc comment for why "EKREM" vs
@@ -114,10 +125,15 @@ export default function TeachersPage() {
       render: (row) => (
         <Link
           href={`/app/teachers/${row.id}`}
-          className="font-medium text-foreground hover:text-primary transition-colors"
+          className="flex max-w-[180px] items-center gap-2.5 font-medium text-foreground transition-colors hover:text-primary"
           onClick={(e) => e.stopPropagation()}
         >
-          {row.fullName}
+          <Avatar className="h-7 w-7 shrink-0">
+            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+              {initialsOf(row.fullName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="truncate">{row.fullName}</span>
         </Link>
       ),
     },
@@ -125,9 +141,11 @@ export default function TeachersPage() {
       key: "phone",
       header: "Telefon",
       render: (row) => (
-        <span className="tabular-nums text-xs text-muted-foreground">{row.phone}</span>
+        <span className="tabular-nums text-xs text-muted-foreground whitespace-nowrap">
+          {row.phone}
+        </span>
       ),
-      className: "hidden md:table-cell",
+      className: "hidden md:table-cell w-[92px]",
       headerClassName: "hidden md:table-cell",
     },
     {
@@ -135,7 +153,9 @@ export default function TeachersPage() {
       header: "E-posta",
       render: (row) =>
         row.email ? (
-          <span className="text-xs text-muted-foreground">{row.email}</span>
+          <span className="block max-w-[140px] truncate text-xs text-muted-foreground" title={row.email}>
+            {row.email}
+          </span>
         ) : (
           <span className="text-muted-foreground/40">—</span>
         ),
@@ -144,14 +164,14 @@ export default function TeachersPage() {
     },
     {
       key: "specializations",
-      header: "Uzmanlık Alanları",
+      header: "Eğitim Türleri",
       render: (row) =>
-        row.specializationNames.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {row.specializationNames.map((name) => (
+        row.educationTypeNames.length > 0 ? (
+          <div className="flex max-w-[150px] flex-wrap gap-1">
+            {row.educationTypeNames.map((name) => (
               <span
                 key={name}
-                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+                className="inline-flex rounded-full bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-primary"
               >
                 {name}
               </span>
@@ -164,28 +184,43 @@ export default function TeachersPage() {
       headerClassName: "hidden xl:table-cell",
     },
     {
-      key: "totalSessions",
-      header: "Toplam Seans",
+      key: "configurationStatus",
+      header: "Hakediş",
       render: (row) => (
-        <span className="tabular-nums text-muted-foreground">{row.totalSessions}</span>
+        <span
+          className={cn(
+            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap",
+            row.configurationStatus === "missing_pricing" || row.configurationStatus === "no_assignment"
+              ? "bg-amber-100 text-amber-700"
+              : row.configurationStatus === "inactive_teacher"
+              ? "bg-muted text-muted-foreground"
+              : "bg-emerald-100 text-emerald-700"
+          )}
+        >
+          {row.configurationStatusLabel}
+        </span>
+      ),
+      className: "hidden lg:table-cell",
+      headerClassName: "hidden lg:table-cell",
+    },
+    {
+      key: "sessions",
+      header: "Seans",
+      render: (row) => (
+        <span className="tabular-nums text-muted-foreground whitespace-nowrap">
+          <span className="font-medium text-foreground">{row.completedSessions}</span>
+          {" / "}
+          {row.totalSessions}
+        </span>
       ),
       className: "hidden md:table-cell text-right",
       headerClassName: "hidden md:table-cell text-right",
     },
     {
-      key: "completedSessions",
-      header: "Tamamlanan",
-      render: (row) => (
-        <span className="tabular-nums text-muted-foreground">{row.completedSessions}</span>
-      ),
-      className: "hidden lg:table-cell text-right",
-      headerClassName: "hidden lg:table-cell text-right",
-    },
-    {
       key: "monthlyEarnings",
       header: "Aylık Hakediş",
       render: (row) => (
-        <span className="tabular-nums font-medium">
+        <span className="tabular-nums font-medium whitespace-nowrap">
           {formatCurrency(row.monthlyEarnings)}
         </span>
       ),
@@ -199,15 +234,18 @@ export default function TeachersPage() {
         <div className="flex flex-col items-end gap-0.5">
           <span
             className={cn(
-              "tabular-nums font-semibold",
+              "tabular-nums font-semibold whitespace-nowrap",
               row.pendingEarnings > 0 ? "text-amber-600" : "text-muted-foreground"
             )}
           >
             {formatCurrency(row.pendingEarnings)}
           </span>
           {row.unknownSessionCount > 0 && (
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
-              Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans
+            <span
+              className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 whitespace-nowrap"
+              title={`${row.unknownSessionCount} geçmiş seansın hakedişi çözümlenmemiş`}
+            >
+              {row.unknownSessionCount} seans bekliyor
             </span>
           )}
         </div>
@@ -223,37 +261,33 @@ export default function TeachersPage() {
       headerClassName: "hidden sm:table-cell",
     },
     {
-      key: "edit",
-      header: "",
-      render: (row) =>
-        row.status === "archived" ? (
-          <span className="text-xs text-muted-foreground/30">—</span>
-        ) : (
-          <button
-            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-            onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
-          >
-            Düzenle
-          </button>
-        ),
-      className: "text-right w-20",
-      headerClassName: "text-right w-20",
-    },
-    {
-      key: "detail",
+      key: "actions",
       header: "",
       render: (row) => (
-        <Link
-          href={`/app/teachers/${row.id}`}
-          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          Detay
-          <ChevronRight className="h-3 w-3" />
-        </Link>
+        <div className="flex items-center justify-end gap-1">
+          {row.status !== "archived" && (
+            <button
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+              onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+              aria-label="Düzenle"
+              title="Düzenle"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <Link
+            href={`/app/teachers/${row.id}`}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Detay"
+            title="Detay"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       ),
-      className: "text-right w-16",
-      headerClassName: "text-right w-16",
+      className: "text-right w-[68px]",
+      headerClassName: "text-right w-[68px]",
     },
   ];
 
@@ -269,6 +303,19 @@ export default function TeachersPage() {
               Öğretmen Ekle
             </Button>
           }
+        />
+
+        <CompactStatBar
+          items={[
+            { icon: GraduationCap, label: "Toplam Öğretmen", value: allItems.length, tone: "primary" },
+            { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
+            {
+              icon: Banknote,
+              label: "Bekleyen Hakediş",
+              value: formatCurrency(totalPendingEarnings),
+              tone: totalPendingEarnings > 0 ? "warning" : "success",
+            },
+          ]}
         />
 
         {/* Likely-duplicate teacher advisory. Suggestions only — nothing here
@@ -368,6 +415,7 @@ export default function TeachersPage() {
           data={filtered}
           columns={columns}
           keyExtractor={(t) => t.id}
+          dense
           emptyTitle={
             search || statusFilter !== "all"
               ? "Eşleşen öğretmen bulunamadı"

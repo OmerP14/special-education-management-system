@@ -16,7 +16,14 @@ import {
 import { useMockStore } from "@/lib/mock/store";
 import { getTeacherStatusLabel } from "@/lib/helpers/finance";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
-import type { EducationType, Teacher, TeacherStatus, TeacherEarningType } from "@/types";
+import { getTeacherEducationAssignments } from "@/lib/helpers/teacher-assignments";
+import type {
+  EducationType,
+  Teacher,
+  TeacherStatus,
+  TeacherEarningType,
+  TeacherEducationTypeAssignmentStatus,
+} from "@/types";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -49,12 +56,16 @@ const EARNING_TYPE_OPTIONS: {
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
+interface AssignmentRowState {
+  checked: boolean;
+  earningAmount: number | undefined; // undefined = "Hakediş ayarı eksik" downstream
+}
+
 interface FormState {
   fullName: string;
   phone: string;
   email: string;
   status: TeacherStatus;
-  specializationIds: string[];
   hasCustomBranch: boolean;
   customBranch: string;
   earningType: TeacherEarningType;
@@ -62,7 +73,7 @@ interface FormState {
   monthlySessionQuota: number;
   extraSessionRate: number;
   earningPercentage: number;
-  customPrices: Record<string, number | undefined>; // educationTypeId → amount (undefined = not set)
+  assignmentRows: Record<string, AssignmentRowState>; // educationTypeId → row state
   notes: string;
 }
 
@@ -72,7 +83,6 @@ function buildEmptyForm(): FormState {
     phone: "",
     email: "",
     status: "active",
-    specializationIds: [],
     hasCustomBranch: false,
     customBranch: "",
     earningType: "per_session",
@@ -80,14 +90,14 @@ function buildEmptyForm(): FormState {
     monthlySessionQuota: 0,
     extraSessionRate: 0,
     earningPercentage: 0,
-    customPrices: {},
+    assignmentRows: {},
     notes: "",
   };
 }
 
 function buildFormFromTeacher(
   teacher: Teacher,
-  existingCustomPrices: Record<string, number | undefined>,
+  assignmentRows: Record<string, AssignmentRowState>,
   educationTypes: EducationType[]
 ): FormState {
   const hasCustomBranch =
@@ -97,7 +107,6 @@ function buildFormFromTeacher(
     phone: teacher.phone,
     email: teacher.email ?? "",
     status: teacher.status,
-    specializationIds: teacher.specializations,
     hasCustomBranch,
     customBranch: teacher.customBranch ?? "",
     earningType: teacher.earningType ?? "per_session",
@@ -105,7 +114,7 @@ function buildFormFromTeacher(
     monthlySessionQuota: teacher.includedSessionQuota ?? 0,
     extraSessionRate: teacher.extraSessionEarning ?? 0,
     earningPercentage: teacher.earningPercentage ?? 0,
-    customPrices: existingCustomPrices,
+    assignmentRows,
     notes: teacher.notes ?? "",
   };
 }
@@ -128,30 +137,33 @@ export function TeacherFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
-  const buildExistingPricesMap = (): Record<string, number | undefined> => {
-    const map: Record<string, number | undefined> = {};
+  const buildExistingAssignmentRows = (): Record<string, AssignmentRowState> => {
+    const map: Record<string, AssignmentRowState> = {};
     if (initialData) {
-      store.teacherCustomPrices
-        .filter((tcp) => tcp.teacherId === initialData.id)
-        .forEach((tcp) => {
-          map[tcp.educationTypeId] = tcp.customEarning;
-        });
+      getTeacherEducationAssignments(initialData.id, store.teacherEducationTypeAssignments).forEach(
+        (a) => {
+          map[a.educationTypeId] = {
+            checked: a.status === "active",
+            earningAmount: a.earningAmount ?? undefined,
+          };
+        }
+      );
     }
     return map;
   };
 
   const [form, setForm] = useState<FormState>(() =>
     initialData
-      ? buildFormFromTeacher(initialData, buildExistingPricesMap(), store.educationTypes)
+      ? buildFormFromTeacher(initialData, buildExistingAssignmentRows(), store.educationTypes)
       : buildEmptyForm()
   );
 
   useEffect(() => {
     if (open) {
-      const map = buildExistingPricesMap();
+      const rows = buildExistingAssignmentRows();
       setForm(
         initialData
-          ? buildFormFromTeacher(initialData, map, store.educationTypes)
+          ? buildFormFromTeacher(initialData, rows, store.educationTypes)
           : buildEmptyForm()
       );
     }
@@ -161,23 +173,38 @@ export function TeacherFormDrawer({
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
 
-  // Active-only for new specialization picks, but never drops one the teacher
-  // is already assigned (an inactive type must stay visible/checked on an
-  // existing record — see AGENTS §5/§6).
+  // Active-only for new assignment picks, but never drops an education type the
+  // teacher already has an assignment row for (any status) — an inactive type
+  // must stay visible/checked on an existing record.
   const activeEducationTypes = getActiveEducationTypes(store.educationTypes);
-  const specializationOptions = [
+  const existingAssignmentTypeIds = new Set(Object.keys(form.assignmentRows));
+  const assignmentOptions = [
     ...activeEducationTypes,
     ...store.educationTypes.filter(
-      (et) => et.status === "inactive" && form.specializationIds.includes(et.id)
+      (et) => et.status === "inactive" && existingAssignmentTypeIds.has(et.id)
     ),
   ];
 
-  const toggleSpecialization = (id: string) => {
+  const toggleAssignment = (id: string) => {
     setForm((prev) => ({
       ...prev,
-      specializationIds: prev.specializationIds.includes(id)
-        ? prev.specializationIds.filter((x) => x !== id)
-        : [...prev.specializationIds, id],
+      assignmentRows: {
+        ...prev.assignmentRows,
+        [id]: {
+          checked: !(prev.assignmentRows[id]?.checked ?? false),
+          earningAmount: prev.assignmentRows[id]?.earningAmount,
+        },
+      },
+    }));
+  };
+
+  const setAssignmentEarning = (id: string, amount: number | undefined) => {
+    setForm((prev) => ({
+      ...prev,
+      assignmentRows: {
+        ...prev.assignmentRows,
+        [id]: { checked: prev.assignmentRows[id]?.checked ?? false, earningAmount: amount },
+      },
     }));
   };
 
@@ -194,7 +221,6 @@ export function TeacherFormDrawer({
       phone: form.phone.trim(),
       email: form.email.trim() || undefined,
       status: form.status,
-      specializations: form.specializationIds,
       earningType: form.earningType,
       monthlySalary:
         form.earningType === "monthly_salary" || form.earningType === "salary_plus_quota"
@@ -218,24 +244,29 @@ export function TeacherFormDrawer({
       store.addTeacher(teacher);
     }
 
-    // Per-session teachers: persist configured custom prices
-    if (form.earningType === "per_session") {
-      const prices = Object.entries(form.customPrices)
-        .map(([educationTypeId, amt]) => ({
-          educationTypeId,
-          amount: amt ?? 0,
-        }))
-        .filter((p) => p.amount > 0);
-      store.upsertTeacherCustomPricesForTeacher(id, tenantId, prices);
-    } else {
-      store.upsertTeacherCustomPricesForTeacher(id, tenantId, []);
-    }
+    // One row per education type the teacher is currently checked for, plus one
+    // per previously-existing assignment that just got unchecked (deactivated,
+    // never deleted) — see upsertTeacherEducationTypeAssignments in store.tsx.
+    const rows = assignmentOptions
+      .filter((et) => form.assignmentRows[et.id]?.checked || existingAssignmentTypeIds.has(et.id))
+      .map((et) => {
+        const rowState = form.assignmentRows[et.id];
+        const status: TeacherEducationTypeAssignmentStatus = rowState?.checked ? "active" : "inactive";
+        return {
+          educationTypeId: et.id,
+          earningAmount: form.earningType === "per_session" ? rowState?.earningAmount ?? null : null,
+          status,
+        };
+      });
+    store.upsertTeacherEducationTypeAssignments(id, tenantId, rows);
 
     onOpenChange(false);
   };
 
   const title = isEditing ? "Öğretmen Düzenle" : "Yeni Öğretmen";
   const saveLabel = isEditing ? "Değişiklikleri Kaydet" : "Öğretmen Ekle";
+
+  const checkedCount = assignmentOptions.filter((et) => form.assignmentRows[et.id]?.checked).length;
 
   return (
     <FormDrawer
@@ -297,59 +328,6 @@ export function TeacherFormDrawer({
               <SelectItem value="inactive">{getTeacherStatusLabel("inactive")}</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-
-        <Separator />
-
-        {/* Uzmanlık Alanları */}
-        <div className="space-y-2">
-          <Label>Uzmanlık Alanları</Label>
-          <div className="space-y-2">
-            {specializationOptions.map((et) => {
-              const checked = form.specializationIds.includes(et.id);
-              return (
-                <label
-                  key={et.id}
-                  className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded"
-                    checked={checked}
-                    onChange={() => toggleSpecialization(et.id)}
-                  />
-                  <div>
-                    <p className="text-sm font-medium">
-                      {et.name}
-                      {et.status === "inactive" && (
-                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">(Pasif)</span>
-                      )}
-                    </p>
-                    {et.description && (
-                      <p className="text-xs text-muted-foreground">{et.description}</p>
-                    )}
-                  </div>
-                </label>
-              );
-            })}
-            {/* Diğer */}
-            <label className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors">
-              <input
-                type="checkbox"
-                className="rounded"
-                checked={form.hasCustomBranch}
-                onChange={(e) => set("hasCustomBranch", e.target.checked)}
-              />
-              <p className="text-sm font-medium">Diğer</p>
-            </label>
-            {form.hasCustomBranch && (
-              <Input
-                placeholder="Branş adını girin…"
-                value={form.customBranch}
-                onChange={(e) => set("customBranch", e.target.value)}
-              />
-            )}
-          </div>
         </div>
 
         <Separator />
@@ -454,52 +432,91 @@ export function TeacherFormDrawer({
           </div>
         )}
 
-        {/* Seans Başı fiyatları — yalnızca seçili uzmanlıklara göre */}
-        {form.earningType === "per_session" && (
-          <div className="space-y-2">
-            <Label>Uzmanlık Alanına Göre Seans Hakedişi (₺)</Label>
-            {form.specializationIds.length === 0 ? (
-              <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border px-3 py-2.5">
-                Hakediş tanımlamak için önce uzmanlık alanı seçiniz.
-              </p>
-            ) : (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  Her uzmanlık için özel hakediş girin. Girilmezse o eğitim türüne özel
-                  fiyat tanımsız kalır ve seans kaydında uyarı gösterilir.
-                </p>
-                <div className="space-y-2">
-                  {store.educationTypes
-                    .filter((et) => form.specializationIds.includes(et.id))
-                    .map((et) => (
-                      <div key={et.id} className="flex items-center gap-3">
-                        <span className="flex-1 text-sm text-foreground truncate">
-                          {et.name}
-                        </span>
-                        <NumericInput
-                          min={0}
-                          step={25}
-                          placeholder="Tanımsız"
-                          value={form.customPrices[et.id]}
-                          allowUndefined
-                          onValueChange={(v) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              customPrices: {
-                                ...prev.customPrices,
-                                [et.id]: v,
-                              },
-                            }))
-                          }
-                          className="w-28 shrink-0"
-                        />
-                      </div>
-                    ))}
-                </div>
-              </>
+        <Separator />
+
+        {/* Verebildiği Eğitim Türleri ve Hakedişler */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Verebildiği Eğitim Türleri ve Hakedişler</Label>
+            {checkedCount > 0 && (
+              <span className="text-xs text-muted-foreground tabular-nums">{checkedCount} seçili</span>
             )}
           </div>
-        )}
+          <p className="text-xs text-muted-foreground">
+            {form.earningType === "per_session"
+              ? "Her eğitim türü için sabit hakediş girin. Boş bırakılırsa o eğitim türü için hakediş ayarı eksik kalır ve seans kaydında uyarı gösterilir."
+              : "Seçilen eğitim türleri, bu öğretmenin hangi derslere atanabileceğini belirler."}
+          </p>
+          <div className="space-y-2">
+            {assignmentOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground rounded-lg border border-dashed border-border px-3 py-2.5">
+                Sistemde tanımlı aktif eğitim türü yok. Önce Ayarlar → Eğitim Türleri altından ekleyin.
+              </p>
+            ) : (
+              assignmentOptions.map((et) => {
+                const row = form.assignmentRows[et.id];
+                const checked = row?.checked ?? false;
+                return (
+                  <div
+                    key={et.id}
+                    className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                  >
+                    <label className="flex flex-1 min-w-0 items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded shrink-0"
+                        checked={checked}
+                        onChange={() => toggleAssignment(et.id)}
+                      />
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: et.color }}
+                        aria-hidden
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {et.name}
+                          {et.status === "inactive" && (
+                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">(Pasif)</span>
+                          )}
+                        </span>
+                      </span>
+                    </label>
+                    {form.earningType === "per_session" && (
+                      <NumericInput
+                        min={0}
+                        step={25}
+                        placeholder="Tanımsız"
+                        value={row?.earningAmount}
+                        allowUndefined
+                        disabled={!checked}
+                        onValueChange={(v) => setAssignmentEarning(et.id, v)}
+                        className="w-28 shrink-0"
+                      />
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {/* Diğer */}
+            <label className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors">
+              <input
+                type="checkbox"
+                className="rounded"
+                checked={form.hasCustomBranch}
+                onChange={(e) => set("hasCustomBranch", e.target.checked)}
+              />
+              <p className="text-sm font-medium">Diğer</p>
+            </label>
+            {form.hasCustomBranch && (
+              <Input
+                placeholder="Branş adını girin…"
+                value={form.customBranch}
+                onChange={(e) => set("customBranch", e.target.value)}
+              />
+            )}
+          </div>
+        </div>
 
         <Separator />
 

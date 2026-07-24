@@ -42,7 +42,7 @@ function DayGroupHeader({ date }: { date: Date }) {
       >
         {label}
         {isToday && (
-          <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-primary/70">
+          <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
             Bugün
           </span>
         )}
@@ -65,8 +65,9 @@ function AgendaEventRow({
       onClick={onClick}
       style={{ borderLeft: `3px solid ${event.educationTypeColor}` }}
       className={cn(
-        "w-full text-left rounded-lg pl-2.5 pr-3 py-2.5 mb-1.5 transition-all",
-        "flex items-center gap-3",
+        "w-full text-left rounded-xl pl-2.5 pr-3 py-2.5 mb-1.5",
+        "flex items-center gap-3 shadow-sm",
+        "transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md",
         SESSION_STATUS_BLOCK_COLORS[event.status]
       )}
     >

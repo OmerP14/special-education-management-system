@@ -953,7 +953,7 @@ export default function ReportsPage() {
     const summaryCards: ReportSummaryCard[] = isSingleMonthMode
       ? (() => {
           const monthSummaries = teachersToShow.map((t) =>
-            getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherCustomPrices)
+            getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherEducationTypeAssignments)
           );
           const totalPrevious = monthSummaries.reduce((s, m) => s + m.previousBalance, 0);
           const totalEarning = monthSummaries.reduce((s, m) => s + m.thisMonthEarning, 0);
@@ -973,7 +973,7 @@ export default function ReportsPage() {
           ];
         })()
       : (() => {
-          const totals = teachersToShow.map((t) => getTeacherEarningTotalsForRange(t, store.sessions, store.teacherPayments, start, end, store.teacherCustomPrices));
+          const totals = teachersToShow.map((t) => getTeacherEarningTotalsForRange(t, store.sessions, store.teacherPayments, start, end, store.teacherEducationTypeAssignments));
           const totalEarned = totals.reduce((s, t) => s + t.totalEarning, 0);
           const totalPaid = totals.reduce((s, t) => s + t.paidEarning, 0);
           const totalPending = totals.reduce((s, t) => s + t.pendingEarning, 0);
@@ -1241,7 +1241,7 @@ export default function ReportsPage() {
     // performance modes — session-count columns aren't part of the carryover story.
     if (isSingleMonthMode) {
       const rows = teachersToShow.map((t) =>
-        getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherCustomPrices)
+        getTeacherMonthAccountSummary(t, store.sessions, store.teacherPayments, singleMonthYear, singleMonthMonth, store.teacherEducationTypeAssignments)
       );
       const totalPrevious = rows.reduce((s, r) => s + r.previousBalance, 0);
       const totalEarning = rows.reduce((s, r) => s + r.thisMonthEarning, 0);
@@ -1302,7 +1302,7 @@ export default function ReportsPage() {
       );
     }
 
-    const rows = buildTeacherReportRows(teachersToShow, filteredSessions, store.sessions, store.teacherPayments, start, end, store.teacherCustomPrices);
+    const rows = buildTeacherReportRows(teachersToShow, filteredSessions, store.sessions, store.teacherPayments, start, end, store.teacherEducationTypeAssignments);
     const totalEarned = rows.reduce((s, r) => s + r.totalEarning, 0);
     const totalPaid = rows.reduce((s, r) => s + r.paidEarning, 0);
     const totalPending = rows.reduce((s, r) => s + r.pendingEarning, 0);

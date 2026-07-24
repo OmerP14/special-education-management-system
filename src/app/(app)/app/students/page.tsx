@@ -2,17 +2,27 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Plus, Search, ChevronRight } from "lucide-react";
+import { Plus, Search, ChevronRight, Users, UserCheck, Clock3, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
+
+function initialsOf(fullName: string): string {
+  return fullName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+}
 
 // ─── Status filter options ─────────────────────────────────────────────────────
 
@@ -61,6 +71,8 @@ export default function StudentsPage() {
   }, [allItems, search, statusFilter]);
 
   const activeCount = allItems.filter((s) => s.status === "active").length;
+  const onHoldCount = allItems.filter((s) => s.status === "on_hold").length;
+  const totalDebt = allItems.reduce((sum, s) => sum + s.totalDebt, 0);
 
   const handleEdit = (row: StudentListItem) => {
     const student = store.students.find((s) => s.id === row.id);
@@ -82,10 +94,15 @@ export default function StudentsPage() {
       render: (row) => (
         <Link
           href={`/app/students/${row.id}`}
-          className="font-medium text-foreground hover:text-primary transition-colors"
+          className="flex items-center gap-2.5 font-medium text-foreground transition-colors hover:text-primary"
           onClick={(e) => e.stopPropagation()}
         >
-          {row.fullName}
+          <Avatar className="h-7 w-7 shrink-0">
+            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+              {initialsOf(row.fullName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="truncate">{row.fullName}</span>
         </Link>
       ),
     },
@@ -238,6 +255,20 @@ export default function StudentsPage() {
               Öğrenci Ekle
             </Button>
           }
+        />
+
+        <CompactStatBar
+          items={[
+            { icon: Users, label: "Toplam Öğrenci", value: allItems.length, tone: "primary" },
+            { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
+            { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" },
+            {
+              icon: AlertCircle,
+              label: "Toplam Borç",
+              value: formatCurrency(totalDebt),
+              tone: totalDebt > 0 ? "danger" : "success",
+            },
+          ]}
         />
 
         {/* Filters */}

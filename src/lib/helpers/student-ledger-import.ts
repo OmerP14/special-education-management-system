@@ -14,7 +14,7 @@
 // can migrate this file in one pass instead of requiring a separate Students import
 // first.
 
-import type { ImportEntityMatch, ImportMode, Student, Teacher, Session, TeacherCustomPrice, SessionBillingMode } from "@/types";
+import type { ImportEntityMatch, ImportMode, Student, Teacher, Session, TeacherEducationTypeAssignment, SessionBillingMode } from "@/types";
 import {
   cellToDisplayString,
   parseCellAsDateString,
@@ -46,6 +46,7 @@ import {
   type SessionConflictIndex,
 } from "@/lib/helpers/session-conflict";
 import { calculateTeacherSessionEarning } from "@/lib/helpers/finance";
+import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
 import { registerAnalyzerRule, type AnalyzerRule } from "@/lib/helpers/workbook-analyzer";
 
 function normalizeForTokenMatch(s: string): string {
@@ -323,7 +324,7 @@ export function extractStudentLedgerSheet(
    *  teacher name that doesn't resolve (even after HOCA-suffix normalization) is
    *  then reported as an error instead of silently fabricating a new Teacher. */
   allowTeacherAutoCreate: boolean,
-  teacherCustomPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   /** The user's explicit choice in the import wizard for how THIS batch's
    *  sessions should behave financially — see SessionBillingMode. Never
    *  inferred/defaulted here; the caller must always pass it explicitly so a
@@ -495,7 +496,6 @@ export function extractStudentLedgerSheet(
         fullName: stripHocaHonorific(firstTeacherName) || firstTeacherName,
         phone: "—",
         status: "active",
-        specializations: [],
         createdAt: new Date().toISOString(),
       };
       addTeacherToIndex(teacherIndex, teacher);
@@ -565,10 +565,16 @@ export function extractStudentLedgerSheet(
     // never teacher payout. calculateTeacherSessionEarning returns null when the
     // teacher has no configured earning model/price; that must never be silently
     // presented as a real ₺0 hakediş in the financial preview (see teacherEarningUnknown).
-    const calculatedTeacherEarning = calculateTeacherSessionEarning(teacher, defaultEducationTypeId, unitFee, teacherCustomPrices);
+    const assignmentIncompatible = !isTeacherAssignedToEducationType(teacher.id, defaultEducationTypeId, assignments);
+    if (assignmentIncompatible) {
+      warn(`'${teacher.fullName}' adlı öğretmen bu eğitim türünü vermek üzere tanımlanmamış`);
+    }
+    const calculatedTeacherEarning = assignmentIncompatible
+      ? null
+      : calculateTeacherSessionEarning(teacher, defaultEducationTypeId, unitFee, assignments);
     const teacherEarningUnknown = calculatedTeacherEarning === null;
     const teacherEarning = calculatedTeacherEarning ?? 0;
-    if (teacherEarningUnknown) {
+    if (teacherEarningUnknown && !assignmentIncompatible) {
       infoNotes.push("Öğretmen hakedişi hesaplanamadı; öğretmen ücret ayarları tamamlandıktan sonra sistem tarafından hesaplanacaktır");
     }
 
@@ -618,6 +624,7 @@ export function extractStudentLedgerSheet(
         entityMatches: matches,
         include: includeByDefault,
         teacherEarningUnknown,
+        teacherAssignmentIncompatible: assignmentIncompatible,
       },
       staged,
     });
@@ -733,7 +740,7 @@ export function buildStudentLedgerImport(
   /** False unless "Öğretmenler" is one of the selected import types this run —
    *  see [[extractStudentLedgerSheet]]'s allowTeacherAutoCreate parameter. */
   allowTeacherAutoCreate: boolean,
-  teacherCustomPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   /** See [[extractStudentLedgerSheet]]'s billingMode parameter — applies to
    *  every session this whole workbook stages. */
   billingMode: SessionBillingMode
@@ -756,7 +763,7 @@ export function buildStudentLedgerImport(
       sessionConflictIndex,
       mode,
       allowTeacherAutoCreate,
-      teacherCustomPrices,
+      assignments,
       billingMode
     )
   );

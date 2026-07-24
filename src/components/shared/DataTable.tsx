@@ -28,6 +28,8 @@ interface DataTableProps<T> {
   emptyDescription?: string;
   className?: string;
   onRowClick?: (row: T) => void;
+  /** Tighter cell padding for wide tables with many columns. */
+  dense?: boolean;
 }
 
 export function DataTable<T>({
@@ -38,6 +40,7 @@ export function DataTable<T>({
   emptyDescription,
   className,
   onRowClick,
+  dense,
 }: DataTableProps<T>) {
   if (data.length === 0) {
     return (
@@ -58,7 +61,8 @@ export function DataTable<T>({
               <TableHead
                 key={col.key}
                 className={cn(
-                  "h-10 text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+                  "text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+                  dense ? "h-9 px-1.5" : "h-10",
                   col.headerClassName
                 )}
               >
@@ -80,7 +84,11 @@ export function DataTable<T>({
               {columns.map((col) => (
                 <TableCell
                   key={col.key}
-                  className={cn("py-3.5 text-sm", col.className)}
+                  className={cn(
+                    "text-sm",
+                    dense ? "py-2 px-1.5" : "py-3.5",
+                    col.className
+                  )}
                 >
                   {col.render(row)}
                 </TableCell>

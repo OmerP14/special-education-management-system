@@ -5,7 +5,9 @@ import type {
   TeacherEarning,
   TeacherPayment,
   TeacherPaymentType,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
+  TeacherEarningResolution,
+  TeacherEarningSource,
   DashboardStats,
   StudentSummary,
   StudentListItem,
@@ -14,7 +16,7 @@ import type {
   TeacherListItem,
   TeacherDetail,
   TeacherStudentRow,
-  TeacherPriceRow,
+  TeacherEducationAssignmentRow,
   SessionListItem,
   SessionPageStats,
   PaymentListItem,
@@ -45,6 +47,11 @@ import type {
   TeacherEarningCalculationStatus,
 } from "@/types";
 import { normalizeName } from "./import-match";
+import {
+  getTeacherEducationAssignment,
+  getTeacherActiveEducationTypeIds,
+  getTeacherEarningConfigurationStatus,
+} from "./teacher-assignments";
 
 const BILLABLE_STATUSES: Session["status"][] = ["completed", "no_show", "makeup"];
 export const EARNING_STATUSES: Session["status"][] = ["completed", "makeup"];
@@ -184,7 +191,7 @@ export function buildDashboardStats(
   students: Student[],
   teachers: Teacher[],
   openingBalances: OpeningBalance[] = [],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): DashboardStats {
   const now = new Date();
   const year = now.getFullYear();
@@ -201,7 +208,7 @@ export function buildDashboardStats(
   // Teacher earnings are owed the moment a session is completed/salary is entitled —
   // never derived from whether the student/parent has paid. "Paid" comes from actual
   // TeacherPayment records, never from the TeacherEarning ledger.
-  const teacherTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, teacherCustomPrices));
+  const teacherTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, assignments));
   const pendingEarnings = teacherTotals.reduce((sum, t) => sum + t.pendingEarning, 0);
   const unknownEarningSessionCount = teacherTotals.reduce((sum, t) => sum + t.unknownSessionCount, 0);
 
@@ -609,29 +616,36 @@ export function getTeacherStudentRows(
     .filter((r): r is TeacherStudentRow => r !== null);
 }
 
-export function getTeacherPriceRows(
+/** Rows for the Teacher Detail "Eğitim Türleri ve Hakedişler" tab — sourced
+ *  directly from this teacher's own assignment rows (any status, so a
+ *  deactivated assignment still shows up, labeled accordingly), never from
+ *  EducationType defaults. */
+export function buildTeacherEducationAssignmentRows(
   teacher: Teacher,
   educationTypes: EducationType[],
-  customPrices: TeacherCustomPrice[]
-): TeacherPriceRow[] {
-  // Only return rows for the teacher's declared specializations
-  const specializedTypes =
-    teacher.specializations.length > 0
-      ? educationTypes.filter((et) => teacher.specializations.includes(et.id))
-      : educationTypes;
-  return specializedTypes.map((et) => {
-    const custom = customPrices.find(
-      (cp) => cp.teacherId === teacher.id && cp.educationTypeId === et.id
-    );
-    return {
-      educationTypeId: et.id,
-      educationTypeName: et.name,
-      description: et.description,
-      defaultEarning: et.defaultTeacherEarning,
-      customEarning: custom?.customEarning ?? null,
-      isCustom: !!custom,
-    } satisfies TeacherPriceRow;
-  });
+  assignments: TeacherEducationTypeAssignment[],
+  sessions: Session[]
+): TeacherEducationAssignmentRow[] {
+  return assignments
+    .filter((a) => a.teacherId === teacher.id)
+    .map((a) => {
+      const et = educationTypes.find((e) => e.id === a.educationTypeId);
+      const sessionCount = sessions.filter(
+        (s) => s.teacherId === teacher.id && s.educationTypeId === a.educationTypeId
+      ).length;
+      return {
+        assignmentId: a.id,
+        educationTypeId: a.educationTypeId,
+        educationTypeName: et?.name ?? "—",
+        educationTypeColor: et?.color ?? "#94a3b8",
+        educationTypeStatus: et?.status ?? "inactive",
+        assignmentStatus: a.status,
+        earningAmount: a.earningAmount,
+        sessionCount,
+        updatedAt: a.updatedAt ?? a.createdAt,
+      } satisfies TeacherEducationAssignmentRow;
+    })
+    .sort((a, b) => a.educationTypeName.localeCompare(b.educationTypeName, "tr"));
 }
 
 // ─── Likely-duplicate teacher detection (read-only — never merges/deletes) ─────
@@ -702,19 +716,20 @@ export function buildTeacherListItems(
   educationTypes: EducationType[],
   sessions: Session[],
   teacherPayments: TeacherPayment[],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherListItem[] {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
   return teachers.map((teacher) => {
-    const specializationNames = [
-      ...educationTypes
-        .filter((et) => teacher.specializations.includes(et.id))
-        .map((et) => et.name),
+    const activeIds = getTeacherActiveEducationTypeIds(teacher.id, assignments);
+    const educationTypeNames = [
+      ...educationTypes.filter((et) => activeIds.includes(et.id)).map((et) => et.name),
       ...(teacher.customBranch ? [teacher.customBranch] : []),
     ];
+    const { status: configurationStatus, label: configurationStatusLabel } =
+      getTeacherEarningConfigurationStatus(teacher, assignments);
 
     return {
       id: teacher.id,
@@ -723,13 +738,15 @@ export function buildTeacherListItems(
       phone: teacher.phone,
       email: teacher.email,
       status: teacher.status,
-      specializationNames,
+      educationTypeNames,
       createdAt: teacher.createdAt,
       totalSessions: sessions.filter((s) => s.teacherId === teacher.id).length,
       completedSessions: getTeacherCompletedSessions(teacher.id, sessions),
       monthlyEarnings: getTeacherMonthlyEarnings(teacher, sessions, year, month),
       pendingEarnings: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
-      unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, teacherCustomPrices).unknownSessionCount,
+      unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments).unknownSessionCount,
+      configurationStatus,
+      configurationStatusLabel,
     };
   });
 }
@@ -743,7 +760,7 @@ export function buildTeacherDetail(
   sessions: Session[],
   earnings: TeacherEarning[],
   teacherPayments: TeacherPayment[],
-  customPrices: TeacherCustomPrice[]
+  assignments: TeacherEducationTypeAssignment[]
 ): TeacherDetail | null {
   const teacher = teachers.find((t) => t.id === teacherId);
   if (!teacher) return null;
@@ -752,10 +769,9 @@ export function buildTeacherDetail(
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const specializationNames = [
-    ...educationTypes
-      .filter((et) => teacher.specializations.includes(et.id))
-      .map((et) => et.name),
+  const activeIds = getTeacherActiveEducationTypeIds(teacherId, assignments);
+  const educationTypeNames = [
+    ...educationTypes.filter((et) => activeIds.includes(et.id)).map((et) => et.name),
     ...(teacher.customBranch ? [teacher.customBranch] : []),
   ];
   const teacherSessions = getTeacherSessions(teacherId, sessions);
@@ -767,21 +783,25 @@ export function buildTeacherDetail(
     guardians,
     educationTypes
   );
-  const priceRows = getTeacherPriceRows(teacher, educationTypes, customPrices);
+  const assignmentRows = buildTeacherEducationAssignmentRows(teacher, educationTypes, assignments, sessions);
+  const { status: configurationStatus, label: configurationStatusLabel } =
+    getTeacherEarningConfigurationStatus(teacher, assignments);
 
   return {
     ...teacher,
-    specializationNames,
+    educationTypeNames,
     sessions: teacherSessions,
     studentRows,
     earnings: teacherEarnings,
-    priceRows,
+    assignmentRows,
     totalSessions: teacherSessions.length,
     completedSessions: getTeacherCompletedSessions(teacherId, sessions),
     monthlyEarnings: getTeacherMonthlyEarnings(teacher, sessions, year, month),
     pendingEarnings: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
     totalEarnings: getTeacherTotalEarnings(teacher, sessions, teacherPayments),
-    unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices).unknownSessionCount,
+    unknownSessionCount: getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments).unknownSessionCount,
+    configurationStatus,
+    configurationStatusLabel,
   };
 }
 
@@ -868,44 +888,102 @@ export function getDefaultStudentPrice(
   );
 }
 
-export function getTeacherCustomPriceForEducationType(
-  teacherId: string,
-  educationTypeId: string,
-  customPrices: TeacherCustomPrice[]
-): number | null {
-  return (
-    customPrices.find(
-      (cp) => cp.teacherId === teacherId && cp.educationTypeId === educationTypeId
-    )?.customEarning ?? null
-  );
-}
-
 // ─── Teacher payment model helpers ────────────────────────────────────────────
 
 /**
+ * The one canonical earning resolver (section 7) — every other earning
+ * calculation in this file (and every component) goes through this, either
+ * directly or via the calculateTeacherSessionEarning wrapper below. Returns a
+ * structured result instead of a bare number so callers can explain *why* an
+ * amount is what it is, rather than re-deriving that explanation ad hoc.
+ */
+export function resolveTeacherSessionEarning(params: {
+  teacher: Teacher;
+  educationTypeId: string;
+  sessionFee: number;
+  assignments: TeacherEducationTypeAssignment[];
+}): TeacherEarningResolution {
+  const { teacher, educationTypeId, sessionFee, assignments } = params;
+
+  const resolved = (amount: number, source: TeacherEarningSource, explanation: string): TeacherEarningResolution => ({
+    amount,
+    source,
+    status: "resolved",
+    explanation,
+  });
+  const notApplicable = (source: TeacherEarningSource, explanation: string): TeacherEarningResolution => ({
+    amount: 0,
+    source,
+    status: "not_applicable",
+    explanation,
+  });
+  const missingConfiguration = (explanation: string): TeacherEarningResolution => ({
+    amount: 0,
+    source: "missing_assignment",
+    status: "missing_configuration",
+    explanation,
+  });
+
+  switch (teacher.earningType) {
+    case "monthly_salary":
+      return notApplicable(
+        "salary_included",
+        "Bu öğretmen aylık maaş modelinde çalışıyor; seans başına ayrı hakediş oluşmaz."
+      );
+    case "salary_plus_quota":
+      // Quota/extra-session earning is computed monthly (calculateTeacherMonthlyPayable),
+      // never per session — this keeps a single ledger entry per month instead of
+      // one per session, and prevents a duplicate/fixed per-session amount.
+      return notApplicable(
+        "salary_quota_extra",
+        "Bu öğretmen sabit maaş + kota üstü modelinde çalışıyor; kota üstü hakediş aylık olarak hesaplanır, seans başına ayrı kayıt oluşmaz."
+      );
+    case "percentage":
+      return resolved(
+        Math.round((sessionFee * (teacher.earningPercentage ?? 0)) / 100),
+        "teacher_percentage",
+        `Öğrenci seans ücretinin %${teacher.earningPercentage ?? 0}'i.`
+      );
+    case "per_session":
+    default: {
+      const assignment = getTeacherEducationAssignment(teacher.id, educationTypeId, assignments);
+      if (!assignment || assignment.status !== "active") {
+        return missingConfiguration(
+          "Bu öğretmen için seçilen eğitim türünde hakediş tanımlanmamış."
+        );
+      }
+      if (assignment.earningAmount === null) {
+        return missingConfiguration("Hakediş ayarı eksik.");
+      }
+      return resolved(
+        assignment.earningAmount,
+        "teacher_education_type_fixed",
+        "Öğretmenin bu eğitim türü için tanımlı sabit hakedişi."
+      );
+    }
+  }
+}
+
+/**
  * Returns the teacher's session-level earning for a given education type,
- * or null for per_session teachers with no configured price (no default fallback).
+ * or null for per_session teachers with no configured price (no default
+ * fallback). Thin wrapper over resolveTeacherSessionEarning — kept so the many
+ * call sites that only need a plain number don't need to unpack a structured
+ * result.
  */
 export function calculateTeacherSessionEarning(
   teacher: Teacher,
   educationTypeId: string,
   studentPrice: number,
-  customPrices: TeacherCustomPrice[]
+  assignments: TeacherEducationTypeAssignment[]
 ): number | null {
-  switch (teacher.earningType) {
-    case "monthly_salary":
-    case "salary_plus_quota":
-      return 0; // salary is handled monthly, not per session
-    case "percentage":
-      return Math.round(studentPrice * (teacher.earningPercentage ?? 0) / 100);
-    case "per_session":
-    default: {
-      const custom = customPrices.find(
-        (cp) => cp.teacherId === teacher.id && cp.educationTypeId === educationTypeId
-      );
-      return custom?.customEarning ?? null; // null = no price configured
-    }
-  }
+  const resolution = resolveTeacherSessionEarning({
+    teacher,
+    educationTypeId,
+    sessionFee: studentPrice,
+    assignments,
+  });
+  return resolution.status === "resolved" ? resolution.amount : null;
 }
 
 /**
@@ -929,12 +1007,12 @@ export function calculateTeacherSessionEarning(
 export function resolveTeacherEarningStatus(
   session: Session,
   teacher: Teacher | undefined,
-  customPrices: TeacherCustomPrice[]
+  assignments: TeacherEducationTypeAssignment[]
 ): TeacherEarningCalculationStatus {
   if (session.teacherEarningStatus) return session.teacherEarningStatus;
   if (session.teacherEarning > 0) return "calculated";
   if (!teacher) return "calculated";
-  const recalculated = calculateTeacherSessionEarning(teacher, session.educationTypeId, session.studentPrice, customPrices);
+  const recalculated = calculateTeacherSessionEarning(teacher, session.educationTypeId, session.studentPrice, assignments);
   return recalculated === null ? "unknown" : "calculated";
 }
 
@@ -952,19 +1030,24 @@ export interface EarningRecalculationRow {
   session: Session;
   studentName: string;
   educationTypeName: string;
-  /** null = calculateTeacherSessionEarning still can't resolve this session
-   *  (e.g. the custom price still isn't configured for THIS education type). */
+  /** Structured explanation of what resolveTeacherSessionEarning currently
+   *  produces for this session — feeds the "why it changed" text in the
+   *  recalculation dialog (section 14). */
+  resolution: TeacherEarningResolution;
+  /** null = still unresolved right now (e.g. the assignment still has no price
+   *  for THIS education type) — kept for the existing amount !== null filter
+   *  in applyEarningRecalculation. Equal to resolution.amount when resolved. */
   recalculatedEarning: number | null;
 }
 
 /** Every earning-eligible session for `teacher` currently marked unknown,
- *  paired with what calculateTeacherSessionEarning resolves to right now —
+ *  paired with what resolveTeacherSessionEarning resolves to right now —
  *  the preview a "Eksik Hakedişleri Yeniden Hesapla" action should show before
  *  applying anything. Purely read-only. */
 export function buildEarningRecalculationPreview(
   teacher: Teacher,
   sessions: Session[],
-  customPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   students: Student[],
   educationTypes: EducationType[]
 ): EarningRecalculationRow[] {
@@ -973,16 +1056,23 @@ export function buildEarningRecalculationPreview(
       (s) =>
         s.teacherId === teacher.id &&
         EARNING_STATUSES.includes(s.status) &&
-        resolveTeacherEarningStatus(s, teacher, customPrices) === "unknown"
+        resolveTeacherEarningStatus(s, teacher, assignments) === "unknown"
     )
     .map((s) => {
       const student = students.find((st) => st.id === s.studentId);
       const et = educationTypes.find((e) => e.id === s.educationTypeId);
+      const resolution = resolveTeacherSessionEarning({
+        teacher,
+        educationTypeId: s.educationTypeId,
+        sessionFee: s.studentPrice,
+        assignments,
+      });
       return {
         session: s,
         studentName: student?.fullName ?? "—",
         educationTypeName: et?.name ?? "—",
-        recalculatedEarning: calculateTeacherSessionEarning(teacher, s.educationTypeId, s.studentPrice, customPrices),
+        resolution,
+        recalculatedEarning: resolution.status === "resolved" ? resolution.amount : null,
       } satisfies EarningRecalculationRow;
     });
 }
@@ -1102,7 +1192,7 @@ export interface TeacherEarningTotals {
 function countUnknownEarningSessions(
   teacher: Teacher,
   sessions: Session[],
-  customPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   isInScope: (session: Session) => boolean = () => true
 ): number {
   return sessions.filter(
@@ -1110,7 +1200,7 @@ function countUnknownEarningSessions(
       s.teacherId === teacher.id &&
       EARNING_STATUSES.includes(s.status) &&
       isInScope(s) &&
-      resolveTeacherEarningStatus(s, teacher, customPrices) === "unknown"
+      resolveTeacherEarningStatus(s, teacher, assignments) === "unknown"
   ).length;
 }
 
@@ -1143,14 +1233,29 @@ export function getTeacherEarningTotals(
   teacher: Teacher,
   sessions: Session[],
   teacherPayments: TeacherPayment[],
-  customPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningTotals {
   const totalEarning = calculateTeacherTotalPayable(teacher, sessions);
   const paidEarning = getTeacherCashPaidTotal(teacher.id, teacherPayments);
   const deductedEarning = getTeacherDeductionTotal(teacher.id, teacherPayments);
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
-  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices);
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments);
   return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning, unknownSessionCount };
+}
+
+/** Canonical name for "how many of this teacher's historical earning-eligible
+ *  sessions have an unresolved earning, all-time" (section 12) — a thin,
+ *  purpose-named wrapper over getTeacherEarningTotals so call sites that only
+ *  need this one count don't have to know it's nested inside the totals
+ *  object. Deliberately separate from getTeacherEarningConfigurationStatus:
+ *  this is about past sessions, that is about the teacher's current setup. */
+export function getTeacherHistoricalUnresolvedEarningCount(
+  teacher: Teacher,
+  sessions: Session[],
+  teacherPayments: TeacherPayment[],
+  assignments: TeacherEducationTypeAssignment[] = []
+): number {
+  return getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments).unknownSessionCount;
 }
 
 /**
@@ -1165,7 +1270,7 @@ export function getTeacherMonthEarningTotals(
   teacherPayments: TeacherPayment[],
   year: number,
   month: number,
-  customPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningTotals {
   const totalEarning = calculateTeacherMonthlyPayable(teacher, sessions, year, month);
 
@@ -1196,7 +1301,7 @@ export function getTeacherMonthEarningTotals(
   }
 
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
-  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => {
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) => {
     const d = new Date(s.date);
     return d.getFullYear() === year && d.getMonth() + 1 === month;
   });
@@ -1216,7 +1321,7 @@ export function getTeacherMonthAccountSummary(
   teacherPayments: TeacherPayment[],
   year: number,
   month: number,
-  customPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherMonthAccountSummary {
   const isBeforeMonth = (dateStr: string) => {
     const d = parseDateOnly(dateStr);
@@ -1258,10 +1363,10 @@ export function getTeacherMonthAccountSummary(
     previousBalance + thisMonthEarning - thisMonthPaid - thisMonthDeducted
   );
 
-  const allTimeTotals = getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices);
+  const allTimeTotals = getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments);
   const totalPending = allTimeTotals.pendingEarning;
   const totalUnknownSessionCount = allTimeTotals.unknownSessionCount;
-  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => isInMonth(s.date));
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) => isInMonth(s.date));
 
   const earningSessions = sessions.filter(
     (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
@@ -1303,10 +1408,10 @@ export function getTeacherEarningTotalsForRange(
   teacherPayments: TeacherPayment[],
   startDate: string | null,
   endDate: string | null,
-  customPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningTotals {
   if (!startDate && !endDate) {
-    return getTeacherEarningTotals(teacher, sessions, teacherPayments, customPrices);
+    return getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments);
   }
 
   // Parsed as local dates throughout (never `new Date("YYYY-MM-DD")`, which is UTC and
@@ -1357,7 +1462,7 @@ export function getTeacherEarningTotalsForRange(
     .filter((p) => isDeductionPaymentType(p.paymentType))
     .reduce((sum, p) => sum + p.amount, 0);
 
-  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, customPrices, (s) => {
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) => {
     const d = new Date(s.date);
     if (start && d < start) return false;
     if (end && d > end) return false;
@@ -1427,7 +1532,7 @@ export function buildSessionListItems(
   students: Student[],
   teachers: Teacher[],
   educationTypes: EducationType[],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): SessionListItem[] {
   return [...sessions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -1458,7 +1563,7 @@ export function buildSessionListItems(
         notes: session.notes,
         durationMinutes: session.durationMinutes,
         billingMode: session.billingMode,
-        teacherEarningStatus: resolveTeacherEarningStatus(session, teacher, teacherCustomPrices),
+        teacherEarningStatus: resolveTeacherEarningStatus(session, teacher, assignments),
       } satisfies SessionListItem;
     });
 }
@@ -1738,7 +1843,7 @@ export function buildTeacherEarningListItems(
   teachers: Teacher[],
   students: Student[],
   educationTypes: EducationType[],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningListItem[] {
   return [...earnings]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -1771,7 +1876,7 @@ export function buildTeacherEarningListItems(
         // upsertEarningForSession) — an "unknown" (0-fallback) session never
         // gets one, so this only surfaces here in the defensive/edge case
         // where a session record is missing entirely.
-        teacherEarningStatus: session ? resolveTeacherEarningStatus(session, teacher, teacherCustomPrices) : "calculated",
+        teacherEarningStatus: session ? resolveTeacherEarningStatus(session, teacher, assignments) : "calculated",
         paidAt: earning.paidAt,
         createdAt: earning.createdAt,
       } satisfies TeacherEarningListItem;
@@ -1782,11 +1887,11 @@ export function buildTeacherEarningOverviewItems(
   teachers: Teacher[],
   sessions: Session[],
   teacherPayments: TeacherPayment[],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningOverviewItem[] {
   return teachers
     .map((teacher) => {
-      const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments, teacherCustomPrices);
+      const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments);
       const earningCount = sessions.filter(
         (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
       ).length;
@@ -1814,7 +1919,7 @@ export function buildTeacherEarningPageStats(
   teacherPayments: TeacherPayment[],
   year: number,
   month: number,
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherEarningPageStats {
   // "Bu Ay" = what's owed for sessions/salary entitlement in this specific month —
   // independent of whether it has been billed/paid to the student yet.
@@ -1823,7 +1928,7 @@ export function buildTeacherEarningPageStats(
     0
   );
 
-  const allTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, teacherCustomPrices));
+  const allTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, assignments));
 
   return {
     thisMonthTotal,
@@ -1840,7 +1945,7 @@ export function buildMonthlyTeacherEarningSummary(
   teacherPayments: TeacherPayment[],
   year: number,
   month: number,
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): MonthlyTeacherEarningSummary[] {
   const inMonthSessions = sessions.filter((s) => {
     const d = new Date(s.date);
@@ -1868,7 +1973,7 @@ export function buildMonthlyTeacherEarningSummary(
         teacherPayments,
         year,
         month,
-        teacherCustomPrices
+        assignments
       );
 
       const summary: MonthlyTeacherEarningSummary = {
@@ -1915,7 +2020,7 @@ export function buildTeacherReportRows(
   teacherPayments: TeacherPayment[],
   startDate: string | null,
   endDate: string | null,
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherReportRow[] {
   return teachers
     .map((teacher) => {
@@ -1927,7 +2032,7 @@ export function buildTeacherReportRows(
         teacherPayments,
         startDate,
         endDate,
-        teacherCustomPrices
+        assignments
       );
       const earningSessions = teacherSessions.filter((s) => EARNING_STATUSES.includes(s.status));
       const lastSessionDate =

@@ -10,23 +10,20 @@ interface PageHeaderProps {
   className?: string;
 }
 
-export function PageHeader({ title, description, actions, className }: PageHeaderProps) {
+// Deliberately minimal — the app no longer repeats a page title/subtitle in
+// the body (the sidebar's active item already says where you are, and the
+// topbar breadcrumb was removed too; see AppTopbar). `title` stays as a
+// screen-reader-only <h1> so pages still have real document structure, and
+// `description` is intentionally not rendered at all: it was always
+// decorative or a count already visible in the content below. When a page
+// has no `actions`, this renders nothing — zero height, no gap to account for.
+export function PageHeader({ title, actions, className }: PageHeaderProps) {
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 border-b border-border/70 pb-5 sm:flex-row sm:items-start sm:justify-between",
-        className
+    <>
+      <h1 className="sr-only">{title}</h1>
+      {actions && (
+        <div className={cn("flex items-center justify-end gap-2", className)}>{actions}</div>
       )}
-    >
-      <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          {title}
-        </h1>
-        {description && (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-        )}
-      </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-    </div>
+    </>
   );
 }

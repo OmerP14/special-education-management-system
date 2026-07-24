@@ -49,6 +49,7 @@ import { EducationTypeFormDrawer } from "@/components/settings/EducationTypeForm
 import { useMockStore } from "@/lib/mock/store";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDateTime, calculateTeacherSessionEarning } from "@/lib/helpers/finance";
+import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
 import type {
   ImportEntityType,
   ImportMode,
@@ -804,6 +805,59 @@ function RepairPanel({
                 <option value="__create_new__">+ Yeni Eğitim Türü Ekle…</option>
               </select>
             )}
+            {f.kind === "educationTypeSelect" && (() => {
+              // Section 13: when the currently-drafted teacher/education-type pair
+              // resolves to real records but has no active assignment linking them,
+              // offer a one-click fix instead of forcing the user to leave this
+              // drawer and edit the teacher separately — never silently invents an
+              // earning amount, the new assignment row is left unpriced (null).
+              const draftTeacherName = draft.teacherName?.trim();
+              const draftEducationTypeName = draft[f.key]?.trim();
+              const draftTeacher = draftTeacherName
+                ? store.teachers.find((t) => t.fullName === draftTeacherName)
+                : undefined;
+              const draftEducationType = draftEducationTypeName
+                ? store.educationTypes.find((et) => et.name === draftEducationTypeName)
+                : undefined;
+              if (
+                !draftTeacher ||
+                !draftEducationType ||
+                isTeacherAssignedToEducationType(draftTeacher.id, draftEducationType.id, store.teacherEducationTypeAssignments)
+              ) {
+                return null;
+              }
+              return (
+                <div className="mt-1.5 flex items-center gap-2 rounded-md bg-amber-50 px-2 py-1.5">
+                  <p className="flex-1 text-[10px] text-amber-800">
+                    &quot;{draftTeacher.fullName}&quot; bu eğitim türü için tanımlı değil.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const existing = store.teacherEducationTypeAssignments.filter(
+                        (a) => a.teacherId === draftTeacher.id
+                      );
+                      store.upsertTeacherEducationTypeAssignments(
+                        draftTeacher.id,
+                        draftTeacher.tenantId,
+                        [
+                          ...existing.map((a) => ({
+                            educationTypeId: a.educationTypeId,
+                            earningAmount: a.earningAmount,
+                            status: a.status,
+                          })),
+                          { educationTypeId: draftEducationType.id, earningAmount: null, status: "active" as const },
+                        ]
+                      );
+                      setJustApplied(false);
+                    }}
+                    className="shrink-0 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-amber-700"
+                  >
+                    Ata
+                  </button>
+                </div>
+              );
+            })()}
             {f.kind === "paymentMethodSelect" && (
               <select value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass}>
                 <option value="">— Seçin —</option>
@@ -916,7 +970,7 @@ export default function ImportPage() {
       payments: store.payments,
       teacherPayments: store.teacherPayments,
       openingBalances: store.openingBalances,
-      teacherCustomPrices: store.teacherCustomPrices,
+      teacherEducationTypeAssignments: store.teacherEducationTypeAssignments,
     };
   }
 
@@ -1272,7 +1326,6 @@ export default function ImportPage() {
           fullName: teacherNameRaw,
           phone: "—",
           status: "active",
-          specializations: [],
           createdAt: new Date().toISOString(),
         };
       } else {
@@ -1317,9 +1370,19 @@ export default function ImportPage() {
     if (createdTeacher) issues.push(`'${teacherNameRaw}' adlı öğretmen sistemde bulunamadığı için otomatik oluşturulacak`);
 
     const teacherForEarning = createdTeacher ?? teacherRes!.teacher!;
-    const calculatedEarning = calculateTeacherSessionEarning(teacherForEarning, educationTypeId, priceRaw!, store.teacherCustomPrices ?? []);
+    const assignmentIncompatible =
+      !createdTeacher &&
+      !!educationTypeId &&
+      !isTeacherAssignedToEducationType(teacherForEarning.id, educationTypeId, store.teacherEducationTypeAssignments);
+    if (assignmentIncompatible) {
+      const etName = store.educationTypes.find((et) => et.id === educationTypeId)?.name ?? "—";
+      issues.push(`'${teacherForEarning.fullName}' adlı öğretmen '${etName}' eğitim türünü vermek üzere tanımlanmamış`);
+    }
+    const calculatedEarning = assignmentIncompatible
+      ? null
+      : calculateTeacherSessionEarning(teacherForEarning, educationTypeId, priceRaw!, store.teacherEducationTypeAssignments ?? []);
     const teacherEarningUnknown = calculatedEarning === null;
-    if (teacherEarningUnknown) {
+    if (teacherEarningUnknown && !assignmentIncompatible) {
       issues.push("Öğretmen hakedişi hesaplanamadı; öğretmen ücret ayarları tamamlandıktan sonra sistem tarafından hesaplanacaktır");
     }
 
@@ -1346,7 +1409,16 @@ export default function ImportPage() {
     const includeByDefault = conflict.hasConflict ? mode === "historical" : true;
 
     return {
-      preview: { rowNumber, displayText, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: includeByDefault, teacherEarningUnknown },
+      preview: {
+        rowNumber,
+        displayText,
+        status: issues.length > 0 ? "warning" : "valid",
+        issues,
+        entityMatches: matches,
+        include: includeByDefault,
+        teacherEarningUnknown,
+        teacherAssignmentIncompatible: assignmentIncompatible,
+      },
       staged,
     };
   }
@@ -1394,7 +1466,7 @@ export default function ImportPage() {
 
     const matrixEntries: PreviewTaskEntry[] = ms.map((u) => {
       const eduId = matrixEducationTypeId[u.key] || store.educationTypes[0]?.id || "";
-      const rows = convertMatrixSheetToSessionCandidates(u.sheet, workingTeachers, workingStudents, eduId, workingSessions, mode, store.teacherCustomPrices);
+      const rows = convertMatrixSheetToSessionCandidates(u.sheet, workingTeachers, workingStudents, eduId, workingSessions, mode, store.teacherEducationTypeAssignments);
       workingSessions = [...workingSessions, ...sessionsFromRows(rows)];
       return { type: "sessions", sheetKey: u.key, sheetLabel: `${u.sheet.name} (Zaman Çizelgesi Matrisi)`, rows };
     });
@@ -1416,7 +1488,7 @@ export default function ImportPage() {
         workingSessions,
         mode,
         !disabled.has("teachers"),
-        store.teacherCustomPrices,
+        store.teacherEducationTypeAssignments,
         ledgerChoiceToBillingMode(ledgerImportChoice)
       );
       skippedRowCount = ledgerImport.sheetResults.reduce((sum, r) => sum + r.skippedRowCount, 0);

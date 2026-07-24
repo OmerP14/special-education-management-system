@@ -1,6 +1,5 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { Bell, Check, ChevronDown, PanelLeft } from "lucide-react";
 import {
   DropdownMenu,
@@ -13,30 +12,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useMockStore } from "@/lib/mock/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
-import { resolveNavBreadcrumb } from "@/lib/nav";
+import { CURRENT_USER } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-
-const MOCK_USER = {
-  name: "Yönetici",
-  email: "admin@ornekokul.com",
-  initials: "YN",
-};
 
 interface AppTopbarProps {
   sidebarVisible: boolean;
   onToggleSidebar: () => void;
 }
 
+// Deliberately minimal — left: sidebar toggle only. Right: notifications +
+// profile only. No breadcrumb, no title, no bottom divider (see task: the
+// sidebar's active item is already enough wayfinding).
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
   const { notifications, markAllNotificationsRead, students, teachers } = store;
-  const pathname = usePathname();
-  const breadcrumb = resolveNavBreadcrumb(pathname);
   // On mobile the sidebar is always a Sheet overlay with its own open/closed
   // state (openMobile) — our desktop visible/hidden state doesn't apply there,
   // so this same header button drives a DIFFERENT action on mobile: open/close
@@ -62,42 +55,26 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
       : "Menüyü Göster";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 lg:px-5">
-      {/* Left – sidebar toggle + breadcrumb. This button is the ONLY way to
-          restore a hidden sidebar — it lives here, outside the Sidebar
-          itself, so it stays reachable while hidden. */}
-      <div className="flex min-w-0 items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={sidebarLabel}
-                onClick={isMobile ? toggleSidebar : onToggleSidebar}
-                className="text-muted-foreground hover:text-foreground"
-              />
-            }
-          >
-            <PanelLeft className="h-4 w-4" />
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{sidebarLabel}</TooltipContent>
-        </Tooltip>
-        {breadcrumb && (
-          <>
-            <Separator orientation="vertical" className="h-4" />
-            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
-              {breadcrumb.groupLabel && (
-                <>
-                  <span className="truncate text-muted-foreground">{breadcrumb.groupLabel}</span>
-                  <span className="text-muted-foreground/40">/</span>
-                </>
-              )}
-              <span className="truncate font-medium text-foreground">{breadcrumb.pageLabel}</span>
-            </nav>
-          </>
-        )}
-      </div>
+    <header className="flex h-12 shrink-0 items-center justify-between gap-3 bg-background px-3 lg:px-5">
+      {/* Left – sidebar toggle. This button is the ONLY way to restore a
+          hidden sidebar — it lives here, outside the Sidebar itself, so it
+          stays reachable while hidden. */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={sidebarLabel}
+              onClick={isMobile ? toggleSidebar : onToggleSidebar}
+              className="text-muted-foreground hover:text-foreground"
+            />
+          }
+        >
+          <PanelLeft className="h-4 w-4" />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{sidebarLabel}</TooltipContent>
+      </Tooltip>
 
       {/* Right – actions */}
       <div className="flex items-center gap-2">
@@ -215,10 +192,10 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
           >
             <Avatar className="h-7 w-7">
               <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                {MOCK_USER.initials}
+                {CURRENT_USER.initials}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden text-sm font-medium sm:block">{MOCK_USER.name}</span>
+            <span className="hidden text-sm font-medium sm:block">{CURRENT_USER.name}</span>
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -226,8 +203,8 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">{MOCK_USER.name}</span>
-                  <span className="text-xs text-muted-foreground">{MOCK_USER.email}</span>
+                  <span className="text-sm font-medium">{CURRENT_USER.name}</span>
+                  <span className="text-xs text-muted-foreground">{CURRENT_USER.email}</span>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>

@@ -9,7 +9,7 @@ import type {
   Payment,
   TeacherEarning,
   TeacherPayment,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
   InstallmentPlan,
   CashMovement,
   WeeklySessionPlan,
@@ -24,11 +24,16 @@ import { mockSessions } from "@/lib/mock/sessions";
 import { mockPayments } from "@/lib/mock/payments";
 import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
 import { mockTeacherPayments } from "@/lib/mock/teacher-payments";
-import { mockTeacherCustomPrices } from "@/lib/mock/teacher-custom-prices";
+import { mockTeacherEducationTypeAssignments } from "@/lib/mock/teacher-education-type-assignments";
 import { mockInstallmentPlans } from "@/lib/mock/installment-plans";
 import { mockCashMovements } from "@/lib/mock/cash-movements";
 import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
 import { mockEducationTypes } from "@/lib/mock/education-types";
+import { mockAppUsers } from "@/lib/mock/app-users";
+import type { InstitutionSettings, InstitutionSettingsKey, AuditLogEntry, AppUser } from "@/types/settings";
+import { DEFAULT_INSTITUTION_SETTINGS, getSettingsDefaults } from "@/lib/settings/defaults";
+import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
+import { CURRENT_USER } from "@/lib/permissions";
 import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
@@ -73,6 +78,20 @@ function upsertEarningForSession(
       };
 
   return [...withoutThisSession, earning];
+}
+
+// ─── Audit log ──────────────────────────────────────────────────────────────
+// Not every mutation in this store pushes an entry — see logAuditEvent's own
+// doc comment on the MockStore interface for which ones do today and why the
+// rest were left out of this pass.
+
+function makeAuditEntry(entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">): AuditLogEntry {
+  return {
+    id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    tenantId: "tenant-1",
+    occurredAt: new Date().toISOString(),
+    ...entry,
+  };
 }
 
 // ─── Notification types ────────────────────────────────────────────────────────
@@ -122,7 +141,7 @@ interface MockStore {
   payments: Payment[];
   teacherEarnings: TeacherEarning[];
   teacherPayments: TeacherPayment[];
-  teacherCustomPrices: TeacherCustomPrice[];
+  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
   installmentPlans: InstallmentPlan[];
   cashMovements: CashMovement[];
   openingBalances: OpeningBalance[];
@@ -141,7 +160,7 @@ interface MockStore {
   updateEducationType: (et: EducationType) => void;
   setEducationTypeStatus: (id: string, status: EducationType["status"]) => void;
   /** Silently no-ops if the type is referenced by any session/student/teacher/
-   *  weekly plan/custom price — re-validated against current data right before
+   *  weekly plan/assignment — re-validated against current data right before
    *  writing, never trusting caller UI state (same reasoning as mergeTeachers
    *  below). The Settings UI itself disables Sil in that case; this is the
    *  backstop — see getEducationTypeUsage/canDeleteEducationType. */
@@ -155,10 +174,13 @@ interface MockStore {
   /** Records a payment to a teacher. Silently no-ops if it would exceed pending earnings. */
   addTeacherPayment: (p: TeacherPayment) => void;
   deleteTeacherPayments: (ids: string[]) => void;
-  upsertTeacherCustomPricesForTeacher: (
+  /** Fully replaces the assignment set for one teacher in a single write — this
+   *  is what makes "duplicate assignment for the same teacherId+educationTypeId"
+   *  structurally impossible, since there is no other way to add/edit a row. */
+  upsertTeacherEducationTypeAssignments: (
     teacherId: string,
     tenantId: string,
-    prices: { educationTypeId: string; amount: number }[]
+    rows: { educationTypeId: string; earningAmount: number | null; status: "active" | "inactive" }[]
   ) => void;
   addInstallmentPlan: (plan: InstallmentPlan) => void;
   updateInstallmentPlan: (plan: InstallmentPlan) => void;
@@ -172,7 +194,7 @@ interface MockStore {
   addImportBatch: (batch: ImportBatch) => void;
   markImportBatchRolledBack: (batchId: string) => void;
   teacherMergeHistory: TeacherMergeHistory[];
-  /** Reassigns every Session/TeacherEarning/TeacherPayment/TeacherCustomPrice/
+  /** Reassigns every Session/TeacherEarning/TeacherPayment/TeacherEducationTypeAssignment/
    *  WeeklySessionPlan owned by the duplicate over to the primary, archives the
    *  duplicate, and records a TeacherMergeHistory entry. Silently no-ops (like
    *  addTeacherPayment above) if either teacher is missing, they're the same
@@ -192,6 +214,42 @@ interface MockStore {
   resetToDemo: () => void;
   notifications: AppNotification[];
   markAllNotificationsRead: () => void;
+
+  // ─── Institution settings (see src/types/settings.ts) ───────────────────────
+  institutionSettings: InstitutionSettings;
+  /** Section-level save — the whole section's value is replaced at once (the
+   *  settings pages hold their own draft state via useSettingsSection and
+   *  only call this on "Kaydet"), and it stamps metadata + pushes an audit
+   *  entry in the same write. */
+  updateSettingsSection: <K extends InstitutionSettingsKey>(
+    key: K,
+    value: InstitutionSettings[K],
+    updatedBy?: string
+  ) => void;
+  resetSettingsSection: (key: InstitutionSettingsKey) => void;
+
+  // ─── Users & roles (Kullanıcılar ve Roller — no permission engine yet, see
+  //     canAccessSettingsSection in lib/permissions.ts) ─────────────────────
+  appUsers: AppUser[];
+  /** No-ops on a duplicate email (case-insensitive) — mirrors the "prevent
+   *  duplicate email invites" requirement without a separate validation pass. */
+  inviteAppUser: (user: AppUser) => void;
+  updateAppUser: (user: AppUser) => void;
+  /** No-ops if this would leave zero active owners — deliberately no hard
+   *  delete for users either, same reasoning as Student/Teacher/Guardian at
+   *  the top of this file: deactivate, never remove. */
+  deactivateAppUser: (id: string) => void;
+  activateAppUser: (id: string) => void;
+
+  // ─── İşlem Geçmişi ────────────────────────────────────────────────────────
+  auditLog: AuditLogEntry[];
+  /** General-purpose escape hatch for pages that need to record a one-off
+   *  event with no dedicated store action of their own (e.g. Veri Yönetimi's
+   *  backup/restore/export buttons). Settings changes, education type
+   *  create/update, imports, payments, session edits, and invites already log
+   *  themselves from within their own store actions — see each action's own
+   *  comment. */
+  logAuditEvent: (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">) => void;
 }
 
 // ─── Context ───────────────────────────────────────────────────────────────────
@@ -221,16 +279,16 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   teachersRef.current = teachers;
   const teacherPaymentsRef = useRef(teacherPayments);
   teacherPaymentsRef.current = teacherPayments;
-  const [teacherCustomPrices, setTeacherCustomPrices] = useState<TeacherCustomPrice[]>(
-    mockTeacherCustomPrices
+  const [teacherEducationTypeAssignments, setTeacherEducationTypeAssignments] = useState<TeacherEducationTypeAssignment[]>(
+    mockTeacherEducationTypeAssignments
   );
   // Refs so mergeTeachers/rollbackTeacherMerge always compute against a single
   // consistent, current snapshot across every array they touch at once — same
   // reasoning as teachersRef/teacherPaymentsRef above.
   const teacherEarningsRef = useRef(teacherEarnings);
   teacherEarningsRef.current = teacherEarnings;
-  const teacherCustomPricesRef = useRef(teacherCustomPrices);
-  teacherCustomPricesRef.current = teacherCustomPrices;
+  const teacherEducationTypeAssignmentsRef = useRef(teacherEducationTypeAssignments);
+  teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
     mockInstallmentPlans
   );
@@ -250,6 +308,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const teacherMergeHistoryRef = useRef(teacherMergeHistory);
   teacherMergeHistoryRef.current = teacherMergeHistory;
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [institutionSettings, setInstitutionSettings] = useState<InstitutionSettings>(
+    () => structuredClone(DEFAULT_INSTITUTION_SETTINGS)
+  );
+  const [appUsers, setAppUsers] = useState<AppUser[]>(() => [...mockAppUsers]);
+  const appUsersRef = useRef(appUsers);
+  appUsersRef.current = appUsers;
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
 
   const AUTO_COMPLETE_THRESHOLD_MS =
     (DEFAULT_SESSION_DURATION_MINUTES + AUTO_COMPLETE_GRACE_MINUTES) * 60_000;
@@ -324,7 +389,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     payments,
     teacherEarnings,
     teacherPayments,
-    teacherCustomPrices,
+    teacherEducationTypeAssignments,
     installmentPlans,
     cashMovements,
     openingBalances,
@@ -383,13 +448,34 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeachers((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
-    addEducationType: (et) => setEducationTypes((prev) => [...prev, et]),
-    updateEducationType: (et) =>
+    addEducationType: (et) => {
+      setEducationTypes((prev) => [...prev, et]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "education_type_created",
+          module: "education_types",
+          recordLabel: et.name,
+        }),
+        ...prev,
+      ]);
+    },
+    updateEducationType: (et) => {
       setEducationTypes((prev) =>
         prev.map((x) =>
           x.id === et.id ? { ...et, createdAt: x.createdAt, updatedAt: new Date().toISOString() } : x
         )
-      ),
+      );
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "education_type_updated",
+          module: "education_types",
+          recordLabel: et.name,
+        }),
+        ...prev,
+      ]);
+    },
     setEducationTypeStatus: (id, status) =>
       setEducationTypes((prev) =>
         prev.map((x) =>
@@ -402,7 +488,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         students: studentsRef.current,
         teachers: teachersRef.current,
         weeklySessionPlans: weeklySessionPlansRef.current,
-        teacherCustomPrices: teacherCustomPricesRef.current,
+        teacherEducationTypeAssignments: teacherEducationTypeAssignmentsRef.current,
       });
       if (!canDeleteEducationType(usage)) return;
       setEducationTypes((prev) => prev.filter((x) => x.id !== id));
@@ -423,7 +509,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         sessionsRef.current,
         teacherEarningsRef.current,
         teacherPaymentsRef.current,
-        teacherCustomPricesRef.current,
+        teacherEducationTypeAssignmentsRef.current,
         weeklySessionPlansRef.current,
         educationTypesRef.current
       );
@@ -444,24 +530,24 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         .filter((w) => w.teacherId === duplicateTeacherId)
         .map((w) => w.id);
 
-      // Custom prices don't just flip teacherId — a conflicting educationTypeId
+      // Assignments don't just flip teacherId — a conflicting educationTypeId
       // would leave two rows under one teacher (see teacher-merge.ts), so those
       // are dropped from the live array (never happens in practice since a
       // conflict there makes preview.isSafe false above; the branch exists so
       // rollback stays correct even if this rule is ever relaxed later).
-      const duplicatePrices = teacherCustomPricesRef.current.filter(
-        (cp) => cp.teacherId === duplicateTeacherId
+      const duplicateAssignments = teacherEducationTypeAssignmentsRef.current.filter(
+        (a) => a.teacherId === duplicateTeacherId
       );
       const primaryEducationTypeIds = new Set(
-        teacherCustomPricesRef.current
-          .filter((cp) => cp.teacherId === primaryTeacherId)
-          .map((cp) => cp.educationTypeId)
+        teacherEducationTypeAssignmentsRef.current
+          .filter((a) => a.teacherId === primaryTeacherId)
+          .map((a) => a.educationTypeId)
       );
-      const priceIdsToMove = duplicatePrices
-        .filter((cp) => !primaryEducationTypeIds.has(cp.educationTypeId))
-        .map((cp) => cp.id);
-      const droppedPrices = duplicatePrices.filter((cp) =>
-        primaryEducationTypeIds.has(cp.educationTypeId)
+      const assignmentIdsToMove = duplicateAssignments
+        .filter((a) => !primaryEducationTypeIds.has(a.educationTypeId))
+        .map((a) => a.id);
+      const droppedAssignments = duplicateAssignments.filter((a) =>
+        primaryEducationTypeIds.has(a.educationTypeId)
       );
 
       const movedSessionIdSet = new Set(movedSessionIds);
@@ -486,14 +572,14 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           movedPlanIdSet.has(w.id) ? { ...w, teacherId: primaryTeacherId, updatedAt: now } : w
         )
       );
-      const priceIdsToMoveSet = new Set(priceIdsToMove);
-      setTeacherCustomPrices((prev) =>
+      const assignmentIdsToMoveSet = new Set(assignmentIdsToMove);
+      setTeacherEducationTypeAssignments((prev) =>
         prev
-          .filter((cp) => cp.teacherId !== duplicateTeacherId)
+          .filter((a) => a.teacherId !== duplicateTeacherId)
           .concat(
-            duplicatePrices
-              .filter((cp) => priceIdsToMoveSet.has(cp.id))
-              .map((cp) => ({ ...cp, teacherId: primaryTeacherId }))
+            duplicateAssignments
+              .filter((a) => assignmentIdsToMoveSet.has(a.id))
+              .map((a) => ({ ...a, teacherId: primaryTeacherId }))
           )
       );
       setTeachers((prev) =>
@@ -525,7 +611,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           sessions: movedSessionIds.length,
           teacherEarnings: movedTeacherEarningIds.length,
           teacherPayments: movedTeacherPaymentIds.length,
-          teacherCustomPrices: priceIdsToMove.length,
+          teacherEducationTypeAssignments: assignmentIdsToMove.length,
           weeklyPlans: movedWeeklyPlanIds.length,
         },
         snapshot: {
@@ -534,8 +620,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           movedTeacherEarningIds,
           movedTeacherPaymentIds,
           movedWeeklyPlanIds,
-          movedTeacherCustomPriceIds: priceIdsToMove,
-          droppedTeacherCustomPrices: droppedPrices,
+          movedTeacherEducationTypeAssignmentIds: assignmentIdsToMove,
+          droppedTeacherEducationTypeAssignments: droppedAssignments,
         },
       };
       setTeacherMergeHistory((prev) => [...prev, historyEntry]);
@@ -551,7 +637,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       const movedEarningIdSet = new Set(snapshot.movedTeacherEarningIds);
       const movedPaymentIdSet = new Set(snapshot.movedTeacherPaymentIds);
       const movedPlanIdSet = new Set(snapshot.movedWeeklyPlanIds);
-      const movedPriceIdSet = new Set(snapshot.movedTeacherCustomPriceIds);
+      const movedAssignmentIdSet = new Set(snapshot.movedTeacherEducationTypeAssignmentIds);
 
       // Only flip back rows still owned by the primary — if something else
       // reassigned one of these since the merge, that later, unrelated change
@@ -584,13 +670,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
             : w
         )
       );
-      setTeacherCustomPrices((prev) => [
-        ...prev.map((cp) =>
-          movedPriceIdSet.has(cp.id) && cp.teacherId === primaryTeacherId
-            ? { ...cp, teacherId: duplicateTeacherId }
-            : cp
+      setTeacherEducationTypeAssignments((prev) => [
+        ...prev.map((a) =>
+          movedAssignmentIdSet.has(a.id) && a.teacherId === primaryTeacherId
+            ? { ...a, teacherId: duplicateTeacherId }
+            : a
         ),
-        ...snapshot.droppedTeacherCustomPrices,
+        ...snapshot.droppedTeacherEducationTypeAssignments,
       ]);
       setTeachers((prev) =>
         prev.map((t) =>
@@ -624,6 +710,15 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         )
       );
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "session_edited",
+          module: "sessions",
+          recordLabel: `${s.date} — ${s.status}`,
+        }),
+        ...prev,
+      ]);
     },
     deleteSessions: (ids) => {
       const idSet = new Set(ids);
@@ -631,7 +726,18 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherEarnings((prev) => prev.filter((e) => !idSet.has(e.sessionId)));
     },
 
-    addPayment: (p) => setPayments((prev) => [...prev, p]),
+    addPayment: (p) => {
+      setPayments((prev) => [...prev, p]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "payment_created",
+          module: "payments",
+          recordLabel: `${p.amount} ₺ — ${p.date}`,
+        }),
+        ...prev,
+      ]);
+    },
     updatePayment: (p) =>
       setPayments((prev) =>
         prev.map((x) =>
@@ -663,20 +769,26 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherPayments((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
-    upsertTeacherCustomPricesForTeacher: (teacherId, tenantId, prices) => {
-      setTeacherCustomPrices((prev) => {
-        const withoutTeacher = prev.filter((tcp) => tcp.teacherId !== teacherId);
-        const newPrices = prices
-          .filter((p) => p.amount > 0)
-          .map((p, i) => ({
-            id: `tcp-${teacherId}-${p.educationTypeId}-${Date.now()}-${i}`,
-            tenantId,
-            teacherId,
-            educationTypeId: p.educationTypeId,
-            customEarning: p.amount,
-            createdAt: new Date().toISOString(),
-          }));
-        return [...withoutTeacher, ...newPrices];
+    upsertTeacherEducationTypeAssignments: (teacherId, tenantId, rows) => {
+      setTeacherEducationTypeAssignments((prev) => {
+        const others = prev.filter((a) => a.teacherId !== teacherId);
+        const existingForTeacher = prev.filter((a) => a.teacherId === teacherId);
+        const now = new Date().toISOString();
+        const next = rows.map((row, i) => {
+          const existing = existingForTeacher.find((a) => a.educationTypeId === row.educationTypeId);
+          return existing
+            ? { ...existing, earningAmount: row.earningAmount, status: row.status, updatedAt: now }
+            : {
+                id: `tea-${teacherId}-${row.educationTypeId}-${Date.now()}-${i}`,
+                tenantId,
+                teacherId,
+                educationTypeId: row.educationTypeId,
+                earningAmount: row.earningAmount,
+                status: row.status,
+                createdAt: now,
+              };
+        });
+        return [...others, ...next];
       });
     },
 
@@ -740,7 +852,18 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setOpeningBalances((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
-    addImportBatch: (batch) => setImportBatches((prev) => [...prev, batch]),
+    addImportBatch: (batch) => {
+      setImportBatches((prev) => [...prev, batch]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "import_performed",
+          module: "import",
+          recordLabel: batch.fileName,
+        }),
+        ...prev,
+      ]);
+    },
     markImportBatchRolledBack: (batchId) =>
       setImportBatches((prev) =>
         prev.map((b) =>
@@ -773,6 +896,95 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
     },
 
+    institutionSettings,
+    updateSettingsSection: (key, value, updatedBy) => {
+      const who = updatedBy ?? CURRENT_USER.name;
+      setInstitutionSettings((prev) => ({
+        ...prev,
+        [key]: value,
+        metadata: {
+          ...prev.metadata,
+          [key]: {
+            updatedAt: new Date().toISOString(),
+            updatedBy: who,
+            version: (prev.metadata[key]?.version ?? 0) + 1,
+          },
+        },
+      }));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: who,
+          action: "settings_changed",
+          module: "settings",
+          recordLabel: INSTITUTION_SETTINGS_FIELD_LABELS[key],
+        }),
+        ...prev,
+      ]);
+    },
+    resetSettingsSection: (key) => {
+      setInstitutionSettings((prev) => ({
+        ...prev,
+        [key]: getSettingsDefaults(key),
+        metadata: {
+          ...prev.metadata,
+          [key]: {
+            updatedAt: new Date().toISOString(),
+            updatedBy: CURRENT_USER.name,
+            version: (prev.metadata[key]?.version ?? 0) + 1,
+          },
+        },
+      }));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "settings_reset",
+          module: "settings",
+          recordLabel: INSTITUTION_SETTINGS_FIELD_LABELS[key],
+        }),
+        ...prev,
+      ]);
+    },
+
+    appUsers,
+    inviteAppUser: (user) => {
+      const exists = appUsersRef.current.some(
+        (u) => u.email.toLowerCase() === user.email.toLowerCase()
+      );
+      if (exists) return;
+      setAppUsers((prev) => [...prev, user]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: CURRENT_USER.name,
+          action: "user_invited",
+          module: "users",
+          recordLabel: `${user.name} <${user.email}>`,
+        }),
+        ...prev,
+      ]);
+    },
+    updateAppUser: (user) =>
+      setAppUsers((prev) => prev.map((u) => (u.id === user.id ? user : u))),
+    deactivateAppUser: (id) => {
+      const target = appUsersRef.current.find((u) => u.id === id);
+      if (!target) return;
+      if (target.role === "owner") {
+        const otherActiveOwners = appUsersRef.current.filter(
+          (u) => u.role === "owner" && u.status === "active" && u.id !== id
+        );
+        if (otherActiveOwners.length === 0) return; // never deactivate the sole owner
+      }
+      setAppUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, status: "inactive" as const } : u))
+      );
+    },
+    activateAppUser: (id) =>
+      setAppUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, status: "active" as const } : u))
+      ),
+
+    auditLog,
+    logAuditEvent: (entry) => setAuditLog((prev) => [makeAuditEntry(entry), ...prev]),
+
     resetToDemo: () => {
       setStudents([...DEMO_STUDENTS]);
       setGuardians([...DEMO_GUARDIANS]);
@@ -782,13 +994,16 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setPayments([]);
       setTeacherEarnings([]);
       setTeacherPayments([]);
-      setTeacherCustomPrices([...mockTeacherCustomPrices]);
+      setTeacherEducationTypeAssignments([...mockTeacherEducationTypeAssignments]);
       setInstallmentPlans([]);
       setCashMovements([]);
       setWeeklySessionPlans([]);
       setNotifications([]);
       setOpeningBalances([]);
       setImportBatches([]);
+      setInstitutionSettings(structuredClone(DEFAULT_INSTITUTION_SETTINGS));
+      setAppUsers([...mockAppUsers]);
+      setAuditLog([]);
       setTeacherMergeHistory([]);
     },
 
@@ -832,7 +1047,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       payments,
       teacherEarnings,
       teacherPayments,
-      teacherCustomPrices,
+      teacherEducationTypeAssignments,
       installmentPlans,
       cashMovements,
       openingBalances,
@@ -840,6 +1055,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherMergeHistory,
       weeklySessionPlans,
       notifications,
+      institutionSettings,
+      appUsers,
+      auditLog,
     ]
   );
 

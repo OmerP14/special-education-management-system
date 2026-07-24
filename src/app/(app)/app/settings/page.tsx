@@ -1,128 +1,180 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { Settings, RotateCcw, AlertTriangle, CheckCircle2, GraduationCap, ChevronRight } from "lucide-react";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import {
+  Building2,
+  GraduationCap,
+  UserCog,
+  Mail,
+  Bell,
+  Database,
+  History,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronRight,
+} from "lucide-react";
 import { useMockStore } from "@/lib/mock/store";
+import { formatDateTime } from "@/lib/helpers/finance";
+import { getSettingsSectionStatus } from "@/lib/settings/status";
+import { cn } from "@/lib/utils";
 
-export default function SettingsPage() {
+interface OverviewCard {
+  href: string;
+  icon: typeof Building2;
+  label: string;
+  value: string;
+  tone: "primary" | "success" | "warning" | "danger";
+}
+
+export default function SettingsOverviewPage() {
   const store = useMockStore();
-  const [confirmVisible, setConfirmVisible] = useState(false);
-  const [resetDone, setResetDone] = useState(false);
+  const { institutionSettings, educationTypes, appUsers, auditLog } = store;
 
-  const handleReset = () => {
-    store.resetToDemo();
-    setConfirmVisible(false);
-    setResetDone(true);
-    setTimeout(() => setResetDone(false), 3000);
-  };
+  const institutionComplete =
+    getSettingsSectionStatus("institution", store) === "complete";
+  const activeEducationTypes = educationTypes.filter((et) => et.status === "active").length;
+  const activeUsers = appUsers.filter((u) => u.status === "active").length;
+  const pendingInvites = appUsers.filter((u) => u.status === "invited").length;
+
+  const enabledNotificationEvents = Object.values(institutionSettings.notifications.events).filter(
+    (e) => e.enabled
+  ).length;
+  const totalNotificationEvents = Object.keys(institutionSettings.notifications.events).length;
+
+  const lastBackup = institutionSettings.dataManagement.lastBackupAt;
+
+  const lastUpdateEntry = Object.values(institutionSettings.metadata)
+    .filter((m): m is NonNullable<typeof m> => !!m)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+  // Missing-critical-settings banner — the only things that actually block a
+  // clean bill of health today; everything else has a working default.
+  const missing: string[] = [];
+  if (!institutionSettings.institution.name.trim()) missing.push("Kurum adı girilmemiş");
+  if (!institutionSettings.institution.phone.trim()) missing.push("Kurum telefonu girilmemiş");
+  if (!institutionSettings.institution.email.trim()) missing.push("Kurum e-postası girilmemiş");
+  if (activeEducationTypes === 0) missing.push("Aktif eğitim türü yok");
+  if (!appUsers.some((u) => u.role === "owner" && u.status === "active")) {
+    missing.push("Aktif sahip (owner) kullanıcı yok");
+  }
+
+  const cards: OverviewCard[] = [
+    {
+      href: "/app/settings/institution",
+      icon: Building2,
+      label: "Kurum Profili",
+      value: institutionComplete ? "Tamamlandı" : "Eksik bilgi var",
+      tone: institutionComplete ? "success" : "warning",
+    },
+    {
+      href: "/app/settings/education-types",
+      icon: GraduationCap,
+      label: "Eğitim Türleri",
+      value: `${activeEducationTypes} aktif`,
+      tone: activeEducationTypes > 0 ? "primary" : "warning",
+    },
+    {
+      href: "/app/settings/users",
+      icon: UserCog,
+      label: "Aktif Kullanıcı",
+      value: String(activeUsers),
+      tone: "primary",
+    },
+    {
+      href: "/app/settings/users",
+      icon: Mail,
+      label: "Bekleyen Davet",
+      value: String(pendingInvites),
+      tone: pendingInvites > 0 ? "warning" : "success",
+    },
+    {
+      href: "/app/settings/notifications",
+      icon: Bell,
+      label: "Bildirim Olayları",
+      value: `${enabledNotificationEvents}/${totalNotificationEvents} aktif`,
+      tone: "primary",
+    },
+    {
+      href: "/app/settings/data",
+      icon: Database,
+      label: "Son Yedek",
+      value: lastBackup ? formatDateTime(lastBackup) : "Hiç yedek alınmadı",
+      tone: lastBackup ? "success" : "warning",
+    },
+    {
+      href: "/app/settings/audit",
+      icon: History,
+      label: "Son Ayar Değişikliği",
+      value: lastUpdateEntry ? formatDateTime(lastUpdateEntry.updatedAt) : "Henüz değişiklik yok",
+      tone: "primary",
+    },
+    {
+      href: "/app/settings/data",
+      icon: missing.length === 0 ? CheckCircle2 : AlertTriangle,
+      label: "Veri Sağlığı",
+      value: missing.length === 0 ? "İyi durumda" : `${missing.length} eksik kontrol`,
+      tone: missing.length === 0 ? "success" : "warning",
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Ayarlar"
-        description="Kurum ve hesap ayarları"
-      />
-
-      {/* Eğitim Türleri */}
-      <Link href="/app/settings/education-types" className="block">
-        <Card className="transition-colors hover:border-primary/40">
-          <CardContent className="flex items-center justify-between gap-3 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                <GraduationCap className="h-4.5 w-4.5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Eğitim Türleri</p>
-                <p className="text-xs text-muted-foreground">
-                  {store.educationTypes.length} eğitim türü · Süre, ücret ve renk ayarlarını yönetin
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </CardContent>
-        </Card>
-      </Link>
-
-      {/* Demo data reset */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-            <Settings className="h-3.5 w-3.5" />
-            Demo Veri Yönetimi
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-foreground">Demo Veriyi Sıfırla</p>
-            <p className="text-sm text-muted-foreground">
-              Tüm mevcut kayıtları siler ve uygulamayı başlangıç demo durumuna geri yükler.
-              Öğrenciler, veliler ve öğretmenler sıfırlanır; seans, ödeme ve kasa
-              hareketleri tamamen temizlenir.
-            </p>
+    <div className="space-y-5">
+      {missing.length > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+            <p className="text-sm font-semibold text-amber-800">Eksik ayarlar</p>
           </div>
+          <ul className="mt-1.5 list-inside list-disc space-y-0.5 pl-1 text-xs text-amber-800">
+            {missing.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-50 px-4 py-3 dark:bg-emerald-950/20">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            Kritik ayarların tümü tamam — kurum kullanıma hazır.
+          </p>
+        </div>
+      )}
 
-          {!confirmVisible && !resetDone && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmVisible(true)}
-              className="gap-2"
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {cards.map((card) => (
+          <Link
+            key={card.label}
+            href={card.href}
+            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+          >
+            <div
+              className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                card.tone === "primary" && "bg-primary/10 text-primary",
+                card.tone === "success" && "bg-emerald-500/10 text-emerald-600",
+                card.tone === "warning" && "bg-amber-500/10 text-amber-600",
+                card.tone === "danger" && "bg-destructive/10 text-destructive"
+              )}
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Demo Veriyi Sıfırla
-            </Button>
-          )}
-
-          {confirmVisible && (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 space-y-3">
-              <div className="flex items-start gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-destructive">
-                    Bu işlem geri alınamaz.
-                  </p>
-                  <p className="mt-0.5 text-xs text-destructive/80">
-                    Tüm eklenen kayıtlar (seanslar, ödemeler, taksit planları, kasa
-                    hareketleri) kalıcı olarak silinir ve uygulama demo durumuna döner.
-                    Devam etmek istiyor musunuz?
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleReset}
-                  className="gap-2"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Evet, Sıfırla
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmVisible(false)}
-                >
-                  İptal
-                </Button>
-              </div>
+              <card.icon className="h-4.5 w-4.5" />
             </div>
-          )}
-
-          {resetDone && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2.5">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                Demo verisi başarıyla yüklendi.
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {card.label}
               </p>
+              <p className="truncate text-sm font-semibold text-foreground">{card.value}</p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {auditLog.length} işlem geçmişte kayıtlı ·{" "}
+        <Link href="/app/settings/audit" className="text-primary hover:underline">
+          İşlem Geçmişini Gör
+        </Link>
+      </p>
     </div>
   );
 }

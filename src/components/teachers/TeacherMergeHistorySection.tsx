@@ -58,7 +58,7 @@ const columns: Column<TeacherMergeHistory>[] = [
     render: (h) => (
       <span className="text-xs text-muted-foreground">
         {h.moved.sessions} seans · {h.moved.teacherEarnings} hakediş · {h.moved.teacherPayments} ödeme ·{" "}
-        {h.moved.teacherCustomPrices} özel fiyat · {h.moved.weeklyPlans} plan
+        {h.moved.teacherEducationTypeAssignments} eğitim türü ataması · {h.moved.weeklyPlans} plan
       </span>
     ),
     className: "hidden md:table-cell",
@@ -133,8 +133,8 @@ export function TeacherMergeHistorySection() {
                 <>
                   &quot;{rollbackTarget.duplicateTeacherName}&quot; kaydı yeniden etkinleştirilecek ve{" "}
                   {rollbackTarget.moved.sessions} seans, {rollbackTarget.moved.teacherEarnings} hakediş,{" "}
-                  {rollbackTarget.moved.teacherPayments} ödeme, {rollbackTarget.moved.teacherCustomPrices}{" "}
-                  özel fiyat ve {rollbackTarget.moved.weeklyPlans} haftalık plan bu kayda geri taşınacak.
+                  {rollbackTarget.moved.teacherPayments} ödeme, {rollbackTarget.moved.teacherEducationTypeAssignments}{" "}
+                  eğitim türü ataması ve {rollbackTarget.moved.weeklyPlans} haftalık plan bu kayda geri taşınacak.
                   Birleştirmeden sonra eklenmiş yeni kayıtlar etkilenmez.
                 </>
               )}

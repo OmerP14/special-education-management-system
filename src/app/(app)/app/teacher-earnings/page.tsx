@@ -227,9 +227,9 @@ export default function TeacherEarningsPage() {
         store.teachers,
         store.students,
         store.educationTypes,
-        store.teacherCustomPrices
+        store.teacherEducationTypeAssignments
       ),
-    [store.teacherEarnings, store.sessions, store.teachers, store.students, store.teacherCustomPrices]
+    [store.teacherEarnings, store.sessions, store.teachers, store.students, store.teacherEducationTypeAssignments]
   );
 
   // KPI stats — always current month for "Bu Ay", all-time for paid/pending
@@ -241,15 +241,15 @@ export default function TeacherEarningsPage() {
         store.teacherPayments,
         currentYear,
         currentMonth,
-        store.teacherCustomPrices
+        store.teacherEducationTypeAssignments
       ),
-    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherCustomPrices]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherEducationTypeAssignments]
   );
 
   // Teacher overview — all-time totals
   const overviewItems = useMemo(
-    () => buildTeacherEarningOverviewItems(store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices),
-    [store.teachers, store.sessions, store.teacherPayments, store.teacherCustomPrices]
+    () => buildTeacherEarningOverviewItems(store.teachers, store.sessions, store.teacherPayments, store.teacherEducationTypeAssignments),
+    [store.teachers, store.sessions, store.teacherPayments, store.teacherEducationTypeAssignments]
   );
 
   // Monthly summary — always current month
@@ -261,9 +261,9 @@ export default function TeacherEarningsPage() {
         store.teacherPayments,
         currentYear,
         currentMonth,
-        store.teacherCustomPrices
+        store.teacherEducationTypeAssignments
       ),
-    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherCustomPrices]
+    [store.teachers, store.sessions, store.teacherPayments, currentYear, currentMonth, store.teacherEducationTypeAssignments]
   );
 
   // Derive available months from session dates in list items

@@ -5,7 +5,7 @@
 // adding support for a future customer's Excel shape means registering one more
 // rule, never touching the scoring/classification logic below.
 
-import type { ImportEntityType, ImportEntityMatch, ImportMode, Student, Teacher, Session, TeacherCustomPrice } from "@/types";
+import type { ImportEntityType, ImportEntityMatch, ImportMode, Student, Teacher, Session, TeacherEducationTypeAssignment } from "@/types";
 import { cellToDisplayString, parseCellAsDateString, type ParsedSheet, type RawCell } from "@/lib/helpers/import-parse";
 import {
   IMPORT_ENTITY_TYPES,
@@ -31,6 +31,7 @@ import {
   DEFAULT_CONFLICT_DURATION_MINUTES,
 } from "@/lib/helpers/session-conflict";
 import { calculateTeacherSessionEarning } from "@/lib/helpers/finance";
+import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
 
 // ─── Signals ─────────────────────────────────────────────────────────────────
 
@@ -351,7 +352,7 @@ export function convertMatrixSheetToSessionCandidates(
   educationTypeId: string,
   existingSessions: Session[],
   mode: ImportMode,
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  assignments: TeacherEducationTypeAssignment[] = []
 ): StagedRow[] {
   const colHeaders = sheet.headers.slice(1);
   const rowLabels = sheet.rows.map((r) => cellToDisplayString(r[0]));
@@ -432,13 +433,19 @@ export function convertMatrixSheetToSessionCandidates(
       if (conflict.hasConflict) issues.push(conflict.message ?? "Bu öğrenci veya öğretmen aynı saatte başka bir seansa kayıtlı");
 
       const studentPrice = fee ?? 0;
+      const assignmentIncompatible = !isTeacherAssignedToEducationType(impliedTeacher.id, educationTypeId, assignments);
+      if (assignmentIncompatible) {
+        issues.push(`'${impliedTeacher.fullName}' adlı öğretmen bu eğitim türünü vermek üzere tanımlanmamış`);
+      }
       // A matrix sheet is a timetable, not a payout record — calculateTeacherSessionEarning
       // returns null when the teacher has no configured earning model/price, and that must
       // never be presented as a real ₺0 hakediş (see teacherEarningUnknown).
-      const calculatedTeacherEarning = calculateTeacherSessionEarning(impliedTeacher, educationTypeId, studentPrice, teacherCustomPrices);
+      const calculatedTeacherEarning = assignmentIncompatible
+        ? null
+        : calculateTeacherSessionEarning(impliedTeacher, educationTypeId, studentPrice, assignments);
       const teacherEarningUnknown = calculatedTeacherEarning === null;
       const teacherEarning = calculatedTeacherEarning ?? 0;
-      if (teacherEarningUnknown) {
+      if (teacherEarningUnknown && !assignmentIncompatible) {
         issues.push("Öğretmen hakedişi hesaplanamadı; öğretmen ücret ayarları tamamlandıktan sonra sistem tarafından hesaplanacaktır");
       }
 
@@ -464,7 +471,16 @@ export function convertMatrixSheetToSessionCandidates(
       const includeByDefault = conflict.hasConflict ? mode === "historical" : true;
 
       rows.push({
-        preview: { rowNumber, displayText, status: "warning", issues, entityMatches: baseMatches, include: includeByDefault, teacherEarningUnknown },
+        preview: {
+          rowNumber,
+          displayText,
+          status: "warning",
+          issues,
+          entityMatches: baseMatches,
+          include: includeByDefault,
+          teacherEarningUnknown,
+          teacherAssignmentIncompatible: assignmentIncompatible,
+        },
         staged: [{ kind: "sessions", record: session }],
       });
     });

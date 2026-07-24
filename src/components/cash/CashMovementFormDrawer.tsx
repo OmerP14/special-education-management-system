@@ -35,8 +35,6 @@ const EXPENSE_CATEGORIES: CashCategory[] = [
   "other",
 ];
 
-const METHOD_VALUES: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
-
 // ─── Form state ────────────────────────────────────────────────────────────────
 
 interface FormState {
@@ -95,10 +93,13 @@ export function CashMovementFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
+  const { defaultPaymentMethod, enabledPaymentMethods } = store.institutionSettings.finance;
+  const methodValues = enabledPaymentMethods.length > 0 ? enabledPaymentMethods : ["cash" as PaymentMethod];
+
   const [form, setForm] = useState<FormState>(() =>
     initialData
       ? buildFromMovement(initialData)
-      : { ...EMPTY_FORM, date: initialDate ?? today() }
+      : { ...EMPTY_FORM, method: defaultPaymentMethod, date: initialDate ?? today() }
   );
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export function CashMovementFormDrawer({
       setForm(
         initialData
           ? buildFromMovement(initialData)
-          : { ...EMPTY_FORM, date: initialDate ?? today() }
+          : { ...EMPTY_FORM, method: defaultPaymentMethod, date: initialDate ?? today() }
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,7 +277,7 @@ export function CashMovementFormDrawer({
               <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {METHOD_VALUES.map((m) => (
+              {methodValues.map((m) => (
                 <SelectItem key={m} value={m}>
                   {getPaymentMethodLabel(m)}
                 </SelectItem>

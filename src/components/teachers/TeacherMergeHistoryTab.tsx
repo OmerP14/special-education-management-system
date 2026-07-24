@@ -90,7 +90,7 @@ export function TeacherMergeHistoryTab({ teacherId }: TeacherMergeHistoryTabProp
       render: (r) => (
         <span className="text-xs text-muted-foreground">
           {r.entry.moved.sessions} seans · {r.entry.moved.teacherEarnings} hakediş ·{" "}
-          {r.entry.moved.teacherPayments} ödeme · {r.entry.moved.teacherCustomPrices} özel fiyat ·{" "}
+          {r.entry.moved.teacherPayments} ödeme · {r.entry.moved.teacherEducationTypeAssignments} eğitim türü ataması ·{" "}
           {r.entry.moved.weeklyPlans} plan
         </span>
       ),
@@ -153,8 +153,8 @@ export function TeacherMergeHistoryTab({ teacherId }: TeacherMergeHistoryTabProp
                 <>
                   &quot;{rollbackTarget.duplicateTeacherName}&quot; kaydı yeniden etkinleştirilecek ve{" "}
                   {rollbackTarget.moved.sessions} seans, {rollbackTarget.moved.teacherEarnings} hakediş,{" "}
-                  {rollbackTarget.moved.teacherPayments} ödeme, {rollbackTarget.moved.teacherCustomPrices}{" "}
-                  özel fiyat ve {rollbackTarget.moved.weeklyPlans} haftalık plan bu kayda geri taşınacak.
+                  {rollbackTarget.moved.teacherPayments} ödeme, {rollbackTarget.moved.teacherEducationTypeAssignments}{" "}
+                  eğitim türü ataması ve {rollbackTarget.moved.weeklyPlans} haftalık plan bu kayda geri taşınacak.
                   Birleştirmeden sonra eklenmiş yeni kayıtlar etkilenmez.
                 </>
               )}

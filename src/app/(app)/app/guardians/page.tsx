@@ -15,13 +15,22 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StatCard } from "@/components/shared/StatCard";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { GuardianFormDrawer } from "@/components/guardians/GuardianFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
 import { buildGuardianListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Guardian, GuardianListItem } from "@/types";
 import { cn } from "@/lib/utils";
+
+function initialsOf(fullName: string): string {
+  return fullName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+}
 
 // ─── Filter types ──────────────────────────────────────────────────────────────
 
@@ -145,23 +154,30 @@ export default function GuardiansPage() {
       key: "name",
       header: "Ad Soyad",
       render: (row) => (
-        <div className="space-y-0.5">
-          <Link
-            href={`/app/guardians/${row.id}`}
-            className="font-medium text-foreground hover:text-primary transition-colors"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {row.fullName}
-          </Link>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-              {row.relationship}
-            </span>
-            {row.studentCount === 0 && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-px text-[10px] font-medium text-amber-700">
-                Öğrenci yok
+        <div className="flex items-center gap-2.5">
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+              {initialsOf(row.fullName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="space-y-0.5 min-w-0">
+            <Link
+              href={`/app/guardians/${row.id}`}
+              className="block truncate font-medium text-foreground hover:text-primary transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.fullName}
+            </Link>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                {row.relationship}
               </span>
-            )}
+              {row.studentCount === 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-px text-[10px] font-medium text-amber-700">
+                  Öğrenci yok
+                </span>
+              )}
+            </div>
           </div>
         </div>
       ),
@@ -315,51 +331,27 @@ export default function GuardiansPage() {
           }
         />
 
-        {/* Stats — 6 cards */}
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
-          <StatCard
-            title="Toplam Veli"
-            value={items.length}
-            description="Kayıtlı veli sayısı"
-            icon={Users}
-            variant="default"
-          />
-          <StatCard
-            title="Bağlı Öğrenci"
-            value={totalStudentCount}
-            description="Tüm velilerin öğrencileri"
-            icon={Users}
-            variant="default"
-          />
-          <StatCard
-            title="Toplam Tahakkuk"
-            value={formatCurrency(totalBilled)}
-            description="Kesilmiş seans bedeli"
-            icon={TrendingUp}
-            variant="default"
-          />
-          <StatCard
-            title="Toplam Tahsilat"
-            value={formatCurrency(totalPaid)}
-            description="Tahsil edilen toplam"
-            icon={CreditCard}
-            variant="success"
-          />
-          <StatCard
-            title="Toplam Borç"
-            value={formatCurrency(totalDebt)}
-            description="Tahsil edilemeyen bakiye"
-            icon={AlertCircle}
-            variant={totalDebt > 0 ? "danger" : "success"}
-          />
-          <StatCard
-            title="Borçlu Veli"
-            value={guardiansWithDebt}
-            description={guardiansWithDebt > 0 ? `${items.length} veliden borçlu olanlar` : "Tüm borçlar temiz"}
-            icon={UserMinus}
-            variant={guardiansWithDebt > 0 ? "warning" : "success"}
-          />
-        </div>
+        {/* Stats — one dense row instead of six tall cards */}
+        <CompactStatBar
+          items={[
+            { icon: Users, label: "Toplam Veli", value: items.length, tone: "primary" },
+            { icon: Users, label: "Bağlı Öğrenci", value: totalStudentCount, tone: "primary" },
+            { icon: TrendingUp, label: "Toplam Tahakkuk", value: formatCurrency(totalBilled), tone: "primary" },
+            { icon: CreditCard, label: "Toplam Tahsilat", value: formatCurrency(totalPaid), tone: "success" },
+            {
+              icon: AlertCircle,
+              label: "Toplam Borç",
+              value: formatCurrency(totalDebt),
+              tone: totalDebt > 0 ? "danger" : "success",
+            },
+            {
+              icon: UserMinus,
+              label: "Borçlu Veli",
+              value: guardiansWithDebt,
+              tone: guardiansWithDebt > 0 ? "warning" : "success",
+            },
+          ]}
+        />
 
         {/* Search + filter bar */}
         <div className="space-y-2.5">

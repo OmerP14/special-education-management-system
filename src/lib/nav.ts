@@ -13,6 +13,7 @@ import {
   Settings,
   BookOpen,
   CircleDollarSign,
+  PieChart,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -65,7 +66,11 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "finance",
     label: "Finans",
     icon: CircleDollarSign,
+    // Owner/admin only — see canViewFinance() in lib/permissions.ts. The whole
+    // group is gated (not just Finansal Panel below) since every item here is
+    // financial data a teacher/guardian role shouldn't see either.
     items: [
+      { label: "Finansal Panel", href: "/app/finance", icon: PieChart },
       { label: "Öğrenci Ödemeleri", href: "/app/payments", icon: CreditCard },
       { label: "Öğretmen Hakedişleri", href: "/app/teacher-earnings", icon: Banknote },
       { label: "Günlük Kasa", href: "/app/cash-register", icon: Wallet },

@@ -118,7 +118,6 @@ export function EducationTypeFormDrawer({
       color: form.color,
       defaultDurationMinutes: form.defaultDurationMinutes,
       defaultStudentPrice: form.defaultStudentPrice,
-      defaultTeacherEarning: initialData?.defaultTeacherEarning ?? 0,
       status: form.status,
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
     };

@@ -32,11 +32,6 @@ export interface EducationType {
   color: string;
   defaultDurationMinutes: number;
   defaultStudentPrice: number;
-  /** Informational reference only (shown in Teacher price rows) — never a
-   *  fallback in actual earning calculation, see calculateTeacherSessionEarning
-   *  in finance.ts. Real teacher-specific earning lives on TeacherCustomPrice;
-   *  this field is intentionally not editable from Settings → Eğitim Türleri. */
-  defaultTeacherEarning: number;
   /** "inactive" hides the type from new-record selectors everywhere but never
    *  changes how it renders on historical records/reports — see
    *  getActiveEducationTypes/getEducationTypeLabel in education-types.ts. */
@@ -100,7 +95,10 @@ export interface Teacher {
   phone: string;
   email?: string;
   status: TeacherStatus;
-  specializations: string[];
+  /** A teacher's education types live exclusively on active
+   *  TeacherEducationTypeAssignment rows — see getTeacherActiveEducationTypeIds
+   *  in teacher-assignments.ts. There is deliberately no field here; keeping a
+   *  second, independently-editable list is exactly what this model must avoid. */
   earningType?: TeacherEarningType;
   monthlySalary?: number;
   /** For salary_plus_quota: monthly sessions included in the base salary. */
@@ -291,15 +289,67 @@ export interface InstallmentRow {
   notes?: string;
 }
 
-// ─── Teacher Custom Price ──────────────────────────────────────────────────────
-export interface TeacherCustomPrice {
+// ─── Teacher Education Type Assignment ──────────────────────────────────────────
+// The canonical, single source of truth for "which education types can this
+// teacher provide, and what do they earn per session for each" — see
+// resolveTeacherSessionEarning in finance.ts, the only function allowed to turn
+// this (+ Teacher.earningType) into an actual payout. Teacher.specializations
+// was removed rather than kept in sync with this, so there is structurally only
+// one place this information can live.
+export type TeacherEducationTypeAssignmentStatus = "active" | "inactive";
+
+export interface TeacherEducationTypeAssignment {
   id: string;
   tenantId: string;
   teacherId: string;
   educationTypeId: string;
-  customEarning: number;
+  /** Fixed per-session earning for per_session teachers. null = not yet
+   *  configured — distinct from an intentional ₺0 — see
+   *  TeacherEarningResolutionStatus.missing_configuration. Unused (left null)
+   *  for percentage/monthly_salary/salary_plus_quota teachers: those pay via
+   *  teacher-level fields: this row only gates which education types they may
+   *  provide for those earning types. */
+  earningAmount: number | null;
+  /** "inactive" means the teacher no longer provides this education type —
+   *  set by unchecking it in TeacherFormDrawer. The row is kept (not deleted)
+   *  so historical sessions and merge/report logic can still resolve it. */
+  status: TeacherEducationTypeAssignmentStatus;
   createdAt: string;
+  updatedAt?: string;
 }
+
+// ─── Teacher Earning Resolution (canonical per-session resolver) ───────────────
+// See resolveTeacherSessionEarning in finance.ts — the one function allowed to
+// turn a Teacher + educationTypeId + assignments into an actual payout amount.
+
+export type TeacherEarningResolutionStatus = "resolved" | "missing_configuration" | "not_applicable";
+
+export type TeacherEarningSource =
+  | "teacher_education_type_fixed"
+  | "teacher_percentage"
+  | "salary_included"
+  | "salary_quota_extra"
+  | "missing_assignment";
+
+export interface TeacherEarningResolution {
+  amount: number;
+  source: TeacherEarningSource;
+  status: TeacherEarningResolutionStatus;
+  /** Turkish, user-facing — never a raw source code. */
+  explanation: string;
+}
+
+/** Canonical "is this teacher's payout setup complete" status — see
+ *  getTeacherEarningConfigurationStatus in teacher-assignments.ts. Deliberately
+ *  distinct from TeacherEarningCalculationStatus below, which is about whether
+ *  ONE ALREADY-STORED session's earning resolved, not the teacher's current setup. */
+export type TeacherEarningConfigurationStatus =
+  | "configured"
+  | "missing_pricing"
+  | "no_assignment"
+  | "salaried"
+  | "salary_quota"
+  | "inactive_teacher";
 
 // ─── Teacher Earning ───────────────────────────────────────────────────────────
 export type EarningStatus = "pending" | "paid";
@@ -408,13 +458,23 @@ export interface TeacherStudentRow {
   lastSessionDate: string | null;
 }
 
-export interface TeacherPriceRow {
+/** One row of the Teacher Detail "Eğitim Türleri ve Hakedişler" tab — always
+ *  sourced from a real TeacherEducationTypeAssignment, never from
+ *  EducationType defaults. */
+export interface TeacherEducationAssignmentRow {
+  assignmentId: string;
   educationTypeId: string;
   educationTypeName: string;
-  description?: string;
-  defaultEarning: number;
-  customEarning: number | null;
-  isCustom: boolean;
+  educationTypeColor: string;
+  /** The education type itself may have been deactivated in Settings
+   *  independently of this teacher's assignment — surfaced separately so the
+   *  UI can distinguish "I stopped providing this" from "this no longer
+   *  exists as an offering." */
+  educationTypeStatus: EducationTypeStatus;
+  assignmentStatus: TeacherEducationTypeAssignmentStatus;
+  earningAmount: number | null;
+  sessionCount: number;
+  updatedAt: string;
 }
 
 export interface TeacherListItem {
@@ -424,24 +484,30 @@ export interface TeacherListItem {
   phone: string;
   email?: string;
   status: TeacherStatus;
-  specializationNames: string[];
+  educationTypeNames: string[];
   createdAt: string;
   totalSessions: number;
   completedSessions: number;
   monthlyEarnings: number;
   pendingEarnings: number;
   /** Earning-eligible sessions whose teacherEarning could not be reliably
-   *  calculated (missing per_session custom price at commit time) — never
-   *  folded into pendingEarnings/monthlyEarnings as a confirmed ₺0. */
+   *  calculated (missing per_session assignment price at commit time) — never
+   *  folded into pendingEarnings/monthlyEarnings as a confirmed ₺0. Distinct
+   *  from configurationStatus — see getTeacherEarningConfigurationStatus. */
   unknownSessionCount: number;
+  /** Canonical "is this teacher's payout setup complete" status — see
+   *  getTeacherEarningConfigurationStatus in teacher-assignments.ts. Never
+   *  conflated with unknownSessionCount (historical sessions vs. current setup). */
+  configurationStatus: TeacherEarningConfigurationStatus;
+  configurationStatusLabel: string;
 }
 
 export interface TeacherDetail extends Teacher {
-  specializationNames: string[];
+  educationTypeNames: string[];
   sessions: Session[];
   studentRows: TeacherStudentRow[];
   earnings: TeacherEarning[];
-  priceRows: TeacherPriceRow[];
+  assignmentRows: TeacherEducationAssignmentRow[];
   totalSessions: number;
   completedSessions: number;
   monthlyEarnings: number;
@@ -450,6 +516,8 @@ export interface TeacherDetail extends Teacher {
   /** All-time earning-eligible sessions with an unknown (unresolved) earning —
    *  see TeacherListItem.unknownSessionCount. */
   unknownSessionCount: number;
+  configurationStatus: TeacherEarningConfigurationStatus;
+  configurationStatusLabel: string;
 }
 
 export interface DashboardStats {
@@ -891,6 +959,14 @@ export interface ImportPreviewRow {
    *  itself still gets a numeric teacherEarning (unchanged accounting behavior),
    *  but the import preview must never present that fallback as a known hakediş. */
   teacherEarningUnknown?: boolean;
+  /** True when both the teacher AND education type resolved to real records,
+   *  but the teacher has no active TeacherEducationTypeAssignment for that
+   *  education type — a genuinely different problem from teacherEarningUnknown
+   *  (missing price vs. never assigned at all). Operational imports default this
+   *  row to excluded pending repair; historical imports default it included as
+   *  an explicit unresolved-earning row (teacherEarningUnknown is always forced
+   *  true alongside this — never a confident number for an unassigned pair). */
+  teacherAssignmentIncompatible?: boolean;
 }
 
 export interface ImportSummary {
@@ -993,7 +1069,7 @@ export interface EditedImportRecord {
 
 // ─── Teacher Merge (duplicate-teacher consolidation) ───────────────────────────
 // A merge never deletes the duplicate teacher or any of its historical rows — it
-// reassigns every Session/TeacherEarning/TeacherPayment/TeacherCustomPrice/
+// reassigns every Session/TeacherEarning/TeacherPayment/TeacherEducationTypeAssignment/
 // WeeklySessionPlan.teacherId from the duplicate to the primary, then archives
 // the duplicate (status:"archived"). Reports/Dashboard/Calendar all derive from
 // these same arrays, so they update for free — nothing else needs to know a
@@ -1003,14 +1079,14 @@ export interface TeacherMergeMovedCounts {
   sessions: number;
   teacherEarnings: number;
   teacherPayments: number;
-  teacherCustomPrices: number;
+  teacherEducationTypeAssignments: number;
   weeklyPlans: number;
 }
 
 /**
  * Everything needed to reverse a merge without touching any record that wasn't
  * part of it. Only ids are kept for the reassigned entities (rollback just flips
- * teacherId back); teacherCustomPrice rows dropped for conflicting with a price
+ * teacherId back); assignment rows dropped for conflicting with an assignment
  * the primary already had are kept in full (they were removed from the live
  * array entirely, so there's no id left to flip back — the whole row must be
  * recreated). See rollbackTeacherMerge in store.tsx.
@@ -1022,12 +1098,13 @@ export interface TeacherMergeSnapshot {
   movedTeacherEarningIds: string[];
   movedTeacherPaymentIds: string[];
   movedWeeklyPlanIds: string[];
-  movedTeacherCustomPriceIds: string[];
-  /** Custom price rows that existed on the duplicate but were NOT moved because
-   *  the primary already had a price for that educationTypeId — buildTeacherMergePreview
-   *  flags this as a blocking conflict, so in practice this is always empty at the
-   *  moment a merge is actually confirmed; kept for defense-in-depth. */
-  droppedTeacherCustomPrices: TeacherCustomPrice[];
+  movedTeacherEducationTypeAssignmentIds: string[];
+  /** Assignment rows that existed on the duplicate but were NOT moved because
+   *  the primary already had an assignment for that educationTypeId —
+   *  buildTeacherMergePreview flags this as a blocking conflict, so in practice
+   *  this is always empty at the moment a merge is actually confirmed; kept for
+   *  defense-in-depth. */
+  droppedTeacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
 }
 
 export interface TeacherMergeHistory {

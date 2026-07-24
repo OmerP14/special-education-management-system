@@ -40,7 +40,7 @@ function usageBreakdownText(usage: EducationTypeUsage): string {
     `${usage.students} öğrenci`,
     `${usage.teachers} öğretmen`,
     `${usage.weeklyPlans} haftalık plan`,
-    `${usage.customPrices} özel fiyat`,
+    `${usage.assignments} öğretmen ataması`,
   ];
   return parts.join(" · ");
 }
@@ -61,7 +61,7 @@ export default function EducationTypesSettingsPage() {
           students: store.students,
           teachers: store.teachers,
           weeklySessionPlans: store.weeklySessionPlans,
-          teacherCustomPrices: store.teacherCustomPrices,
+          teacherEducationTypeAssignments: store.teacherEducationTypeAssignments,
         }),
       })),
     [
@@ -70,7 +70,7 @@ export default function EducationTypesSettingsPage() {
       store.students,
       store.teachers,
       store.weeklySessionPlans,
-      store.teacherCustomPrices,
+      store.teacherEducationTypeAssignments,
     ]
   );
 

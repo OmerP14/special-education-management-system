@@ -4,7 +4,7 @@ import type {
   Student,
   Teacher,
   WeeklySessionPlan,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
 } from "@/types";
 import { normalizeName } from "@/lib/helpers/import-match";
 
@@ -79,7 +79,7 @@ export interface EducationTypeUsage {
   students: number;
   teachers: number;
   weeklyPlans: number;
-  customPrices: number;
+  assignments: number;
   total: number;
 }
 
@@ -90,17 +90,17 @@ export function getEducationTypeUsage(
     students: Student[];
     teachers: Teacher[];
     weeklySessionPlans: WeeklySessionPlan[];
-    teacherCustomPrices: TeacherCustomPrice[];
+    teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
   }
 ): EducationTypeUsage {
   const sessions = data.sessions.filter((s) => s.educationTypeId === educationTypeId).length;
   const students = data.students.filter((s) => s.educationTypeIds.includes(educationTypeId)).length;
-  const teachers = data.teachers.filter((t) => t.specializations.includes(educationTypeId)).length;
+  const assignments = data.teacherEducationTypeAssignments.filter(
+    (a) => a.educationTypeId === educationTypeId
+  );
+  const teachers = new Set(assignments.map((a) => a.teacherId)).size;
   const weeklyPlans = data.weeklySessionPlans.filter(
     (p) => p.educationTypeId === educationTypeId
-  ).length;
-  const customPrices = data.teacherCustomPrices.filter(
-    (cp) => cp.educationTypeId === educationTypeId
   ).length;
 
   return {
@@ -108,8 +108,8 @@ export function getEducationTypeUsage(
     students,
     teachers,
     weeklyPlans,
-    customPrices,
-    total: sessions + students + teachers + weeklyPlans + customPrices,
+    assignments: assignments.length,
+    total: sessions + students + teachers + weeklyPlans + assignments.length,
   };
 }
 

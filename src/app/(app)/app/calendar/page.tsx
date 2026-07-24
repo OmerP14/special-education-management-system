@@ -10,9 +10,9 @@ import {
   Clock,
   X,
   SlidersHorizontal,
+  type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { SessionDetailDrawer } from "@/components/calendar/SessionDetailDrawer";
@@ -34,12 +34,13 @@ import { cn } from "@/lib/utils";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type CalendarView = "month" | "week" | "day";
+type CalendarView = "month" | "week" | "day" | "agenda";
 
 const VIEW_LABELS: Record<CalendarView, string> = {
   month: "Aylık",
   week: "Haftalık",
   day: "Günlük",
+  agenda: "Ajanda",
 };
 
 const STATUS_FILTER_OPTIONS: { value: SessionStatus | "all"; label: string }[] = [
@@ -89,6 +90,42 @@ function getNavLabel(view: CalendarView, date: Date): string {
   }).format(last)}`;
 }
 
+// ─── Compact stat cell ──────────────────────────────────────────────────────────
+// A single dense row of 4 cells instead of 4 tall StatCards — same information,
+// far less vertical footprint, so the calendar grid starts much higher.
+
+const COMPACT_STAT_TONES = {
+  primary: "bg-primary/10 text-primary",
+  warning: "bg-amber-500/10 text-amber-600",
+  danger: "bg-destructive/10 text-destructive",
+} as const;
+
+function CompactStat({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  tone: keyof typeof COMPACT_STAT_TONES;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+      <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", COMPACT_STAT_TONES[tone])}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+        <p className="text-base font-bold leading-tight tabular-nums text-foreground">{value}</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Chip filter button ────────────────────────────────────────────────────────
 
 function ChipButton({
@@ -121,9 +158,16 @@ export default function CalendarPage() {
   const store = useMockStore();
   const isMobile = useIsMobile();
 
-  // View & navigation
-  const [view, setView] = useState<CalendarView>("week");
+  // View & navigation — initial view comes from Ayarlar → Takvim ve Çalışma
+  // Saatleri's configured default (still freely switchable afterward).
+  const [view, setView] = useState<CalendarView>(() => store.institutionSettings.calendar.defaultView);
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+
+  // Configured work-day hour range for Week/Day views — "HH:mm" strings are
+  // reduced to whole hours since the grid renders one row per hour.
+  const hourStart = Number(store.institutionSettings.calendar.dayStartTime.split(":")[0]);
+  const hourEndRaw = store.institutionSettings.calendar.dayEndTime.split(":");
+  const hourEnd = Number(hourEndRaw[0]) + (Number(hourEndRaw[1]) > 0 ? 1 : 0);
 
   // Filters
   const [teacherFilter, setTeacherFilter] = useState("all");
@@ -218,8 +262,12 @@ export default function CalendarPage() {
     []
   );
 
-  // Month view "+N daha" → drill into that day's full list (Day view), never hidden
-  const handleShowMore = useCallback((date: Date) => {
+  // Drill into a specific date's full list (Day view) — from Month view (a day
+  // number, its empty cell area, or "+N daha") or Week view (a day header).
+  // Both currentDate and view update together in this one handler so there's
+  // no intermediate render showing the day view for the wrong (previous) date.
+  // Active filters are untouched, so they carry straight over into Day view.
+  const handleDayClick = useCallback((date: Date) => {
     setCurrentDate(date);
     setView("day");
   }, []);
@@ -258,51 +306,23 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="space-y-5">
-        {/* Page header */}
-        <PageHeader
-          title="Takvim"
-          description="Seansları gün, hafta ve aylık görünümde takip edin."
-          actions={
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={goToday}
-            >
-              Bugün
-            </Button>
-          }
-        />
+      <div className="space-y-2.5">
+        {/* Page title stays for document structure / a11y only — see PageHeader.
+            No actions here: "Bugün" already lives in the toolbar's quick filters
+            below, so a second copy would be redundant. */}
+        <PageHeader title="Takvim" />
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            title="Bugünkü Seanslar"
-            value={stats.todayCount}
-            description="Bugün planlanmış"
-            icon={CalendarDays}
-            variant="default"
-          />
-          <StatCard
-            title="Bu Hafta"
-            value={stats.weekCount}
-            description="Haftalık toplam"
-            icon={Clock}
-            variant="default"
-          />
-          <StatCard
-            title="Planlanan"
-            value={stats.plannedCount}
-            description="Bekleyen seanslar"
-            icon={CalendarCheck2}
-            variant="warning"
-          />
-          <StatCard
-            title="İptal / Gelmedi"
-            value={stats.cancelledCount}
-            description="Bu dönemde"
+        {/* Compact stat strip — a single dense row instead of four tall cards,
+            so the calendar itself starts much higher on the page. */}
+        <div className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-4 sm:divide-y-0">
+          <CompactStat icon={CalendarDays} label="Bugünkü Seanslar" value={stats.todayCount} tone="primary" />
+          <CompactStat icon={Clock} label="Bu Hafta" value={stats.weekCount} tone="primary" />
+          <CompactStat icon={CalendarCheck2} label="Planlanan" value={stats.plannedCount} tone="warning" />
+          <CompactStat
             icon={CalendarX2}
-            variant={stats.cancelledCount > 0 ? "danger" : "default"}
+            label="İptal / Gelmedi"
+            value={stats.cancelledCount}
+            tone={stats.cancelledCount > 0 ? "danger" : "primary"}
           />
         </div>
 
@@ -310,7 +330,7 @@ export default function CalendarPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* View switcher */}
           <div className="flex items-center rounded-lg border border-border overflow-hidden">
-            {(["month", "week", "day"] as CalendarView[]).map((v) => (
+            {(["month", "week", "day", "agenda"] as CalendarView[]).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -326,28 +346,31 @@ export default function CalendarPage() {
             ))}
           </div>
 
-          {/* Date nav */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => navigate("prev")}
-              aria-label="Önceki"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="min-w-[160px] text-center text-sm font-semibold text-foreground capitalize px-2">
-              {navLabel}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => navigate("next")}
-              aria-label="Sonraki"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+          {/* Date nav — agenda shows every upcoming session flatly, not one
+              date/range at a time, so prev/next don't apply to it. */}
+          {view !== "agenda" && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={() => navigate("prev")}
+                aria-label="Önceki"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="min-w-[160px] text-center text-sm font-semibold text-foreground capitalize px-2">
+                {navLabel}
+              </span>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                onClick={() => navigate("next")}
+                aria-label="Sonraki"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
 
           {/* Quick filters */}
           <div className="flex gap-1 ml-auto">
@@ -462,8 +485,9 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* Status legend */}
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Status + education-type legend — one dense row (was two stacked
+            rows with a border between them) to keep the calendar higher up. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {(
             [
               { status: "planned", label: "Planlandı", color: "bg-blue-500" },
@@ -478,6 +502,19 @@ export default function CalendarPage() {
               <span className="text-xs text-muted-foreground">{label}</span>
             </div>
           ))}
+
+          {getActiveEducationTypes(store.educationTypes).length > 0 && (
+            <>
+              <span className="h-3 w-px bg-border" aria-hidden />
+              {getActiveEducationTypes(store.educationTypes).map((et) => (
+                <div key={et.id} className="flex items-center gap-1.5">
+                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: et.color }} />
+                  <span className="text-xs text-muted-foreground">{et.name}</span>
+                </div>
+              ))}
+            </>
+          )}
+
           {filteredEvents.length < allEvents.length && (
             <span className="ml-auto text-xs text-muted-foreground">
               {filteredEvents.length} / {allEvents.length} seans gösteriliyor
@@ -485,48 +522,40 @@ export default function CalendarPage() {
           )}
         </div>
 
-        {/* Education type legend — the colored accent on each session card */}
-        {getActiveEducationTypes(store.educationTypes).length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-3">
-            {getActiveEducationTypes(store.educationTypes).map((et) => (
-              <div key={et.id} className="flex items-center gap-1.5">
-                <div
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: et.color }}
-                />
-                <span className="text-xs text-muted-foreground">{et.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Calendar view — always agenda on mobile */}
-        {isMobile ? (
-          <CalendarAgendaView
-            events={filteredEvents}
-            onEventClick={handleEventClick}
-          />
-        ) : view === "month" ? (
-          <CalendarMonthView
-            year={currentDate.getFullYear()}
-            month={currentDate.getMonth()}
-            events={filteredEvents}
-            onEventClick={handleEventClick}
-            onShowMore={handleShowMore}
-          />
-        ) : view === "week" ? (
-          <CalendarWeekView
-            weekDays={weekDays}
-            events={filteredEvents}
-            onEventClick={handleEventClick}
-          />
-        ) : (
-          <CalendarDayView
-            date={currentDate}
-            events={filteredEvents}
-            onEventClick={handleEventClick}
-          />
-        )}
+        {/* Calendar view — always agenda on mobile regardless of the picked
+            desktop view, since it's the one that stays legible on a phone */}
+        <div key={isMobile ? "agenda" : view} className="animate-in fade-in duration-200">
+          {isMobile ? (
+            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+          ) : view === "month" ? (
+            <CalendarMonthView
+              year={currentDate.getFullYear()}
+              month={currentDate.getMonth()}
+              events={filteredEvents}
+              onEventClick={handleEventClick}
+              onDayClick={handleDayClick}
+            />
+          ) : view === "week" ? (
+            <CalendarWeekView
+              weekDays={weekDays}
+              events={filteredEvents}
+              onEventClick={handleEventClick}
+              onDayHeaderClick={handleDayClick}
+              hourStart={hourStart}
+              hourEnd={hourEnd}
+            />
+          ) : view === "day" ? (
+            <CalendarDayView
+              date={currentDate}
+              events={filteredEvents}
+              onEventClick={handleEventClick}
+              hourStart={hourStart}
+              hourEnd={hourEnd}
+            />
+          ) : (
+            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+          )}
+        </div>
       </div>
 
       {/* Session detail drawer */}
@@ -535,7 +564,7 @@ export default function CalendarPage() {
         onOpenChange={setDetailOpen}
         relations={selectedRelations}
         onEdit={handleEditFromDetail}
-        teacherCustomPrices={store.teacherCustomPrices}
+        teacherEducationTypeAssignments={store.teacherEducationTypeAssignments}
       />
 
       {/* Session edit form drawer */}

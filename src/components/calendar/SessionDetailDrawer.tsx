@@ -28,7 +28,7 @@ import {
   resolveTeacherEarningStatus,
 } from "@/lib/helpers/finance";
 import type { CalendarEventRelations } from "@/lib/helpers/calendar";
-import type { TeacherCustomPrice } from "@/types";
+import type { TeacherEducationTypeAssignment } from "@/types";
 
 // ─── Info row ──────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ interface SessionDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   relations: CalendarEventRelations | null;
   onEdit?: () => void;
-  teacherCustomPrices?: TeacherCustomPrice[];
+  teacherEducationTypeAssignments?: TeacherEducationTypeAssignment[];
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ export function SessionDetailDrawer({
   onOpenChange,
   relations,
   onEdit,
-  teacherCustomPrices = [],
+  teacherEducationTypeAssignments = [],
 }: SessionDetailDrawerProps) {
   if (!relations) return null;
 
@@ -111,7 +111,7 @@ export function SessionDetailDrawer({
   const totalStudentAmount = session.studentPrice * session.sessionCount;
   const totalTeacherEarning = session.teacherEarning * session.sessionCount;
   const centerProfit = totalStudentAmount - totalTeacherEarning;
-  const earningStatus = resolveTeacherEarningStatus(session, teacher ?? undefined, teacherCustomPrices);
+  const earningStatus = resolveTeacherEarningStatus(session, teacher ?? undefined, teacherEducationTypeAssignments);
 
   return (
     <Sheet open={open} onOpenChange={(o) => onOpenChange(o)}>

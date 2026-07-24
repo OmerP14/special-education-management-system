@@ -26,12 +26,16 @@ import {
   formatTime,
 } from "@/lib/helpers/finance";
 import {
+  isTeacherAssignedToEducationType,
+  getTeacherActiveEducationTypeIds,
+} from "@/lib/helpers/teacher-assignments";
+import {
   generateSessionDates,
   findDuplicateDateTimestamps,
 } from "@/lib/helpers/weekly-plans";
 import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
 import { WeeklyPlanConflictWarning } from "@/components/sessions/WeeklyPlanConflictWarning";
-import type { Teacher, WeeklySessionPlan } from "@/types";
+import type { WeeklySessionPlan } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Day config (Mon-first display order) ─────────────────────────────────────
@@ -45,13 +49,6 @@ const ALL_DAYS = [
   { dayOfWeek: 6, name: "Cumartesi" },
   { dayOfWeek: 0, name: "Pazar" },
 ];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function teacherMatchesEducationType(teacher: Teacher, educationTypeId: string): boolean {
-  if (teacher.specializations.length === 0) return true;
-  return teacher.specializations.includes(educationTypeId);
-}
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -145,6 +142,7 @@ export function WeeklyPlanFormDrawer({
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
+  const [incompatibilityAcknowledged, setIncompatibilityAcknowledged] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -160,6 +158,7 @@ export function WeeklyPlanFormDrawer({
         if (preselectedStudentId) f.studentId = preselectedStudentId;
         setForm(f);
       }
+      setIncompatibilityAcknowledged(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialData?.id, copyFromPlan?.id, preselectedStudentId]);
@@ -175,13 +174,17 @@ export function WeeklyPlanFormDrawer({
   const handleTeacherChange = (teacherId: string) => {
     const teacher = store.teachers.find((t) => t.id === teacherId);
     setForm((prev) => {
-      if (prev.educationTypeId && teacher && !teacherMatchesEducationType(teacher, prev.educationTypeId)) {
+      if (
+        prev.educationTypeId &&
+        teacher &&
+        !isTeacherAssignedToEducationType(teacher.id, prev.educationTypeId, store.teacherEducationTypeAssignments)
+      ) {
         return { ...prev, teacherId, educationTypeId: "", studentPrice: 0, teacherEarning: 0 };
       }
       let teacherEarning = prev.teacherEarning;
       if (prev.educationTypeId && teacher) {
         teacherEarning =
-          calculateTeacherSessionEarning(teacher, prev.educationTypeId, prev.studentPrice, store.teacherCustomPrices) ?? 0;
+          calculateTeacherSessionEarning(teacher, prev.educationTypeId, prev.studentPrice, store.teacherEducationTypeAssignments) ?? 0;
       }
       return { ...prev, teacherId, teacherEarning };
     });
@@ -192,11 +195,11 @@ export function WeeklyPlanFormDrawer({
     setForm((prev) => {
       const teacher = prev.teacherId ? store.teachers.find((t) => t.id === prev.teacherId) : null;
       const defaultStudent = getDefaultStudentPrice(etId, store.educationTypes);
-      if (teacher && !teacherMatchesEducationType(teacher, etId)) {
+      if (teacher && !isTeacherAssignedToEducationType(teacher.id, etId, store.teacherEducationTypeAssignments)) {
         return { ...prev, educationTypeId: etId, teacherId: "", studentPrice: defaultStudent, teacherEarning: 0 };
       }
       const teacherEarning = teacher
-        ? (calculateTeacherSessionEarning(teacher, etId, defaultStudent, store.teacherCustomPrices) ?? 0)
+        ? (calculateTeacherSessionEarning(teacher, etId, defaultStudent, store.teacherEducationTypeAssignments) ?? 0)
         : 0;
       return { ...prev, educationTypeId: etId, studentPrice: defaultStudent, teacherEarning };
     });
@@ -296,14 +299,14 @@ export function WeeklyPlanFormDrawer({
   const filteredTeacherOptions = useMemo(() => {
     const active = store.teachers.filter((t) => t.status === "active");
     const base = form.educationTypeId
-      ? active.filter((t) => teacherMatchesEducationType(t, form.educationTypeId))
+      ? active.filter((t) => isTeacherAssignedToEducationType(t.id, form.educationTypeId, store.teacherEducationTypeAssignments))
       : active;
     if (form.teacherId && !base.some((t) => t.id === form.teacherId)) {
       const sel = store.teachers.find((t) => t.id === form.teacherId);
       return sel ? [sel, ...base] : base;
     }
     return base;
-  }, [store.teachers, form.educationTypeId, form.teacherId]);
+  }, [store.teachers, store.teacherEducationTypeAssignments, form.educationTypeId, form.teacherId]);
 
   const filteredEducationTypeOptions = useMemo(() => {
     const active = getActiveEducationTypes(store.educationTypes);
@@ -312,9 +315,14 @@ export function WeeklyPlanFormDrawer({
         ? [...active, ...store.educationTypes.filter((et) => et.id === form.educationTypeId)]
         : active;
     if (!form.teacherId || !selectedTeacher) return base;
-    if (selectedTeacher.specializations.length === 0) return base;
-    return base.filter((et) => selectedTeacher.specializations.includes(et.id));
-  }, [store.educationTypes, form.teacherId, form.educationTypeId, selectedTeacher]);
+    const activeIds = getTeacherActiveEducationTypeIds(selectedTeacher.id, store.teacherEducationTypeAssignments);
+    return base.filter((et) => activeIds.includes(et.id));
+  }, [store.educationTypes, store.teacherEducationTypeAssignments, form.teacherId, form.educationTypeId, selectedTeacher]);
+
+  // ── Incompatibility (section 10 — never save an invalid teacher/type combo) ──
+  const isIncompatible =
+    !!form.teacherId && !!form.educationTypeId && !!selectedTeacher &&
+    !isTeacherAssignedToEducationType(selectedTeacher.id, form.educationTypeId, store.teacherEducationTypeAssignments);
 
   const studentOptions = useMemo(() => {
     const active = store.students.filter((s) => s.status !== "inactive");
@@ -339,6 +347,7 @@ export function WeeklyPlanFormDrawer({
     if (!form.studentId || !form.teacherId || !form.educationTypeId) return;
     if (!form.startDate || !form.endDate) return;
     if (activeSlots.length === 0) return;
+    if (isIncompatible && !incompatibilityAcknowledged) return;
     if (isEditing) {
       // Edit: just update plan record, don't touch existing sessions
       store.updateWeeklySessionPlan({
@@ -406,7 +415,8 @@ export function WeeklyPlanFormDrawer({
     !!form.startDate &&
     !!form.endDate &&
     activeSlots.length > 0 &&
-    (isEditing || generatedDates.length > 0);
+    (isEditing || generatedDates.length > 0) &&
+    (!isIncompatible || incompatibilityAcknowledged);
 
   const saveLabel = isEditing
     ? "Planı Güncelle"
@@ -423,6 +433,7 @@ export function WeeklyPlanFormDrawer({
       description="Haftalık tekrarlayan seans programı oluşturun. Seanslar otomatik olarak oluşturulur."
       onSave={handleSave}
       saveLabel={saveLabel}
+      saveDisabled={isIncompatible && !incompatibilityAcknowledged}
     >
       <div className="space-y-5">
 
@@ -517,6 +528,34 @@ export function WeeklyPlanFormDrawer({
             </SelectContent>
           </Select>
         </div>
+
+        {/* Uyumsuzluk — section 10: never silently keep an invalid combination */}
+        {isIncompatible && (
+          <div className="rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                  Bu öğretmen seçilen eğitim türünü vermek üzere tanımlanmamış.
+                </p>
+                <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
+                  Öğretmenin aktif eğitim türü atamaları bu eğitim türünü kapsamıyor.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={incompatibilityAcknowledged}
+                onChange={(e) => setIncompatibilityAcknowledged(e.target.checked)}
+                className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
+              />
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Uyumsuzluğu onaylıyorum, kaydetmeye devam et
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* Seans Ücreti + Hakediş */}
         <div className="grid grid-cols-2 gap-3">

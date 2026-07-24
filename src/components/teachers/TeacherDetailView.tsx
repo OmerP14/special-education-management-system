@@ -51,14 +51,15 @@ import {
   formatTime,
 } from "@/lib/helpers/finance";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
+import { cn } from "@/lib/utils";
 import type {
   EducationType,
   Session,
   Teacher,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
   TeacherEarning,
   TeacherStudentRow,
-  TeacherPriceRow,
+  TeacherEducationAssignmentRow,
 } from "@/types";
 
 // ─── Enriched earning row for display ─────────────────────────────────────────
@@ -77,7 +78,7 @@ interface EarningDisplayRow {
 function buildSessionColumns(
   students: { id: string; fullName: string }[],
   teacher: Teacher | undefined,
-  teacherCustomPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   educationTypes: EducationType[]
 ): Column<Session>[] {
   return [
@@ -140,7 +141,7 @@ function buildSessionColumns(
       key: "earning",
       header: "Hakediş",
       render: (row) =>
-        resolveTeacherEarningStatus(row, teacher, teacherCustomPrices) === "unknown" ? (
+        resolveTeacherEarningStatus(row, teacher, assignments) === "unknown" ? (
           <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
             Hakediş bekliyor
           </span>
@@ -348,7 +349,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   const sessionColumns = buildSessionColumns(
     store.students,
     rawTeacher,
-    store.teacherCustomPrices,
+    store.teacherEducationTypeAssignments,
     store.educationTypes
   );
   const mergeHistoryCount = store.teacherMergeHistory.filter(
@@ -370,7 +371,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     store.sessions,
     store.teacherEarnings,
     store.teacherPayments,
-    store.teacherCustomPrices
+    store.teacherEducationTypeAssignments
   );
 
   if (!detail) {
@@ -409,7 +410,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   // the dialog always reflects the custom prices/settings as they are right now.
 
   const recalcPreview = rawTeacher
-    ? buildEarningRecalculationPreview(rawTeacher, store.sessions, store.teacherCustomPrices, store.students, store.educationTypes)
+    ? buildEarningRecalculationPreview(rawTeacher, store.sessions, store.teacherEducationTypeAssignments, store.students, store.educationTypes)
     : [];
   const recalcResolvable = recalcPreview.filter((r) => r.recalculatedEarning !== null);
   const recalcStillUnresolved = recalcPreview.filter((r) => r.recalculatedEarning === null);
@@ -484,9 +485,9 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
           icon={Tag}
           label="Uzmanlık Alanları"
           value={
-            detail.specializationNames.length > 0 ? (
+            detail.educationTypeNames.length > 0 ? (
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {detail.specializationNames.map((name) => (
+                {detail.educationTypeNames.map((name) => (
                   <span
                     key={name}
                     className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
@@ -662,10 +663,10 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     }
 
     // per_session (default)
-    if (detail.priceRows.length === 0) {
+    if (detail.assignmentRows.length === 0) {
       return (
         <p className="text-sm text-muted-foreground">
-          Bu öğretmen için uzmanlık alanı tanımlanmamış; özel fiyat gösterilemiyor.
+          Bu öğretmene henüz bir eğitim türü atanmamış. Düzenle&apos;den eğitim türü ve hakediş tanımlayın.
         </p>
       );
     }
@@ -673,7 +674,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Bu öğretmenin uzmanlık alanlarına göre geçerli hakediş tutarları.
+          Bu öğretmenin atandığı eğitim türleri ve her biri için tanımlı sabit hakediş.
         </p>
         <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
@@ -682,32 +683,76 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                 <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Eğitim Türü
                 </th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Durum
+                </th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Hakediş
+                </th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Seans
+                </th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Son Güncelleme
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {detail.priceRows.map((row: TeacherPriceRow) => {
-                const effectiveEarning = row.customEarning ?? row.defaultEarning;
-
-                return (
-                  <tr key={row.educationTypeId} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
+              {detail.assignmentRows.map((row: TeacherEducationAssignmentRow) => (
+                <tr key={row.assignmentId} className="hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: row.educationTypeColor }}
+                        aria-hidden
+                      />
                       <p className="font-medium text-foreground">{row.educationTypeName}</p>
-                      {row.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{row.description}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {row.assignmentStatus === "inactive" && (
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          Atama Pasif
+                        </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">
-                      {formatCurrency(effectiveEarning)}
-                    </td>
-                  </tr>
-                );
-              })}
+                      {row.educationTypeStatus === "inactive" && (
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          Eğitim Türü Pasif
+                        </span>
+                      )}
+                      {row.assignmentStatus === "active" && row.educationTypeStatus === "active" && (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                          Aktif
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">
+                    {row.earningAmount === null ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        Hakediş ayarı eksik
+                      </span>
+                    ) : (
+                      formatCurrency(row.earningAmount)
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                    {row.sessionCount}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
+                    {formatDate(row.updatedAt)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
+        <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+          <Pencil className="h-3.5 w-3.5 mr-1.5" />
+          Atamaları Düzenle
+        </Button>
       </div>
     );
   })();
@@ -732,7 +777,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
       badge: detail.earnings.length,
       content: earningsContent,
     },
-    { key: "prices", label: "Hakediş", content: pricesContent },
+    { key: "prices", label: "Eğitim Türleri ve Hakedişler", content: pricesContent },
     {
       key: "payments",
       label: "Ödeme Geçmişi",
@@ -779,11 +824,15 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
         )}
 
         {/* Header card */}
-        <Card>
-          <CardContent className="p-5">
+        <Card className="relative overflow-hidden rounded-2xl border-border/70 bg-gradient-to-br from-primary/[0.06] via-card to-card shadow-sm">
+          <div
+            className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/10 blur-3xl"
+            aria-hidden
+          />
+          <CardContent className="relative p-5 sm:p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-4">
-                <Avatar className="h-14 w-14">
+                <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/10">
                   <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
                     {initials}
                   </AvatarFallback>
@@ -792,6 +841,19 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
                     <StatusBadge status={detail.status} />
+                    {detail.configurationStatus !== "inactive_teacher" && (
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          detail.configurationStatus === "missing_pricing" ||
+                            detail.configurationStatus === "no_assignment"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        )}
+                      >
+                        {detail.configurationStatusLabel}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
@@ -805,9 +867,9 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                       </span>
                     )}
                   </div>
-                  {detail.specializationNames.length > 0 && (
+                  {detail.educationTypeNames.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
-                      {detail.specializationNames.map((name) => (
+                      {detail.educationTypeNames.map((name) => (
                         <span
                           key={name}
                           className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
@@ -958,17 +1020,25 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
 
               <div className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
                 {recalcPreview.map((r) => (
-                  <div key={r.session.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                  <div key={r.session.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                     <div className="min-w-0">
                       <p className="font-medium text-foreground truncate">{r.studentName}</p>
                       <p className="text-muted-foreground">
                         {formatDate(r.session.date)} · {r.educationTypeName}
                       </p>
+                      {r.resolution.status !== "resolved" && (
+                        <p className="text-amber-700 mt-0.5">{r.resolution.explanation}</p>
+                      )}
                     </div>
                     {r.recalculatedEarning !== null ? (
-                      <span className="font-semibold tabular-nums text-emerald-600 shrink-0">
-                        {formatCurrency(r.recalculatedEarning)}
-                      </span>
+                      <div className="text-right shrink-0">
+                        <p className="text-muted-foreground line-through">
+                          {formatCurrency(r.session.teacherEarning)}
+                        </p>
+                        <span className="font-semibold tabular-nums text-emerald-600">
+                          {formatCurrency(r.recalculatedEarning)}
+                        </span>
+                      </div>
                     ) : (
                       <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                         Ayar Eksik
@@ -1010,7 +1080,7 @@ export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
                 <>
                   &quot;{detail.fullName}&quot; yeniden etkinleştirilecek ve {archivingMerge.moved.sessions} seans,{" "}
                   {archivingMerge.moved.teacherEarnings} hakediş, {archivingMerge.moved.teacherPayments} ödeme,{" "}
-                  {archivingMerge.moved.teacherCustomPrices} özel fiyat ve {archivingMerge.moved.weeklyPlans}{" "}
+                  {archivingMerge.moved.teacherEducationTypeAssignments} eğitim türü ataması ve {archivingMerge.moved.weeklyPlans}{" "}
                   haftalık plan bu kayda geri taşınacak.
                 </>
               )}

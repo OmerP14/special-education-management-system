@@ -23,7 +23,7 @@ import type {
   OpeningBalance,
   OpeningBalanceType,
   EducationType,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
 } from "@/types";
 import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, type ParsedSheet } from "@/lib/helpers/import-parse";
 import {
@@ -61,6 +61,7 @@ import {
   calculateSessionCenterProfit,
   isDeductionPaymentType,
 } from "@/lib/helpers/finance";
+import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
 
 // ─── Entity type labels ─────────────────────────────────────────────────────────
 
@@ -570,7 +571,6 @@ export function buildStagedTeacherRows(sheet: ParsedSheet, mapping: ImportColumn
       phone: phone || "—",
       email: cellAt(raw, iEmail) || undefined,
       status,
-      specializations: [],
       createdAt: new Date().toISOString(),
     };
     addTeacherToIndex(teacherIndex, teacher);
@@ -594,7 +594,7 @@ export function buildStagedSessionRows(
   students: Student[],
   teachers: Teacher[],
   educationTypes: EducationType[],
-  teacherCustomPrices: TeacherCustomPrice[] = []
+  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[] = []
 ): StagedRow[] {
   const iStudent = col(mapping, "studentName");
   const iTeacher = col(mapping, "teacherName");
@@ -674,6 +674,22 @@ export function buildStagedSessionRows(
     const studentId = studentRes!.student!.id;
     const teacherId = teacherRes!.teacher!.id;
     const educationTypeId = eduType!.id;
+
+    // Teacher and education type both resolved to real records, but there's no
+    // active assignment linking them — a different problem from a missing price
+    // (section 13: never silently create an arbitrary earning for an
+    // unassigned pair). Operational imports need repair before committing;
+    // historical imports may proceed but only as an explicitly unresolved row.
+    const assignmentIncompatible = !isTeacherAssignedToEducationType(
+      teacherId,
+      educationTypeId,
+      teacherEducationTypeAssignments
+    );
+    if (assignmentIncompatible) {
+      issues.push(
+        `'${teacherRes!.teacher!.fullName}' adlı öğretmen '${eduType!.name}' eğitim türünü vermek üzere tanımlanmamış`
+      );
+    }
     const startsAt = `${dateStr}T${timeStr}:00`;
     const sessionCount = iCount >= 0 ? Math.max(1, parseCellAsNumber(raw[iCount]) ?? 1) : 1;
     const studentPrice = priceRaw!;
@@ -706,14 +722,23 @@ export function buildStagedSessionRows(
       issues.push(conflict.message ?? "Bu öğrenci veya öğretmen aynı saatte başka bir seansa kayıtlı");
       includeByDefault = mode === "historical";
     }
+    if (assignmentIncompatible && mode === "operational") {
+      includeByDefault = false;
+    }
 
     // Excel "Öğretmen Hakedişi" column (if mapped) always wins when present — only
     // when the file is silent on it AND the teacher has no configured earning
     // model/price does the value become an unreliable 0-fallback (never shown as
     // a real hakediş in the financial preview; see teacherEarningUnknown below).
-    const calculatedTeacherEarning = calculateTeacherSessionEarning(teacherRes!.teacher!, educationTypeId, studentPrice, teacherCustomPrices);
-    const teacherEarningUnknown = teacherEarningRaw === null && calculatedTeacherEarning === null;
-    const teacherEarning = teacherEarningRaw ?? calculatedTeacherEarning ?? 0;
+    // An incompatible teacher/education-type pair always forces this, even if the
+    // sheet supplied an explicit hakediş value — that value can't be trusted for
+    // a pairing the teacher was never actually assigned to.
+    const calculatedTeacherEarning = assignmentIncompatible
+      ? null
+      : calculateTeacherSessionEarning(teacherRes!.teacher!, educationTypeId, studentPrice, teacherEducationTypeAssignments);
+    const teacherEarningUnknown =
+      assignmentIncompatible || (teacherEarningRaw === null && calculatedTeacherEarning === null);
+    const teacherEarning = assignmentIncompatible ? 0 : teacherEarningRaw ?? calculatedTeacherEarning ?? 0;
 
     const session: Session = {
       id: newId("session", rowNumber),
@@ -743,6 +768,7 @@ export function buildStagedSessionRows(
         entityMatches: matches,
         include: includeByDefault,
         teacherEarningUnknown,
+        teacherAssignmentIncompatible: assignmentIncompatible,
       },
       staged: [{ kind: "sessions", record: session }],
     });
@@ -1010,7 +1036,7 @@ export interface ImportStoreSnapshot {
    *  teachers can never be told apart from "no price configured yet" (see
    *  calculateTeacherSessionEarning). Optional only so older callers/tests that
    *  don't care about hakediş reliability don't have to supply it. */
-  teacherCustomPrices?: TeacherCustomPrice[];
+  teacherEducationTypeAssignments?: TeacherEducationTypeAssignment[];
 }
 
 export function buildStagedRows(
@@ -1029,7 +1055,7 @@ export function buildStagedRows(
     case "teachers":
       return buildStagedTeacherRows(sheet, mapping, store.teachers);
     case "sessions":
-      return buildStagedSessionRows(sheet, mapping, mode, store.sessions, store.students, store.teachers, educationTypes, store.teacherCustomPrices ?? []);
+      return buildStagedSessionRows(sheet, mapping, mode, store.sessions, store.students, store.teachers, educationTypes, store.teacherEducationTypeAssignments ?? []);
     case "payments":
       return buildStagedPaymentRows(sheet, mapping, store.payments, store.students);
     case "teacherPayments":
@@ -1076,7 +1102,7 @@ function stageMultiImportTask(
         snapshot.students,
         snapshot.teachers,
         educationTypes,
-        snapshot.teacherCustomPrices ?? []
+        snapshot.teacherEducationTypeAssignments ?? []
       );
     case "payments":
       return buildStagedPaymentRows(task.sheet, task.mapping, snapshot.payments, snapshot.students);
@@ -1130,7 +1156,7 @@ export function buildMultiImportPreview(
     payments: [...store.payments],
     teacherPayments: [...store.teacherPayments],
     openingBalances: [...store.openingBalances],
-    teacherCustomPrices: store.teacherCustomPrices ? [...store.teacherCustomPrices] : [],
+    teacherEducationTypeAssignments: store.teacherEducationTypeAssignments ? [...store.teacherEducationTypeAssignments] : [],
   };
 
   const results: MultiImportTaskResult[] = [];

@@ -42,8 +42,6 @@ import { cn } from "@/lib/utils";
 
 type PaymentMode = "single" | "installment";
 
-const METHOD_VALUES: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
-
 const INTERVAL_OPTIONS: { value: InstallmentInterval; label: string }[] = [
   { value: "monthly", label: getIntervalLabel("monthly") },
   { value: "weekly", label: getIntervalLabel("weekly") },
@@ -154,14 +152,21 @@ export function PaymentFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
+  // Ayarlar → Finans Ayarları drives both the enabled method list below and
+  // the default a NEW payment/plan starts on — editing an existing record
+  // always keeps whatever method it already has.
+  const { defaultPaymentMethod, enabledPaymentMethods } = store.institutionSettings.finance;
+  const methodValues = enabledPaymentMethods.length > 0 ? enabledPaymentMethods : ["cash" as PaymentMethod];
+
   const [mode, setMode] = useState<PaymentMode>("single");
   const [single, setSingle] = useState<SingleFormState>(() =>
     initialData
       ? buildSingleFromPayment(initialData)
-      : { ...EMPTY_SINGLE, studentId: preselectedStudentId ?? "" }
+      : { ...EMPTY_SINGLE, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" }
   );
   const [inst, setInst] = useState<InstallmentFormState>({
     ...EMPTY_INSTALLMENT,
+    method: defaultPaymentMethod,
     studentId: preselectedStudentId ?? "",
   });
 
@@ -171,9 +176,9 @@ export function PaymentFormDrawer({
       setSingle(
         initialData
           ? buildSingleFromPayment(initialData)
-          : { ...EMPTY_SINGLE, studentId: preselectedStudentId ?? "" }
+          : { ...EMPTY_SINGLE, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" }
       );
-      setInst({ ...EMPTY_INSTALLMENT, studentId: preselectedStudentId ?? "" });
+      setInst({ ...EMPTY_INSTALLMENT, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialData?.id]);
@@ -348,6 +353,7 @@ export function PaymentFormDrawer({
             form={single}
             set={setSingleField}
             students={store.students}
+            methodValues={methodValues}
             connectedGuardian={connectedGuardian}
             totalBilled={totalBilled}
             totalPaid={totalPaid}
@@ -362,6 +368,7 @@ export function PaymentFormDrawer({
             form={inst}
             set={setInstField}
             students={store.students}
+            methodValues={methodValues}
             connectedGuardian={connectedGuardian}
             preview={installmentPreview}
             onClose={() => onOpenChange(false)}
@@ -378,6 +385,7 @@ function SinglePaymentForm({
   form,
   set,
   students,
+  methodValues,
   connectedGuardian,
   totalBilled,
   totalPaid,
@@ -390,6 +398,7 @@ function SinglePaymentForm({
   form: SingleFormState;
   set: <K extends keyof SingleFormState>(k: K, v: SingleFormState[K]) => void;
   students: { id: string; fullName: string }[];
+  methodValues: PaymentMethod[];
   connectedGuardian: { id: string; fullName: string; relationship: string; phone: string } | null;
   totalBilled: number;
   totalPaid: number;
@@ -462,7 +471,7 @@ function SinglePaymentForm({
             <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {METHOD_VALUES.map((m) => (
+            {methodValues.map((m) => (
               <SelectItem key={m} value={m}>
                 {getPaymentMethodLabel(m)}
               </SelectItem>
@@ -543,6 +552,7 @@ function InstallmentPlanForm({
   form,
   set,
   students,
+  methodValues,
   connectedGuardian,
   preview,
   onClose,
@@ -553,6 +563,7 @@ function InstallmentPlanForm({
     v: InstallmentFormState[K]
   ) => void;
   students: { id: string; fullName: string }[];
+  methodValues: PaymentMethod[];
   connectedGuardian: { id: string; fullName: string; relationship: string; phone: string } | null;
   preview: { no: number; dueDate: string; amount: number }[];
   onClose: () => void;
@@ -683,7 +694,7 @@ function InstallmentPlanForm({
             <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {METHOD_VALUES.map((m) => (
+            {methodValues.map((m) => (
               <SelectItem key={m} value={m}>
                 {getPaymentMethodLabel(m)}
               </SelectItem>

@@ -20,6 +20,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
+import { DonutChart, type DonutSegment } from "@/components/shared/DonutChart";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
@@ -183,35 +184,14 @@ function monthLabel(key: string): string {
   );
 }
 
-// ─── Stat bar item ─────────────────────────────────────────────────────────────
+// ─── Status donut colors (mirrors StatusBadge's session status palette) ───────
 
-function StatBarItem({
-  label,
-  count,
-  total,
-  colorClass,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  colorClass: string;
-}) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <div
-        className={cn(
-          "h-1.5 rounded-full shrink-0 transition-all",
-          colorClass
-        )}
-        style={{ width: `${Math.max(pct, 2)}%`, maxWidth: "100%" }}
-      />
-      <span className="text-muted-foreground whitespace-nowrap">
-        {label}: <span className="font-semibold text-foreground">{count}</span>
-      </span>
-    </div>
-  );
-}
+const STATUS_DONUT_COLORS = {
+  completed: "#10b981", // emerald-500
+  planned: "#3b82f6", // blue-500
+  makeup: "#a855f7", // purple-500
+  cancelledAndNoShow: "#f87171", // red-400
+} as const;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -248,6 +228,36 @@ function SessionsPageContent() {
     [store.sessions, currentYear, currentMonth]
   );
 
+  const statusDonutSegments: DonutSegment[] = useMemo(
+    () => [
+      {
+        key: "completed",
+        label: "Tamamlandı",
+        value: stats.completed,
+        color: STATUS_DONUT_COLORS.completed,
+      },
+      {
+        key: "planned",
+        label: "Planlandı",
+        value: stats.planned,
+        color: STATUS_DONUT_COLORS.planned,
+      },
+      {
+        key: "makeup",
+        label: "Telafi",
+        value: stats.makeup,
+        color: STATUS_DONUT_COLORS.makeup,
+      },
+      {
+        key: "cancelledAndNoShow",
+        label: "İptal / Gelmedi",
+        value: stats.cancelledAndNoShow,
+        color: STATUS_DONUT_COLORS.cancelledAndNoShow,
+      },
+    ],
+    [stats.completed, stats.planned, stats.makeup, stats.cancelledAndNoShow]
+  );
+
   const allItems = useMemo(
     () =>
       buildSessionListItems(
@@ -255,9 +265,9 @@ function SessionsPageContent() {
         store.students,
         store.teachers,
         store.educationTypes,
-        store.teacherCustomPrices
+        store.teacherEducationTypeAssignments
       ),
-    [store.sessions, store.students, store.teachers, store.teacherCustomPrices]
+    [store.sessions, store.students, store.teachers, store.teacherEducationTypeAssignments]
   );
 
   const handleEdit = (row: SessionListItem) => {
@@ -420,40 +430,13 @@ function SessionsPageContent() {
           />
         </div>
 
-        {/* Status breakdown bar */}
-        {stats.total > 0 && (
-          <div className="rounded-lg border border-border bg-card px-4 py-3">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {thisMonthLabel} Dağılımı
-            </p>
-            <div className="flex flex-col gap-1.5">
-              <StatBarItem
-                label="Tamamlandı"
-                count={stats.completed}
-                total={stats.total}
-                colorClass="bg-emerald-500"
-              />
-              <StatBarItem
-                label="Planlandı"
-                count={stats.planned}
-                total={stats.total}
-                colorClass="bg-blue-500"
-              />
-              <StatBarItem
-                label="Telafi"
-                count={stats.makeup}
-                total={stats.total}
-                colorClass="bg-purple-500"
-              />
-              <StatBarItem
-                label="İptal / Gelmedi"
-                count={stats.cancelledAndNoShow}
-                total={stats.total}
-                colorClass="bg-red-400"
-              />
-            </div>
-          </div>
-        )}
+        {/* Status breakdown donut */}
+        <div className="rounded-lg border border-border bg-card px-4 py-4">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {thisMonthLabel} Dağılımı
+          </p>
+          <DonutChart segments={statusDonutSegments} centerUnitLabel="Seans" />
+        </div>
 
         {/* Filter bar */}
         <div className="space-y-3">

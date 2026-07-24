@@ -8,7 +8,7 @@
 // teacherId would either (a) make two rows describing the exact same real-world
 // event appear under one teacher (a de-facto duplicate the merge itself created), or
 // (b) leave two rows that a `.find()` elsewhere in the app can't disambiguate
-// (see TeacherCustomPrice — keyed by teacherId+educationTypeId, first-match only).
+// (see getTeacherEducationAssignment — keyed by teacherId+educationTypeId, first-match only).
 // Any conflict found makes the merge unsafe; there is no partial/best-effort merge —
 // the user resolves the underlying data first (edit/remove the clashing row), then
 // retries. This is what "never silently discard data" means in practice here.
@@ -18,12 +18,12 @@ import type {
   Session,
   TeacherEarning,
   TeacherPayment,
-  TeacherCustomPrice,
+  TeacherEducationTypeAssignment,
   WeeklySessionPlan,
   EducationType,
 } from "@/types";
 
-export type TeacherMergeConflictCategory = "session" | "teacherPayment" | "teacherCustomPrice" | "weeklyPlan";
+export type TeacherMergeConflictCategory = "session" | "teacherPayment" | "teacherEducationTypeAssignment" | "weeklyPlan";
 
 export interface TeacherMergeConflict {
   category: TeacherMergeConflictCategory;
@@ -35,7 +35,7 @@ export interface TeacherMergePreviewCounts {
   sessions: number;
   teacherEarnings: number;
   teacherPayments: number;
-  teacherCustomPrices: number;
+  assignments: number;
   weeklyPlans: number;
   /** Calendar has no separate storage — every calendar entry IS a Session, so this
    *  always equals `sessions`. Kept as its own field so the preview UI can show a
@@ -66,7 +66,7 @@ export function buildTeacherMergePreview(
   sessions: Session[],
   teacherEarnings: TeacherEarning[],
   teacherPayments: TeacherPayment[],
-  teacherCustomPrices: TeacherCustomPrice[],
+  assignments: TeacherEducationTypeAssignment[],
   weeklySessionPlans: WeeklySessionPlan[],
   educationTypes: EducationType[]
 ): TeacherMergePreview {
@@ -75,8 +75,8 @@ export function buildTeacherMergePreview(
   const duplicateEarnings = teacherEarnings.filter((e) => e.teacherId === duplicate.id);
   const duplicatePayments = teacherPayments.filter((p) => p.teacherId === duplicate.id);
   const primaryPayments = teacherPayments.filter((p) => p.teacherId === primary.id);
-  const duplicatePrices = teacherCustomPrices.filter((cp) => cp.teacherId === duplicate.id);
-  const primaryPrices = teacherCustomPrices.filter((cp) => cp.teacherId === primary.id);
+  const duplicateAssignments = assignments.filter((a) => a.teacherId === duplicate.id);
+  const primaryAssignments = assignments.filter((a) => a.teacherId === primary.id);
   const duplicatePlans = weeklySessionPlans.filter((w) => w.teacherId === duplicate.id);
   const primaryPlans = weeklySessionPlans.filter((w) => w.teacherId === primary.id);
 
@@ -120,21 +120,21 @@ export function buildTeacherMergePreview(
     });
   }
 
-  // ── Duplicate custom prices: same educationTypeId priced on both sides.
-  // getTeacherCustomPriceForEducationType() resolves via `.find()` (first match),
-  // so having both rows survive under one teacherId would make the effective
-  // price ambiguous/order-dependent — always unsafe, regardless of whether the
-  // amounts happen to match. ──────────────────────────────────────────────────
-  const primaryEducationTypeIds = new Set(primaryPrices.map((cp) => cp.educationTypeId));
-  const clashingPrices = duplicatePrices.filter((cp) => primaryEducationTypeIds.has(cp.educationTypeId));
-  if (clashingPrices.length > 0) {
-    const names = clashingPrices
-      .map((cp) => educationTypes.find((et) => et.id === cp.educationTypeId)?.name ?? cp.educationTypeId)
+  // ── Duplicate assignments: same educationTypeId assigned on both sides.
+  // getTeacherEducationAssignment() resolves via `.find()` (first match), so
+  // having both rows survive under one teacherId would make the effective
+  // assignment ambiguous/order-dependent — always unsafe, regardless of
+  // whether the earning amounts happen to match. ─────────────────────────────
+  const primaryEducationTypeIds = new Set(primaryAssignments.map((a) => a.educationTypeId));
+  const clashingAssignments = duplicateAssignments.filter((a) => primaryEducationTypeIds.has(a.educationTypeId));
+  if (clashingAssignments.length > 0) {
+    const names = clashingAssignments
+      .map((a) => educationTypes.find((et) => et.id === a.educationTypeId)?.name ?? a.educationTypeId)
       .join(", ");
     conflicts.push({
-      category: "teacherCustomPrice",
-      count: clashingPrices.length,
-      message: `${clashingPrices.length} eğitim türü için (${names}) her iki öğretmende de özel hakediş fiyatı tanımlı — birleştirme sonrası hangisinin geçerli olacağı belirsiz kalır. Birleştirmeden önce birinden kaldırın.`,
+      category: "teacherEducationTypeAssignment",
+      count: clashingAssignments.length,
+      message: `${clashingAssignments.length} eğitim türü için (${names}) her iki öğretmende de bir atama tanımlı — birleştirme sonrası hangisinin geçerli olacağı belirsiz kalır. Birleştirmeden önce birinden kaldırın.`,
     });
   }
 
@@ -168,7 +168,7 @@ export function buildTeacherMergePreview(
       sessions: duplicateSessions.length,
       teacherEarnings: duplicateEarnings.length,
       teacherPayments: duplicatePayments.length,
-      teacherCustomPrices: duplicatePrices.length,
+      assignments: duplicateAssignments.length,
       weeklyPlans: duplicatePlans.length,
       calendarReferences: duplicateSessions.length,
     },

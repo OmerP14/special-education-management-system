@@ -39,7 +39,7 @@ interface MergeResultSummary {
   sessions: number;
   teacherEarnings: number;
   teacherPayments: number;
-  teacherCustomPrices: number;
+  teacherEducationTypeAssignments: number;
   weeklyPlans: number;
 }
 
@@ -91,7 +91,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
       store.sessions,
       store.teacherEarnings,
       store.teacherPayments,
-      store.teacherCustomPrices,
+      store.teacherEducationTypeAssignments,
       store.weeklySessionPlans,
       store.educationTypes
     );
@@ -101,7 +101,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
     store.sessions,
     store.teacherEarnings,
     store.teacherPayments,
-    store.teacherCustomPrices,
+    store.teacherEducationTypeAssignments,
     store.weeklySessionPlans,
     store.educationTypes,
   ]);
@@ -121,7 +121,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
       sessions: preview.counts.sessions,
       teacherEarnings: preview.counts.teacherEarnings,
       teacherPayments: preview.counts.teacherPayments,
-      teacherCustomPrices: preview.counts.teacherCustomPrices,
+      teacherEducationTypeAssignments: preview.counts.assignments,
       weeklyPlans: preview.counts.weeklyPlans,
     });
   }
@@ -166,7 +166,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
             )}
           </SheetTitle>
           <SheetDescription className="text-sm text-muted-foreground">
-            İkincil kayıt arşivlenir; tüm seans, hakediş, ödeme, özel fiyat ve haftalık
+            İkincil kayıt arşivlenir; tüm seans, hakediş, ödeme, eğitim türü ataması ve haftalık
             plan kayıtları birincil öğretmene taşınır. Hiçbir kayıt silinmez.
           </SheetDescription>
         </SheetHeader>
@@ -186,7 +186,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
                 <li>Seans: {result.sessions}</li>
                 <li>Hakediş: {result.teacherEarnings}</li>
                 <li>Ödeme: {result.teacherPayments}</li>
-                <li>Özel Fiyat: {result.teacherCustomPrices}</li>
+                <li>Eğitim Türü Ataması: {result.teacherEducationTypeAssignments}</li>
                 <li>Haftalık Plan: {result.weeklyPlans}</li>
               </ul>
             </div>
@@ -228,7 +228,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
                     <PreviewStat label="Seanslar" value={preview.counts.sessions} />
                     <PreviewStat label="Öğretmen Hakedişleri" value={preview.counts.teacherEarnings} />
                     <PreviewStat label="Öğretmen Ödemeleri" value={preview.counts.teacherPayments} />
-                    <PreviewStat label="Özel Fiyatlar" value={preview.counts.teacherCustomPrices} />
+                    <PreviewStat label="Eğitim Türü Atamaları" value={preview.counts.assignments} />
                     <PreviewStat label="Haftalık Planlar" value={preview.counts.weeklyPlans} />
                     <PreviewStat label="Takvim Referansları" value={preview.counts.calendarReferences} />
                   </div>

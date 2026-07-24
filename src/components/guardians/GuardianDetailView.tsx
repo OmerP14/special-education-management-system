@@ -1307,12 +1307,16 @@ export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
         </Link>
 
         {/* Header card */}
-        <Card>
-          <CardContent className="p-5">
+        <Card className="relative overflow-hidden rounded-2xl border-border/70 bg-gradient-to-br from-primary/[0.06] via-card to-card shadow-sm">
+          <div
+            className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/10 blur-3xl"
+            aria-hidden
+          />
+          <CardContent className="relative p-5 sm:p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               {/* Identity */}
               <div className="flex items-start gap-4 min-w-0">
-                <Avatar className="h-14 w-14 shrink-0">
+                <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/10">
                   <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
                     {initials}
                   </AvatarFallback>

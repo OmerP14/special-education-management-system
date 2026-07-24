@@ -7,6 +7,8 @@ import { ChevronRight, GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_TOP_ITEMS, NAV_GROUPS, NAV_SETTINGS_ITEM, isNavItemActive, type NavGroup } from "@/lib/nav";
 import { useCollapsedNavGroups } from "@/hooks/use-collapsed-nav-groups";
+import { CURRENT_USER, canViewFinance } from "@/lib/permissions";
+import { useMockStore } from "@/lib/mock/store";
 import {
   Sidebar,
   SidebarHeader,
@@ -96,9 +98,18 @@ const NavGroupSection = memo(function NavGroupSection({
 export const AppSidebar = memo(function AppSidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggle, ensureOpen, hydrated } = useCollapsedNavGroups();
+  // Kurum Bilgileri (Settings → Kurum Bilgileri) drives this directly — see
+  // lib/settings/defaults.ts for the starting name/logo before anyone edits it.
+  const { institution } = useMockStore().institutionSettings;
+
+  // Finans is financial data end-to-end — hidden entirely for roles without
+  // canViewFinance (see lib/permissions.ts). Every other group is unfiltered.
+  const visibleGroups = canViewFinance(CURRENT_USER.role)
+    ? NAV_GROUPS
+    : NAV_GROUPS.filter((group) => group.id !== "finance");
 
   const activeGroupId =
-    NAV_GROUPS.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
+    visibleGroups.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
       ?.id ?? null;
 
   // Auto-open the group containing the active route — but only the moment it
@@ -118,15 +129,20 @@ export const AppSidebar = memo(function AppSidebar() {
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="px-1">
         <div className="flex h-12 items-center gap-2.5 px-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-            <GraduationCap className="h-4 w-4 text-primary-foreground" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary">
+            {institution.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- user-uploaded data URL from Kurum Bilgileri, not a static asset
+              <img src={institution.logoUrl} alt={institution.shortName} className="h-full w-full object-cover" />
+            ) : (
+              <GraduationCap className="h-4 w-4 text-primary-foreground" />
+            )}
           </div>
           <div className="flex flex-col overflow-hidden">
             <span className="truncate text-sm font-semibold leading-none text-sidebar-foreground">
-              ÖzelEğitim
+              {institution.shortName || "ÖzelEğitim"}
             </span>
             <span className="truncate text-[10px] leading-tight text-sidebar-foreground/70">
-              Yönetim Sistemi
+              {institution.name || "Yönetim Sistemi"}
             </span>
           </div>
         </div>
@@ -155,7 +171,7 @@ export const AppSidebar = memo(function AppSidebar() {
         <SidebarSeparator />
 
         {/* Grouped, collapsible sections — each its own memoized component */}
-        {NAV_GROUPS.map((group, i) => (
+        {visibleGroups.map((group, i) => (
           <div key={group.id}>
             {i > 0 && <SidebarSeparator />}
             <NavGroupSection

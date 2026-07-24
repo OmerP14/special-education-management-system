@@ -1,42 +1,46 @@
 "use client";
 
-import {
-  Users,
-  GraduationCap,
-  CalendarDays,
-  TrendingUp,
-  AlertCircle,
-  Banknote,
-  Wallet,
-} from "lucide-react";
+import { useMemo } from "react";
+import Link from "next/link";
+import { Users, GraduationCap, CalendarDays, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
+import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { RecentSessionsTable } from "@/components/dashboard/RecentSessionsTable";
-import { PaymentSummaryCard } from "@/components/dashboard/PaymentSummaryCard";
-import { TeacherEarningsCard } from "@/components/dashboard/TeacherEarningsCard";
 import { SessionStatusBreakdown } from "@/components/dashboard/SessionStatusBreakdown";
+import { TodaysScheduleCard } from "@/components/dashboard/TodaysScheduleCard";
+import { UpcomingSessionsCard } from "@/components/dashboard/UpcomingSessionsCard";
+import { TodaysTeachersCard } from "@/components/dashboard/TodaysTeachersCard";
+import { CalendarPreviewCard } from "@/components/dashboard/CalendarPreviewCard";
 import { useMockStore } from "@/lib/mock/store";
-import { buildDashboardStats, formatCurrency } from "@/lib/helpers/finance";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
 
+// This is the operational, everyone-sees-it dashboard — no revenue, payments,
+// or earnings figures here. Those moved to /app/finance (owner/admin only,
+// see lib/permissions.ts). Only presentation/layout changed: every widget
+// below reads the same store data through the same existing helpers.
 export default function DashboardPage() {
   const store = useMockStore();
 
-  const currentMonthLabel = new Intl.DateTimeFormat("tr-TR", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
+  const today = useMemo(() => new Date(), []);
 
-  const stats = buildDashboardStats(
-    store.sessions,
-    store.payments,
-    store.teacherPayments,
-    store.students,
-    store.teachers,
-    store.openingBalances,
-    store.teacherCustomPrices
+  const activeStudents = store.students.filter((s) => s.status === "active").length;
+  const activeTeachers = store.teachers.filter((t) => t.status === "active").length;
+
+  const todaysSessions = useMemo(
+    () =>
+      store.sessions.filter((s) => {
+        const d = new Date(s.date);
+        return (
+          d.getFullYear() === today.getFullYear() &&
+          d.getMonth() === today.getMonth() &&
+          d.getDate() === today.getDate()
+        );
+      }),
+    [store.sessions, today]
   );
+  const todaysCompleted = todaysSessions.filter((s) => s.status === "completed").length;
+  const completionRate =
+    todaysSessions.length > 0 ? Math.round((todaysCompleted / todaysSessions.length) * 100) : 0;
 
   const recentSessions = [...store.sessions]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -46,112 +50,86 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Genel Bakış"
-        description="Kurumunuzun güncel durumunu buradan takip edebilirsiniz."
-        actions={
-          <Link href="/app/sessions">
-            <Button size="sm">Seans Ekle</Button>
-          </Link>
-        }
+        description="Kurumunuzun günlük operasyonel durumu."
       />
 
-      {/* KPI Cards — Ciro (accrual) and Tahsilat (cash collected) are deliberately
-          separate cards; a payment-only month must move Tahsilat without touching Ciro. */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <StatCard
-          title="Aktif Öğrenci"
-          value={stats.activeStudents}
-          icon={Users}
-          variant="default"
-          description="Kayıtlı aktif öğrenci"
-        />
-        <StatCard
-          title="Aktif Öğretmen"
-          value={stats.activeTeachers}
-          icon={GraduationCap}
-          variant="default"
-          description="Çalışan öğretmen"
-        />
-        <Link href="/app/sessions" className="block">
+      <DashboardHero />
+
+      {/* Quick operational stats — deliberately no money here; see /app/finance */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/app/students" className="block">
           <StatCard
-            title="Bu Ayki Seans"
-            value={stats.sessionsThisMonth}
+            title="Aktif Öğrenci"
+            value={activeStudents}
+            icon={Users}
+            variant="default"
+            description="Kayıtlı aktif öğrenci"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/teachers" className="block">
+          <StatCard
+            title="Aktif Öğretmen"
+            value={activeTeachers}
+            icon={GraduationCap}
+            variant="default"
+            description="Çalışan öğretmen"
+            className="transition-colors hover:border-primary/40"
+          />
+        </Link>
+        <Link href="/app/calendar" className="block">
+          <StatCard
+            title="Bugünkü Seans"
+            value={todaysSessions.length}
             icon={CalendarDays}
             variant="default"
-            description={currentMonthLabel}
+            description="Bugün planlanmış"
             className="transition-colors hover:border-primary/40"
           />
         </Link>
-        <Link href="/app/reports" className="block">
-          <StatCard
-            title="Bu Ayki Ciro"
-            value={formatCurrency(stats.revenueThisMonth)}
-            icon={TrendingUp}
-            variant="success"
-            description="Tahakkuk — tamamlanan seanslar"
-            className="transition-colors hover:border-primary/40"
-          />
-        </Link>
-        <Link href="/app/payments" className="block">
-          <StatCard
-            title="Bu Ay Tahsilat"
-            value={formatCurrency(stats.collectedThisMonth)}
-            icon={Wallet}
-            variant="success"
-            description="Alınan ödeme"
-            className="transition-colors hover:border-primary/40"
-          />
-        </Link>
-        <Link href="/app/payments" className="block">
-          <StatCard
-            title="Bekleyen Borç"
-            value={formatCurrency(stats.pendingPayments)}
-            icon={AlertCircle}
-            variant="danger"
-            description="Tahsil edilmemiş"
-            className="transition-colors hover:border-primary/40"
-          />
-        </Link>
-        <Link href="/app/teacher-earnings" className="block">
-          <StatCard
-            title="Öğretmen Borcu"
-            value={formatCurrency(stats.pendingEarnings)}
-            icon={Banknote}
-            variant="warning"
-            description={
-              stats.unknownEarningSessionCount > 0
-                ? `Ödenmemiş kazanç · Hakediş ayarı bekleniyor — ${stats.unknownEarningSessionCount} seans`
-                : "Ödenmemiş kazanç"
-            }
-            className="transition-colors hover:border-primary/40"
-          />
-        </Link>
+        <StatCard
+          title="Bugünkü Tamamlanma"
+          value={todaysSessions.length > 0 ? `%${completionRate}` : "—"}
+          icon={CheckCircle2}
+          variant="success"
+          description={`${todaysCompleted}/${todaysSessions.length || 0} seans`}
+        />
       </div>
 
-      {/* Middle row: Payment + Earning + Status */}
+      {/* Today's schedule + session distribution */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <PaymentSummaryCard
-          sessions={store.sessions}
-          payments={store.payments}
-          students={store.students}
-          openingBalances={store.openingBalances}
-        />
-        <TeacherEarningsCard
-          teacherPayments={store.teacherPayments}
-          teachers={store.teachers}
-          sessions={store.sessions}
-          teacherCustomPrices={store.teacherCustomPrices}
-        />
+        <div className="lg:col-span-2">
+          <TodaysScheduleCard
+            sessions={store.sessions}
+            students={store.students}
+            teachers={store.teachers}
+          />
+        </div>
         <SessionStatusBreakdown sessions={store.sessions} />
       </div>
 
-      {/* Recent Sessions */}
+      {/* Upcoming + today's teachers + calendar preview */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <UpcomingSessionsCard
+          sessions={store.sessions}
+          students={store.students}
+          teachers={store.teachers}
+        />
+        <TodaysTeachersCard sessions={store.sessions} teachers={store.teachers} />
+        <CalendarPreviewCard
+          sessions={store.sessions}
+          students={store.students}
+          teachers={store.teachers}
+          educationTypes={store.educationTypes}
+        />
+      </div>
+
+      {/* Recent Activity */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Son Seanslar</h2>
-          <Link href="/app/sessions">
-            <Button variant="ghost" size="sm" className="text-xs">
-              Tümünü Gör →
-            </Button>
+          <h2 className="text-sm font-semibold text-foreground">Son Aktiviteler</h2>
+          <Link href="/app/sessions" className="text-xs font-medium text-primary hover:underline">
+            Tümünü Gör →
           </Link>
         </div>
         <RecentSessionsTable

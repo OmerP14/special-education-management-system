@@ -21,14 +21,19 @@ import { getEducationTypeById, getActiveEducationTypes } from "@/lib/helpers/edu
 import {
   getDefaultStudentPrice,
   calculateTeacherSessionEarning,
-  getTeacherCustomPriceForEducationType,
+  resolveTeacherSessionEarning,
   getStudentGuardian,
   getSessionStatusLabel,
   formatCurrency,
 } from "@/lib/helpers/finance";
+import {
+  isTeacherAssignedToEducationType,
+  getTeacherActiveEducationTypeIds,
+  getTeacherEducationAssignment,
+} from "@/lib/helpers/teacher-assignments";
 import { checkSessionConflict } from "@/lib/helpers/session-conflict";
 import { SessionConflictError } from "@/components/sessions/SessionConflictError";
-import type { Session, SessionStatus, Teacher } from "@/types";
+import type { Session, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -70,13 +75,6 @@ function PreviewRow({
       </span>
     </div>
   );
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function teacherMatchesEducationType(teacher: Teacher, educationTypeId: string): boolean {
-  if (teacher.specializations.length === 0) return true;
-  return teacher.specializations.includes(educationTypeId);
 }
 
 // ─── Form state ────────────────────────────────────────────────────────────────
@@ -146,10 +144,13 @@ export function SessionFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
+  // New sessions prefill from Ayarlar → Seans Ayarları's configured default
+  // duration; editing an existing session always keeps its own stored value.
   const buildInitial = (): FormState => {
     if (initialData) return buildFromSession(initialData);
-    if (preselectedStudentId) return { ...EMPTY_FORM, studentId: preselectedStudentId };
-    return EMPTY_FORM;
+    const base = { ...EMPTY_FORM, durationMinutes: store.institutionSettings.sessions.defaultDurationMinutes };
+    if (preselectedStudentId) return { ...base, studentId: preselectedStudentId };
+    return base;
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
@@ -188,13 +189,17 @@ export function SessionFormDrawer({
     setManualEarningAcknowledged(false);
     const teacher = store.teachers.find((t) => t.id === teacherId);
     setForm((prev) => {
-      if (prev.educationTypeId && teacher && !teacherMatchesEducationType(teacher, prev.educationTypeId)) {
+      if (
+        prev.educationTypeId &&
+        teacher &&
+        !isTeacherAssignedToEducationType(teacher.id, prev.educationTypeId, store.teacherEducationTypeAssignments)
+      ) {
         return { ...prev, teacherId, educationTypeId: "", studentPrice: 0, teacherEarningPrice: 0 };
       }
       let teacherEarningPrice = prev.teacherEarningPrice;
       if (prev.educationTypeId && teacher) {
         teacherEarningPrice =
-          calculateTeacherSessionEarning(teacher, prev.educationTypeId, prev.studentPrice, store.teacherCustomPrices) ?? 0;
+          calculateTeacherSessionEarning(teacher, prev.educationTypeId, prev.studentPrice, store.teacherEducationTypeAssignments) ?? 0;
       }
       return { ...prev, teacherId, teacherEarningPrice };
     });
@@ -213,7 +218,7 @@ export function SessionFormDrawer({
       // later must not retroactively change existing sessions).
       const defaultDuration =
         getEducationTypeById(etId, store.educationTypes)?.defaultDurationMinutes ?? prev.durationMinutes;
-      if (teacher && !teacherMatchesEducationType(teacher, etId)) {
+      if (teacher && !isTeacherAssignedToEducationType(teacher.id, etId, store.teacherEducationTypeAssignments)) {
         return {
           ...prev,
           educationTypeId: etId,
@@ -224,7 +229,7 @@ export function SessionFormDrawer({
         };
       }
       const teacherEarningPrice = teacher
-        ? (calculateTeacherSessionEarning(teacher, etId, defaultStudent, store.teacherCustomPrices) ?? 0)
+        ? (calculateTeacherSessionEarning(teacher, etId, defaultStudent, store.teacherEducationTypeAssignments) ?? 0)
         : 0;
       return {
         ...prev,
@@ -240,7 +245,7 @@ export function SessionFormDrawer({
   const handleStudentPriceChange = (newPrice: number) => {
     if (selectedTeacher?.earningType === "percentage" && !manualEarningMode && form.educationTypeId) {
       const newEarning =
-        calculateTeacherSessionEarning(selectedTeacher, form.educationTypeId, newPrice, store.teacherCustomPrices) ?? 0;
+        calculateTeacherSessionEarning(selectedTeacher, form.educationTypeId, newPrice, store.teacherEducationTypeAssignments) ?? 0;
       setForm((prev) => ({ ...prev, studentPrice: newPrice, teacherEarningPrice: newEarning }));
     } else {
       set("studentPrice", newPrice);
@@ -252,7 +257,7 @@ export function SessionFormDrawer({
     setManualEarningAcknowledged(false);
     if (selectedTeacher && form.educationTypeId) {
       const autoVal =
-        calculateTeacherSessionEarning(selectedTeacher, form.educationTypeId, form.studentPrice, store.teacherCustomPrices) ?? 0;
+        calculateTeacherSessionEarning(selectedTeacher, form.educationTypeId, form.studentPrice, store.teacherEducationTypeAssignments) ?? 0;
       set("teacherEarningPrice", autoVal);
     }
   };
@@ -267,6 +272,7 @@ export function SessionFormDrawer({
     if (!startsAt || !form.studentId || !form.teacherId) {
       return { hasConflict: false, isDuplicate: false, conflictType: null, conflictingSessions: [], message: null };
     }
+    const sessionSettings = store.institutionSettings.sessions;
     return checkSessionConflict({
       sessions: store.sessions,
       studentId: form.studentId,
@@ -276,8 +282,21 @@ export function SessionFormDrawer({
       excludeSessionId: initialData?.id,
       educationTypeId: form.educationTypeId || undefined,
       fee: form.studentPrice,
+      preventStudentConflict: sessionSettings.preventStudentConflict,
+      preventTeacherConflict: sessionSettings.preventTeacherConflict,
+      blockPartialOverlap: sessionSettings.conflictBehavior === "block_full_and_partial",
     });
-  }, [startsAt, form.studentId, form.teacherId, form.educationTypeId, form.studentPrice, form.durationMinutes, store.sessions, initialData?.id]);
+  }, [
+    startsAt,
+    form.studentId,
+    form.teacherId,
+    form.educationTypeId,
+    form.studentPrice,
+    form.durationMinutes,
+    store.sessions,
+    store.institutionSettings.sessions,
+    initialData?.id,
+  ]);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = () => {
@@ -322,15 +341,28 @@ export function SessionFormDrawer({
   // ── Derived flags ──────────────────────────────────────────────────────────
   const isIncompatible =
     !!form.teacherId && !!form.educationTypeId && !!selectedTeacher &&
-    !teacherMatchesEducationType(selectedTeacher, form.educationTypeId);
+    !isTeacherAssignedToEducationType(selectedTeacher.id, form.educationTypeId, store.teacherEducationTypeAssignments);
 
+  const activeAssignment =
+    form.teacherId && form.educationTypeId
+      ? getTeacherEducationAssignment(form.teacherId, form.educationTypeId, store.teacherEducationTypeAssignments)
+      : undefined;
   const hasCustomPrice =
-    !!form.teacherId && !!form.educationTypeId &&
-    getTeacherCustomPriceForEducationType(form.teacherId, form.educationTypeId, store.teacherCustomPrices) !== null;
+    !!activeAssignment && activeAssignment.status === "active" && activeAssignment.earningAmount !== null;
 
   const noCustomPriceWarning =
     !!form.teacherId && !!form.educationTypeId &&
     selectedTeacher?.earningType === "per_session" && !hasCustomPrice;
+
+  const missingConfigurationExplanation =
+    noCustomPriceWarning && selectedTeacher && form.educationTypeId
+      ? resolveTeacherSessionEarning({
+          teacher: selectedTeacher,
+          educationTypeId: form.educationTypeId,
+          sessionFee: form.studentPrice,
+          assignments: store.teacherEducationTypeAssignments,
+        }).explanation
+      : null;
 
   const connectedGuardian = form.studentId
     ? getStudentGuardian(form.studentId, store.students, store.guardians)
@@ -342,6 +374,18 @@ export function SessionFormDrawer({
   const profitPct = previewTotal > 0 ? Math.round((previewCenterProfit / previewTotal) * 100) : 0;
 
   const isLoss = form.studentPrice > 0 && form.teacherEarningPrice > form.studentPrice;
+  // Ayarlar → Seans Ayarları "Tamamlanmış seansların düzenlenmesine izin ver"
+  // — off by default, so a completed session locks once saved.
+  const isLockedCompleted =
+    isEditing &&
+    initialData?.status === "completed" &&
+    !store.institutionSettings.sessions.allowEditingCompletedSessions;
+  // Ayarlar → Seans Ayarları "Geçmiş tarihe seans girişine izin ver" — only
+  // constrains NEW sessions; an existing session keeps whatever date it has.
+  const minSessionDate =
+    !isEditing && !store.institutionSettings.sessions.allowPastDateSessions
+      ? new Date().toISOString().slice(0, 10)
+      : undefined;
   const showPreview = !!form.educationTypeId;
   const isBillable = BILLABLE_STATUSES.includes(form.status);
   const earningFieldEnabled = manualEarningMode && manualEarningAcknowledged;
@@ -366,14 +410,14 @@ export function SessionFormDrawer({
   const filteredTeacherOptions = useMemo(() => {
     const active = store.teachers.filter((t) => t.status === "active");
     const base = form.educationTypeId
-      ? active.filter((t) => teacherMatchesEducationType(t, form.educationTypeId))
+      ? active.filter((t) => isTeacherAssignedToEducationType(t.id, form.educationTypeId, store.teacherEducationTypeAssignments))
       : active;
     if (form.teacherId && !base.some((t) => t.id === form.teacherId)) {
       const sel = store.teachers.find((t) => t.id === form.teacherId);
       return sel ? [sel, ...base] : base;
     }
     return base;
-  }, [store.teachers, form.educationTypeId, form.teacherId]);
+  }, [store.teachers, store.teacherEducationTypeAssignments, form.educationTypeId, form.teacherId]);
 
   const filteredEducationTypeOptions = useMemo(() => {
     // Active-only for new selections, but never drops an already-selected
@@ -384,9 +428,9 @@ export function SessionFormDrawer({
         ? [...active, ...store.educationTypes.filter((et) => et.id === form.educationTypeId)]
         : active;
     if (!form.teacherId || !selectedTeacher) return base;
-    if (selectedTeacher.specializations.length === 0) return base;
-    return base.filter((et) => selectedTeacher.specializations.includes(et.id));
-  }, [store.educationTypes, form.teacherId, form.educationTypeId, selectedTeacher]);
+    const activeIds = getTeacherActiveEducationTypeIds(selectedTeacher.id, store.teacherEducationTypeAssignments);
+    return base.filter((et) => activeIds.includes(et.id));
+  }, [store.educationTypes, store.teacherEducationTypeAssignments, form.teacherId, form.educationTypeId, selectedTeacher]);
 
   const studentOptions = useMemo(() => {
     const active = store.students.filter((s) => s.status !== "inactive");
@@ -420,9 +464,18 @@ export function SessionFormDrawer({
       description="Seans bilgilerini girin. Fiyatlar anlaşmaya göre otomatik hesaplanır."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Seans Ekle"}
-      saveDisabled={conflictResult.hasConflict}
+      saveDisabled={conflictResult.hasConflict || isLockedCompleted}
     >
       <div className="space-y-5">
+
+        {isLockedCompleted && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5 dark:bg-amber-950/20">
+            <Info className="h-3.5 w-3.5 text-amber-700 mt-0.5 shrink-0 dark:text-amber-400" />
+            <p className="text-xs text-amber-800 dark:text-amber-400">
+              Bu seans tamamlanmış durumda ve Ayarlar → Seans Ayarları&apos;na göre düzenlemeye kapalı.
+            </p>
+          </div>
+        )}
 
         {/* Recurring plan note */}
         {isEditing && initialData?.weeklyPlanId && (
@@ -490,7 +543,7 @@ export function SessionFormDrawer({
             <SelectContent>
               {filteredTeacherOptions.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                  Bu eğitim türü için uygun öğretmen bulunamadı.
+                  Seçilen eğitim türü için uygun öğretmen bulunmuyor.
                 </div>
               ) : (
                 filteredTeacherOptions.map((t) => (
@@ -505,7 +558,7 @@ export function SessionFormDrawer({
             </SelectContent>
           </Select>
           {form.educationTypeId && filteredTeacherOptions.length === 0 && (
-            <p className="text-xs text-amber-600">Bu eğitim türünde uzman öğretmen tanımlı değil.</p>
+            <p className="text-xs text-amber-600">Seçilen eğitim türü için uygun öğretmen bulunmuyor.</p>
           )}
         </div>
 
@@ -521,7 +574,7 @@ export function SessionFormDrawer({
             <SelectContent>
               {filteredEducationTypeOptions.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                  Bu öğretmenin uzmanlık alanı tanımlanmamış.
+                  Seçilen öğretmen için uygun eğitim türü bulunmuyor.
                 </div>
               ) : (
                 filteredEducationTypeOptions.map((et) => (
@@ -531,7 +584,7 @@ export function SessionFormDrawer({
             </SelectContent>
           </Select>
           {form.teacherId && filteredEducationTypeOptions.length === 0 && (
-            <p className="text-xs text-amber-600">Öğretmenin uzmanlık alanı tanımlanmamış; eğitim türü seçilemiyor.</p>
+            <p className="text-xs text-amber-600">Seçilen öğretmen için uygun eğitim türü bulunmuyor.</p>
           )}
         </div>
 
@@ -542,10 +595,10 @@ export function SessionFormDrawer({
               <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-                  Seçilen öğretmen bu eğitim türü için yetkilendirilmemiş.
+                  Bu öğretmen seçilen eğitim türünü vermek üzere tanımlanmamış.
                 </p>
                 <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
-                  Öğretmenin uzmanlık alanları bu eğitim türünü kapsamıyor.
+                  Öğretmenin aktif eğitim türü atamaları bu eğitim türünü kapsamıyor.
                 </p>
               </div>
             </div>
@@ -567,7 +620,13 @@ export function SessionFormDrawer({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="session-date">Tarih</Label>
-            <Input id="session-date" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+            <Input
+              id="session-date"
+              type="date"
+              min={minSessionDate}
+              value={form.date}
+              onChange={(e) => set("date", e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="session-time">Saat</Label>
@@ -685,12 +744,12 @@ export function SessionFormDrawer({
           </div>
         )}
 
-        {/* Özel fiyat uyarısı */}
+        {/* Hakediş ayarı eksik uyarısı */}
         {noCustomPriceWarning && !manualEarningMode && (
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-            <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground">
-              Bu öğretmen için bu eğitim türüne özel hakediş tanımlanmamış.
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
+            <Info className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              {missingConfigurationExplanation ?? "Bu öğretmen için seçilen eğitim türünde hakediş tanımlanmamış."}
             </p>
           </div>
         )}
