@@ -1,36 +1,160 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
 
-## Getting Started
+# 🎓 Special Education Management System
 
-First, run the development server:
+### A modern SaaS platform for managing special education centers.
+
+Built with **Next.js**, **React**, **TypeScript** and **Tailwind CSS**.
+
+</div>
+
+---
+
+## 📖 Overview
+
+The **Special Education Management System** is a comprehensive SaaS platform designed to replace Excel-based workflows used by special education centers.
+
+It centralizes student management, session scheduling, financial tracking, reporting, and teacher management into a modern web application.
+
+---
+
+## ✨ Features
+
+### 👨‍🎓 Student Management
+
+- Student profiles
+- Guardian management
+- Session history
+- Notes
+- Current account tracking
+
+### 👨‍🏫 Teacher Management
+
+- Teacher profiles
+- Earnings calculation
+- Custom pricing
+- Payroll management
+
+### 📅 Session Management
+
+- Weekly planning
+- Calendar view
+- Conflict detection
+- Attendance tracking
+
+### 💰 Financial Management
+
+- Student payments
+- Installments
+- Teacher payments
+- Daily cash flow
+- Current account system
+
+### 📊 Reporting
+
+- Financial reports
+- Session reports
+- Teacher reports
+- Student reports
+
+### 📥 Data Import
+
+- Excel Import Wizard
+- Validation
+- Preview
+- Data mapping
+
+---
+
+## 🛠 Tech Stack
+
+| Category | Technologies |
+|----------|--------------|
+| Frontend | Next.js, React, TypeScript |
+| Styling | Tailwind CSS, shadcn/ui |
+| State Management | React Hooks |
+| Forms | React Hook Form |
+| Validation | Zod |
+| Charts | Recharts |
+| Icons | Lucide React |
+
+---
+
+## 📁 Project Structure
+
+```text
+src/
+ ├── app/
+ ├── components/
+ ├── features/
+ ├── hooks/
+ ├── lib/
+ ├── mock/
+ ├── types/
+ └── utils/
+```
+
+---
+
+## 🚀 Getting Started
+
+Clone the repository
+
+```bash
+git clone https://github.com/OmerP14/special-education-management-system.git
+```
+
+Install dependencies
+
+```bash
+npm install
+```
+
+Run the development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 🎯 Project Goals
 
-To learn more about Next.js, take a look at the following resources:
+- Replace Excel-based workflows
+- Simplify daily operations
+- Improve financial tracking
+- Reduce manual work
+- Provide a scalable SaaS solution
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🗺️ Roadmap
 
-## Deploy on Vercel
+- [x] Student Management
+- [x] Teacher Management
+- [x] Session Management
+- [x] Financial Module
+- [x] Reporting
+- [x] Calendar
+- [x] Excel Import
+- [ ] Authentication
+- [ ] Multi-tenant Architecture
+- [ ] Production Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📸 Screenshots
+
+Screenshots will be added soon.
+
+---
+
+## 📄 License
+
+This project is currently under active development.
