@@ -23,6 +23,8 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { getScopedGuardians, getScopedInstallments, getScopedPayments, getScopedStudents } from "@/lib/auth/scope";
 import {
   buildPaymentListItems,
   buildStudentDebtItems,
@@ -375,9 +377,12 @@ function ZeroActivityStudentCard({
 function InstallmentTable({
   rows,
   onMarkPaid,
+  highlightOverdue,
 }: {
   rows: InstallmentRow[];
   onMarkPaid: (planId: string, installmentId: string) => void;
+  /** Ayarlar → Finans's highlightOverdueInstallments. */
+  highlightOverdue: boolean;
 }) {
   if (rows.length === 0) {
     return (
@@ -420,7 +425,13 @@ function InstallmentTable({
           </thead>
           <tbody className="divide-y divide-border/60">
             {rows.map((row) => (
-              <tr key={row.installmentId} className="hover:bg-muted/20 transition-colors">
+              <tr
+                key={row.installmentId}
+                className={cn(
+                  "hover:bg-muted/20 transition-colors",
+                  highlightOverdue && row.displayStatus === "overdue" && "bg-destructive/5"
+                )}
+              >
                 <td className="px-4 py-3">
                   <Link
                     href={`/app/students/${row.studentId}`}
@@ -482,6 +493,23 @@ function InstallmentTable({
 
 export default function PaymentsPage() {
   const store = useMockStore();
+  const scope = useUserScope();
+
+  // Guardian: linked children + their payments/installments only. Teacher:
+  // this route isn't reachable at all (no finance.student_payments.view
+  // grant), so scope here only ever narrows for a guardian. Owner/manager:
+  // everyone. See lib/auth/scope.ts.
+  const scopedStudents = useMemo(
+    () => getScopedStudents(store.students, store.sessions, scope),
+    [store.students, store.sessions, scope]
+  );
+  const scopedPayments = useMemo(() => getScopedPayments(store.payments, scope), [store.payments, scope]);
+  const scopedInstallmentPlans = useMemo(
+    () => getScopedInstallments(store.installmentPlans, scope),
+    [store.installmentPlans, scope]
+  );
+  const scopedGuardians = useMemo(() => getScopedGuardians(store.guardians, scope), [store.guardians, scope]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [preselectedStudentId, setPreselectedStudentId] = useState<string | undefined>(undefined);
@@ -508,31 +536,31 @@ export default function PaymentsPage() {
   const allItems = useMemo(
     () =>
       buildPaymentListItems(
-        store.payments,
-        store.students,
-        store.guardians,
+        scopedPayments,
+        scopedStudents,
+        scopedGuardians,
         store.sessions,
         store.openingBalances
       ),
-    [store.payments, store.students, store.guardians, store.sessions, store.openingBalances]
+    [scopedPayments, scopedStudents, scopedGuardians, store.sessions, store.openingBalances]
   );
 
   const stats = useMemo(
     () =>
       buildPaymentPageStats(
-        store.payments,
+        scopedPayments,
         store.sessions,
-        store.students,
+        scopedStudents,
         statsYear,
         statsMonth,
         store.openingBalances
       ),
-    [store.payments, store.sessions, store.students, statsYear, statsMonth, store.openingBalances]
+    [scopedPayments, store.sessions, scopedStudents, statsYear, statsMonth, store.openingBalances]
   );
 
   const debtItems = useMemo(
-    () => buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances),
-    [store.students, store.guardians, store.sessions, store.payments, store.openingBalances]
+    () => buildStudentDebtItems(scopedStudents, scopedGuardians, store.sessions, scopedPayments, store.openingBalances),
+    [scopedStudents, scopedGuardians, store.sessions, scopedPayments, store.openingBalances]
   );
 
   // Students already surfaced by the debt/payment overview (real billed, paid, or
@@ -543,9 +571,9 @@ export default function PaymentsPage() {
   const today = new Date();
 
   const allInstallmentRows = useMemo(
-    () => buildInstallmentRows(store.installmentPlans, store.students, store.guardians, today),
+    () => buildInstallmentRows(scopedInstallmentPlans, scopedStudents, scopedGuardians, today),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [store.installmentPlans, store.students, store.guardians]
+    [scopedInstallmentPlans, scopedStudents, scopedGuardians]
   );
 
   const filteredInstallmentRows = useMemo(() => {
@@ -581,16 +609,16 @@ export default function PaymentsPage() {
     // An explicit dropdown pick is the strongest signal (requirement 3: "selected
     // from the student dropdown/filter") — it wins over free-text search.
     if (studentFilter !== "all") {
-      const picked = store.students.find((s) => s.id === studentFilter);
+      const picked = scopedStudents.find((s) => s.id === studentFilter);
       return picked && hasNoActivity(picked.id) ? [picked] : [];
     }
     const q = normalizeName(search);
     if (!q) return [];
-    return store.students.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
-  }, [studentFilter, search, store.students, debtItemStudentIds, installmentStudentIds]);
+    return scopedStudents.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
+  }, [studentFilter, search, scopedStudents, debtItemStudentIds, installmentStudentIds]);
 
   const handleEdit = (row: PaymentListItem) => {
-    const payment = store.payments.find((p) => p.id === row.id);
+    const payment = scopedPayments.find((p) => p.id === row.id);
     if (payment) {
       setPreselectedStudentId(undefined);
       setEditingPayment(payment);
@@ -810,8 +838,8 @@ export default function PaymentsPage() {
                 key={student.id}
                 student={student}
                 totalBilled={getStudentTotalBilled(student.id, store.sessions)}
-                totalPaid={getStudentTotalPaid(student.id, store.payments)}
-                netBalance={getStudentNetBalance(student.id, store.sessions, store.payments, store.openingBalances)}
+                totalPaid={getStudentTotalPaid(student.id, scopedPayments)}
+                netBalance={getStudentNetBalance(student.id, store.sessions, scopedPayments, store.openingBalances)}
                 isHistoricalOnly={hasOnlyHistoricalNonBillableSessions(student.id, store.sessions)}
                 onAddPayment={() => handleAddPaymentForStudent(student.id)}
               />
@@ -904,7 +932,7 @@ export default function PaymentsPage() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
-              {store.students.map((s) => (
+              {scopedStudents.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.fullName}
                 </option>
@@ -982,6 +1010,7 @@ export default function PaymentsPage() {
             <InstallmentTable
               rows={filteredInstallmentRows}
               onMarkPaid={store.markInstallmentPaid}
+              highlightOverdue={store.institutionSettings.finance.highlightOverdueInstallments}
             />
           </div>
         )}

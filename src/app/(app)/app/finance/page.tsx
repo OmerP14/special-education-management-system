@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { TrendingUp, Wallet, AlertCircle, Banknote, ShieldAlert } from "lucide-react";
+import { TrendingUp, Wallet, AlertCircle, Banknote } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { CashFlowChart } from "@/components/dashboard/CashFlowChart";
 import { PaymentSummaryCard } from "@/components/dashboard/PaymentSummaryCard";
 import { TeacherEarningsCard } from "@/components/dashboard/TeacherEarningsCard";
+import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { useMockStore } from "@/lib/mock/store";
 import { buildDashboardStats, formatCurrency } from "@/lib/helpers/finance";
-import { CURRENT_USER, canViewFinance } from "@/lib/permissions";
 
 export default function FinancePage() {
   const store = useMockStore();
@@ -32,24 +32,13 @@ export default function FinancePage() {
   // The nav link is already hidden for this role (see AppSidebar), but a
   // direct URL visit should still respect the same boundary rather than
   // silently render financial figures to a role that shouldn't see them.
-  if (!canViewFinance(CURRENT_USER.role)) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 py-24 text-center">
-        <div className="rounded-full bg-muted p-3">
-          <ShieldAlert className="h-6 w-6 text-muted-foreground" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">Bu sayfaya erişim yetkiniz yok</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Finansal Panel yalnızca yönetici hesapları içindir.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
+    <PermissionGuard
+      permission="finance.dashboard.view"
+      title="Bu sayfaya erişim yetkiniz yok"
+      description="Finansal Panel yalnızca yönetici hesapları içindir."
+    >
+      <div className="space-y-6">
       <PageHeader
         title="Finansal Panel"
         description="Kurumunuzun finansal kontrol merkezi — ciro, tahsilat, alacaklar ve ödenecekler tek yerde."
@@ -123,6 +112,7 @@ export default function FinancePage() {
       </div>
 
       <p className="text-xs text-muted-foreground">{currentMonthLabel} verileri gösteriliyor.</p>
-    </div>
+      </div>
+    </PermissionGuard>
   );
 }

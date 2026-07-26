@@ -630,7 +630,13 @@ export function SessionFormDrawer({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="session-time">Saat</Label>
-            <Input id="session-time" type="time" value={form.time} onChange={(e) => set("time", e.target.value)} />
+            <Input
+              id="session-time"
+              type="time"
+              step={store.institutionSettings.sessions.timeStepMinutes * 60}
+              value={form.time}
+              onChange={(e) => set("time", e.target.value)}
+            />
           </div>
         </div>
 

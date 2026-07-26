@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Bell, Check, ChevronDown, PanelLeft } from "lucide-react";
 import {
   DropdownMenu,
@@ -16,8 +17,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useSidebar } from "@/components/ui/sidebar";
 import { useMockStore } from "@/lib/mock/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
-import { CURRENT_USER } from "@/lib/permissions";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts[0]![0] + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
+}
 
 interface AppTopbarProps {
   sidebarVisible: boolean;
@@ -30,6 +37,8 @@ interface AppTopbarProps {
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
   const { notifications, markAllNotificationsRead, students, teachers } = store;
+  const { user, signOut } = useAuth();
+  const router = useRouter();
   // On mobile the sidebar is always a Sheet overlay with its own open/closed
   // state (openMobile) — our desktop visible/hidden state doesn't apply there,
   // so this same header button drives a DIFFERENT action on mobile: open/close
@@ -192,10 +201,10 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
           >
             <Avatar className="h-7 w-7">
               <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                {CURRENT_USER.initials}
+                {user ? initialsOf(user.name) : "?"}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden text-sm font-medium sm:block">{CURRENT_USER.name}</span>
+            <span className="hidden text-sm font-medium sm:block">{user?.name}</span>
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -203,16 +212,24 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
             <DropdownMenuGroup>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">{CURRENT_USER.name}</span>
-                  <span className="text-xs text-muted-foreground">{CURRENT_USER.email}</span>
+                  <span className="text-sm font-medium">{user?.name}</span>
+                  <span className="text-xs text-muted-foreground">{user?.email}</span>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profil</DropdownMenuItem>
-            <DropdownMenuItem>Ayarlar</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/app/profile")}>Profil</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/app/settings")}>Ayarlar</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">Çıkış Yap</DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={async () => {
+                await signOut();
+                router.replace("/login");
+              }}
+            >
+              Çıkış Yap
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 

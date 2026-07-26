@@ -10,8 +10,12 @@ import { useCallback, useEffect, useState } from "react";
 const STORAGE_KEY = "sidebar-visible";
 const DEFAULT_VISIBLE = true;
 
-export function useSidebarVisibility() {
-  const [visible, setVisibleState] = useState<boolean>(DEFAULT_VISIBLE);
+/** @param institutionDefaultVisible Ayarlar → Belge ve Görünüm's configured
+ *  `sidebarDefaultState` — only used the very first time (no explicit
+ *  per-browser preference saved yet); once a user has toggled the sidebar
+ *  even once, their own preference always wins over the institution default. */
+export function useSidebarVisibility(institutionDefaultVisible: boolean = DEFAULT_VISIBLE) {
+  const [visible, setVisibleState] = useState<boolean>(institutionDefaultVisible);
 
   // Correct from the persisted preference right after mount — deliberately
   // NOT read in the initial useState value. This state drives a structural
@@ -26,9 +30,10 @@ export function useSidebarVisibility() {
   // localStorage-backed (as opposed to cookie-backed) preference.
   useEffect(() => {
     try {
-      if (window.localStorage.getItem(STORAGE_KEY) === "false") {
-        setVisibleState(false);
-      }
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored === "false") setVisibleState(false);
+      else if (stored === "true") setVisibleState(true);
+      // No explicit preference saved yet — keep institutionDefaultVisible.
     } catch {
       // Storage unavailable (private browsing, etc.) — stay at the default.
     }

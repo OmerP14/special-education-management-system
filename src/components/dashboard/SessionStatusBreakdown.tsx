@@ -160,7 +160,7 @@ export function SessionStatusBreakdown({ sessions }: SessionStatusBreakdownProps
 
   return (
     <Card
-      className="flex h-[440px] cursor-pointer flex-col transition-colors hover:border-primary/40"
+      className="@container flex cursor-pointer flex-col transition-colors hover:border-primary/40 @[360px]:h-[440px]"
       onClick={() => router.push("/app/sessions")}
     >
       <CardHeader className="pb-3">
@@ -168,9 +168,9 @@ export function SessionStatusBreakdown({ sessions }: SessionStatusBreakdownProps
         <p className="text-sm text-muted-foreground">Tüm zamanlar · {total} seans</p>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 sm:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 @[360px]:flex-row">
           <div
-            className="relative aspect-square w-full max-w-[210px] shrink-0"
+            className="relative aspect-square w-full max-w-[180px] shrink-0"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -250,7 +250,7 @@ export function SessionStatusBreakdown({ sessions }: SessionStatusBreakdownProps
             )}
           </div>
 
-          <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:min-w-[150px]">
+          <div className="flex w-full flex-col gap-2.5 @[360px]:w-auto @[360px]:min-w-[130px]">
             {chartData.map((d) => (
               <button
                 key={d.key}

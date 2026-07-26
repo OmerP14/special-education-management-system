@@ -23,7 +23,9 @@ export function getSettingsSectionStatus(key: SettingsSectionKey, store: Store):
       return activeCount === 0 ? "attention" : "complete";
     }
     case "users": {
-      const hasActiveOwner = store.appUsers.some((u) => u.role === "owner" && u.status === "active");
+      const hasActiveOwner = store.appUsers.some(
+        (u) => store.roles.find((r) => r.id === u.roleId)?.isOwnerRole && u.status === "active"
+      );
       return hasActiveOwner ? "complete" : "attention";
     }
     case "data": {

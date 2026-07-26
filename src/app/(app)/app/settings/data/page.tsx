@@ -5,7 +5,7 @@ import Link from "next/link";
 import { FileSpreadsheet, DownloadCloud, DatabaseBackup, RotateCcw, AlertTriangle } from "lucide-react";
 import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { useMockStore } from "@/lib/mock/store";
-import { CURRENT_USER } from "@/lib/permissions";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -127,6 +127,8 @@ function ActionCard({
 
 function DataManagementContent() {
   const store = useMockStore();
+  const { user } = useAuth();
+  const actorName = user?.name ?? "Bilinmeyen kullanıcı";
   const { dataManagement } = store.institutionSettings;
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -144,7 +146,7 @@ function DataManagementContent() {
       backupCount: dataManagement.backupCount + 1,
     });
     store.logAuditEvent({
-      userName: CURRENT_USER.name,
+      userName: actorName,
       action: "backup_created",
       module: "data",
       recordLabel: "Manuel yedek",
@@ -154,7 +156,7 @@ function DataManagementContent() {
 
   const handleExport = (label: string) => {
     store.logAuditEvent({
-      userName: CURRENT_USER.name,
+      userName: actorName,
       action: "data_exported",
       module: "data",
       recordLabel: label,
@@ -164,7 +166,7 @@ function DataManagementContent() {
 
   const handleRestore = () => {
     store.logAuditEvent({
-      userName: CURRENT_USER.name,
+      userName: actorName,
       action: "backup_restored",
       module: "data",
       recordLabel: `Son yedek (${dataManagement.lastBackupAt ? formatDateTime(dataManagement.lastBackupAt) : "yok"})`,

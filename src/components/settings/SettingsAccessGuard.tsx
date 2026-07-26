@@ -1,15 +1,18 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ShieldAlert } from "lucide-react";
-import { CURRENT_USER, canAccessSettingsSection } from "@/lib/permissions";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { canAccessSettingsSection } from "@/lib/auth/permissions";
+import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import type { SettingsSectionKey } from "@/types/settings";
 
 /**
  * Every settings section page wraps its content in this instead of checking
  * canAccessSettingsSection itself — the nav already hides sections a role
  * can't reach (see SettingsShell), but a direct URL visit must respect the
- * same boundary, same reasoning as FinancePage's own guard.
+ * same boundary, same reasoning as FinancePage's own guard (PermissionGuard).
+ * A thin wrapper around the shared UnauthorizedState + the real permission
+ * check now driven by useAuth() instead of a hardcoded role.
  */
 export function SettingsAccessGuard({
   sectionKey,
@@ -18,19 +21,14 @@ export function SettingsAccessGuard({
   sectionKey: SettingsSectionKey;
   children: ReactNode;
 }) {
-  if (!canAccessSettingsSection(CURRENT_USER.role, sectionKey)) {
+  const { permissions } = useAuth();
+
+  if (!canAccessSettingsSection(permissions, sectionKey)) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted/20 py-24 text-center">
-        <div className="rounded-full bg-muted p-3">
-          <ShieldAlert className="h-6 w-6 text-muted-foreground" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">Bu bölüme erişim yetkiniz yok</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Bu ayar yalnızca yetkili roller içindir.
-          </p>
-        </div>
-      </div>
+      <UnauthorizedState
+        title="Bu bölüme erişim yetkiniz yok"
+        description="Bu ayar yalnızca yetkili roller içindir."
+      />
     );
   }
   return <>{children}</>;

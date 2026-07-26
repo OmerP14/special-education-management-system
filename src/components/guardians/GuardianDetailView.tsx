@@ -42,6 +42,9 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { canAccessGuardian } from "@/lib/auth/scope";
+import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildGuardianDetail,
   formatCurrency,
@@ -448,7 +451,26 @@ interface GuardianDetailViewProps {
 
 export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
   const store = useMockStore();
+  const scope = useUserScope();
 
+  // Direct-URL scope enforcement — a guardian hitting another guardian's id
+  // by URL gets this instead of the record. See lib/auth/scope.ts.
+  if (!canAccessGuardian(guardianId, scope)) {
+    return (
+      <UnauthorizedState
+        title="Bu veliye erişim yetkiniz yok"
+        description="Bu veli kaydı hesabınızla ilişkili değil."
+      />
+    );
+  }
+
+  return <GuardianDetailViewContent guardianId={guardianId} store={store} />;
+}
+
+function GuardianDetailViewContent({
+  guardianId,
+  store,
+}: GuardianDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
   // ── Column builders ────────────────────────────────────────────────────────
   const studentColumns = buildStudentColumns(
     store.sessions,

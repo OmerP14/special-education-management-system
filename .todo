@@ -1,0 +1,204 @@
+SETTINGS + AUTH/ROLES/PERMISSIONS — PHASED IMPLEMENTATION TRACKER
+====================================================
+Read this file top to bottom before doing anything. If resuming a fresh
+session: find the first phase NOT marked [DONE], read its own checklist for
+partial progress, and continue from there. Say "bu todo dosyasında [Faz N]
+fazından devam et" to resume a specific phase.
+
+====================================================
+PHASE 0 — Settings module (mock-store, no auth yet)  [DONE]
+====================================================
+Full Settings area: 13 sections, canonical InstitutionSettings model,
+permission-ready metadata (not enforced yet), Kurum Bilgileri, Eğitim
+Türleri, Seans/Takvim/Finans/Hakediş/Öğrenci/Bildirim/Kullanıcılar/Veri/
+Görünüm/Güvenlik/İşlem Geçmişi sections, settings overview page.
+Completed across two sessions (initial build + finishing security/audit
+pages + a dashboard responsive-layout bugfix unrelated to settings).
+
+====================================================
+PHASE 1 — Auth/Roles/Permissions Foundation  [DONE]
+====================================================
+- AuthService interface + LocalAuthService (Web Crypto SHA-256 hashing,
+  mock-only, documented as such).
+- Canonical Role/Permission model replacing the old UserRole/AppUserRole
+  split — src/types/auth.ts, src/lib/auth/{roles,permission-catalog,
+  permissions,route-permissions}.ts.
+- AuthProvider/useAuth() — session timeout, inactivity logout+warning
+  banner, activity tracking.
+- Real /login (Turkish errors, lockout messaging, ?next= redirect).
+- RouteGuard on every /app/* route (unauth -> /login, unauthorized ->
+  /app/403). Sidebar/nav filtered per-item by permissionKey.
+- Full-store localStorage persistence (versioned, src/lib/mock/
+  persistence.ts) — not debounced (a debounced write raced fast reload/
+  relogin and lost the session; fixed).
+- 7 seeded demo accounts (all password Demo1234!) — see Phase 3, three of
+  these roles are REMOVED there, read Phase 3 before relying on this list:
+  owner/admin/teacher/accounting/front_desk/viewer/guardian.
+- Audit expansion: login_success/failed, account_locked, logout,
+  password_changed, user_updated/deactivated/activated, role_changed.
+- Migrated SettingsAccessGuard, SettingsShell, FinancePage guard,
+  settings/data, settings/users to the new permission system. Deleted the
+  old src/lib/permissions.ts.
+- Verified: tsc clean, eslint clean, 14 Playwright QA scenarios passed
+  (unauth redirect, per-role login+nav, lockout, logout, reload
+  persistence, resetToDemo).
+- Known pre-existing (not introduced by this work): store.tsx has ~13
+  react-compiler "Cannot access refs during render" lint findings — this
+  is the file's own pre-existing ref-caching convention (11 already
+  existed before this work), left as-is for consistency rather than
+  refactoring unrelated code.
+
+====================================================
+PHASE 2 — Roles UI / Invitations / Password Reset  [DONE]
+====================================================
+- Settings → Kullanıcılar ve Roller rebuilt as 4 tabs: Kullanıcılar /
+  Roller / Yetki Matrisi / Davetler (src/components/settings/users/*,
+  src/app/(app)/app/settings/users/page.tsx).
+- Role store mutators: createRole/updateRole/deactivateRole (usage-
+  protected, system roles never deactivatable). Role.key loosened from
+  the RoleKey union to `string` so custom roles work.
+- Roller tab: create/clone/edit roles, permission editor grouped by
+  module (src/components/settings/users/RolePermissionEditor.tsx), new
+  src/components/ui/{tabs,checkbox}.tsx primitives.
+- Yetki Matrisi tab: roles x permissions grid, click-to-toggle.
+- Invitations: real single-use 7-day tokens (src/types/auth.ts's
+  Invitation), Davetler tab (copy link/resend/revoke),
+  /accept-invite?token= page, LocalAuthService.acceptInvitation.
+- Password reset: /forgot-password + /reset-password?token= wired to
+  real (mock-delivery) token flow, LocalAuthService.requestPasswordReset/
+  resetPassword now implemented (were Phase-1 stubs). Login page's
+  "Şifremi unuttum" re-enabled.
+- Kullanıcılar tab polish: search/filter by role+status, lock/unlock
+  ("Etkinleştir" also clears lockout fields), resend invitation,
+  teacher/guardian record linking in the invite/edit form.
+- Verified: tsc clean, eslint clean, 11 Playwright QA scenarios passed.
+  One test-methodology gotcha worth remembering: Playwright's
+  `browser.newPage()` creates an ISOLATED context per call (does not
+  share localStorage) — use one `browser.newContext()` + `context.
+  newPage()` per scenario that needs shared storage, or tests will show
+  false failures that look like auth/persistence bugs.
+
+====================================================
+PHASE 3 — Role simplification / Resource scoping / Role dashboards /
+          Remaining settings activation   [DONE]
+====================================================
+- Removed Muhasebe/Danışma/Görüntüleyici from SYSTEM_ROLES (src/lib/auth/
+  roles.ts) and their seeded demo accounts. 4 system roles remain: Sahip,
+  Yönetici, Öğretmen, Veli. RoleKey union narrowed to match; Role.key is
+  still `string` so custom-role creation (Phase 2) is untouched.
+- migrateRemovedRoleId() in roles.ts + a one-time mount effect in
+  store.tsx migrate any persisted AppUser still pointing at a removed
+  roleId to role-admin (Yönetici) and log a `role_changed` audit entry —
+  verified against an injected stale localStorage snapshot, not just the
+  clean seed data.
+- src/lib/auth/scope.ts (+ use-scope.ts hook): CurrentUserScope keyed off
+  AuthUser.teacherId/guardianId (not role name), getScopedStudents/
+  Sessions/Teachers/Guardians/Payments/Installments, canAccessStudent/
+  Teacher/Guardian/Session. Applied to: students list+detail, sessions
+  list, calendar (+ mobileDefaultView/showWeekends settings wired in same
+  pass), teacher detail, guardian detail, payments+installments list.
+  Detail pages use an UnauthorizedState guard; list pages just render
+  scoped data — direct-URL access to another teacher's/guardian's/
+  student's record is additionally blocked by RouteGuard itself (neither
+  role has teachers.view/guardians.view), confirmed via QA.
+- Guardian role gained students.view + finance.student_payments.view
+  (Phase 1 had granted neither, blocking guardian from reaching either
+  page at all); calendar.view deliberately NOT granted (spec's guardian
+  nav omits Takvim — the scoped Guardian Dashboard's own upcoming-
+  sessions list covers "when is my child's next session" instead).
+- Role-specific dashboards: OwnerDashboard (existing content, unchanged,
+  now one branch of dashboard/page.tsx) vs new TeacherDashboard.tsx
+  (own today/week sessions, own students, earnings card only if
+  teachers.view_earnings granted, reuses TodaysScheduleCard/
+  UpcomingSessionsCard/RecentSessionsTable with scoped data — no new
+  components needed for those) vs new GuardianDashboard.tsx (child
+  switcher when >1 linked student, billed/paid/balance summary, scoped
+  upcoming+recent sessions). dashboard/page.tsx branches on
+  useUserScope() before rendering any of the three.
+- Nav filtering was already permission-driven (Phase 1) — no code change
+  needed beyond the guardian permission grants above; verified the
+  resulting nav for teacher (Panel/Takvim/Öğrenciler/Seanslar only) and
+  guardian (Panel/Öğrenciler/Seanslar/Öğrenci Ödemeleri only) matches the
+  spec's lists exactly.
+- Settings activated this phase (targeted subset, not exhaustive — see
+  "remaining" below): sessions.timeStepMinutes (session form's time
+  input step), calendar.mobileDefaultView + calendar.showWeekends,
+  appearance.sidebarDefaultState (first-visit-only, user's own toggle
+  always wins after), appearance.defaultLandingPage (root page + post-
+  login redirect, both via new src/lib/settings/landing-page.ts),
+  finance.highlightOverdueInstallments (red row highlight on the
+  Payments page's installment table).
+- NOT activated this phase (still saved-but-unused — see the audit that
+  informed this list): sessions.cancellationMinNoticeHours/
+  makeupSessionBehavior; calendar.workingDays/weekStartsOn/colorSource/
+  timeFormat; finance.allowInstallments/defaultInstallmentIntervalDays/
+  overpaymentPolicy/receiptNumberFormat; ALL of teacherEarnings.* (no
+  consumer wired at all yet); students.autoGenerateStudentNumber/
+  studentNumberFormat (Student type has no studentNumber field — this is
+  a data-model change, not just a wiring change, deliberately not rushed
+  late in this phase); students.guardianRequired/requireBirthDate/
+  requireKvkkConsent/requireHealthInfo/requireEmergencyContact (no form-
+  validation consumer yet); appearance.density/tableRowDensity/
+  cardRadius (would need CSS-variable threading across the whole UI, out
+  of scope for a targeted pass); documents.* (dateFormat/csvDelimiter/
+  pdfPageSize/defaultExportOrientation/receiptTitle — no export/format
+  consumer wired). None of these are backend/provider-only — they're
+  legitimate remaining wiring work for a future phase.
+- Verified: tsc clean, eslint clean on every touched/created file
+  (store.tsx's pre-existing react-compiler "refs" findings unchanged in
+  count beyond the 2 already accepted in Phase 1/2 — see that phase's
+  note). 20/20 Playwright QA scenarios passed: removed-account login
+  rejected, teacher dashboard+nav+scoped list+blocked-from-other-teacher,
+  guardian dashboard+nav+scoped list+blocked-from-other-
+  guardian+blocked-from-unrelated-student, reload persistence for a
+  scoped role, and the removed-role migration test against an injected
+  stale snapshot. Separately re-ran the full owner/admin flow (dashboard,
+  students, teachers, guardians, sessions, calendar, payments, settings/
+  users, finance) — zero console errors, zero regressions from the new
+  branching.
+
+====================================================
+DEFERRED — not yet scheduled to a phase
+====================================================
+- Remaining settings activation (see Phase 3's "NOT activated" list for
+  the exact field-by-field breakdown): session cancellation-notice/
+  makeup-billing rules, calendar working-days/week-start/color-source/
+  time-format, finance installment-availability/overpayment-policy/
+  receipt-numbering, ALL of teacherEarnings.* (currently zero consumers),
+  student-number auto-generation (needs a Student.studentNumber field —
+  a data-model change, not just wiring), student/guardian required-field
+  validation rules, appearance density/card-radius (CSS-variable
+  threading across the whole UI), documents.* (date/CSV/PDF export
+  formatting).
+- Notification engine (email/SMS/WhatsApp — provider-ready adapters only,
+  in-app notifications already exist and work).
+- Dedicated "Bildirimler" nav page for the guardian nav list — today
+  guardians are pointed at the topbar bell instead (see GuardianDashboard's
+  own note); the spec's guardian nav item exists but has no dedicated
+  route.
+- Teacher's "own earnings if permitted" as a dedicated nav item/page —
+  today it's a stat card on the Teacher Dashboard only; the institution-
+  wide "Öğretmen Hakedişleri" page/route was deliberately NOT reused or
+  scoped for this (it shows every teacher's earnings, would need its own
+  scoping pass first).
+- SupabaseAuthService / server-side+DB-level authorization / RLS / tenant
+  isolation — this whole project is intentionally mock/local-store only
+  so far; production migration is a reporting deliverable (checklist),
+  never implemented against a real backend in any phase so far.
+- ActionGuard/SensitiveActionGuard components (confirm-before-mutating
+  wrappers) — mentioned in the original spec's centralized-helpers list,
+  never built; today's dangerous actions (data reset, role deactivation)
+  use ad-hoc typed-confirmation dialogs instead, which work but aren't
+  the generic component the spec envisioned.
+- Full Profile page editing beyond read-only info + change-password
+  (avatar, notification preferences, default landing page, active-
+  sessions/device placeholder).
+
+====================================================
+CREDENTIALS (current, since Phase 3)
+====================================================
+All seeded accounts share password: Demo1234!
+4 accounts remain: admin@ornekokul.com (Sahip), mudur@ornekokul.com
+(Yönetici), ogretmen@ornekokul.com (Öğretmen), veli@ornekokul.com (Veli).
+muhasebe@/danisma@/izleyici@ornekokul.com no longer exist (Phase 3 role
+simplification).

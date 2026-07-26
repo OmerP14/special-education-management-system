@@ -4,7 +4,8 @@ import { useEffect, type ReactNode, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SETTINGS_SECTIONS } from "@/lib/settings/sections";
-import { CURRENT_USER, canAccessSettingsSection } from "@/lib/permissions";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { canAccessSettingsSection } from "@/lib/auth/permissions";
 import { useMockStore } from "@/lib/mock/store";
 import {
   getSettingsSectionStatus,
@@ -19,10 +20,11 @@ const LAST_SECTION_KEY = "settings-last-section";
 function SettingsNav() {
   const pathname = usePathname();
   const store = useMockStore();
+  const { permissions } = useAuth();
   const { isDirty } = useSettingsDirty();
 
   const visibleSections = SETTINGS_SECTIONS.filter((s) =>
-    canAccessSettingsSection(CURRENT_USER.role, s.key)
+    canAccessSettingsSection(permissions, s.key)
   );
 
   useEffect(() => {

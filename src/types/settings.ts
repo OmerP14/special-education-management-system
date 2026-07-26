@@ -335,7 +335,8 @@ export type AuditModule =
   | "teacher_earnings"
   | "import"
   | "users"
-  | "data";
+  | "data"
+  | "auth";
 
 export interface AuditLogEntry {
   id: string;
@@ -350,30 +351,39 @@ export interface AuditLogEntry {
 }
 
 // ─── Kullanıcılar ve Roller ───────────────────────────────────────────────────
-// Deliberately a *different, more granular* role list than the coarse
-// UserRole in types/index.ts (which only gates nav-level finance visibility
-// today) — this is staff-facing role labeling for the future permission
-// matrix, not wired to any real access control yet. Naming it AppUserRole
-// keeps it from colliding with UserRole.
+// Role labeling now lives in src/types/auth.ts (RoleKey/Role) — one canonical
+// role system for the whole app, not a settings-only cosmetic list. AppUser
+// references a role by `roleId` (FK into the seeded Role catalog) rather than
+// carrying a role string of its own.
 
-export type AppUserRole =
-  | "owner"
-  | "admin"
-  | "teacher"
-  | "accounting"
-  | "front_desk"
-  | "viewer";
-
-export type AppUserStatus = "active" | "invited" | "inactive";
+export type AppUserStatus = "active" | "invited" | "inactive" | "locked";
 
 export interface AppUser {
   id: string;
   tenantId: string;
   name: string;
   email: string;
-  role: AppUserRole;
+  /** FK into the seeded Role[] catalog — see src/lib/auth/roles.ts. Never a
+   *  raw role string; resolve via getRoleById when a label is needed. */
+  roleId: string;
   status: AppUserStatus;
   lastLoginAt?: string;
+  /** Reset to 0 on a successful login; incremented on a bad password.
+   *  LocalAuthService locks the account once this reaches
+   *  institutionSettings.security.failedLoginThreshold. */
+  failedLoginAttempts?: number;
+  /** Set alongside status:"locked" — LocalAuthService rejects sign-in until
+   *  this passes, then treats the account as unlocked without needing a
+   *  separate "unlock" write. */
+  lockedUntil?: string;
   invitedAt?: string;
+  invitationAcceptedAt?: string;
+  updatedAt?: string;
+  /** Links this account to its operational identity for future resource
+   *  scoping (Phase 2) — set for teacher-role/guardian-role accounts only.
+   *  Deliberately never a passwordHash/credential field here — see
+   *  Credential in types/auth.ts for where that lives instead. */
+  teacherId?: string;
+  guardianId?: string;
   createdAt: string;
 }

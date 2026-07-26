@@ -30,10 +30,14 @@ import { mockCashMovements } from "@/lib/mock/cash-movements";
 import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { mockAppUsers } from "@/lib/mock/app-users";
+import { mockCredentials } from "@/lib/mock/credentials";
 import type { InstitutionSettings, InstitutionSettingsKey, AuditLogEntry, AppUser } from "@/types/settings";
 import { DEFAULT_INSTITUTION_SETTINGS, getSettingsDefaults } from "@/lib/settings/defaults";
 import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
-import { CURRENT_USER } from "@/lib/permissions";
+import type { Role, Credential, AuthSession, Invitation, PasswordResetToken } from "@/types/auth";
+import { SYSTEM_ROLES, migrateRemovedRoleId } from "@/lib/auth/roles";
+import { generateToken } from "@/lib/auth/tokens";
+import { loadPersistedStore, savePersistedStore, clearPersistedStore } from "@/lib/mock/persistence";
 import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
@@ -84,6 +88,14 @@ function upsertEarningForSession(
 // Not every mutation in this store pushes an entry — see logAuditEvent's own
 // doc comment on the MockStore interface for which ones do today and why the
 // rest were left out of this pass.
+
+// Fallback for audit entries logged by store actions that don't (and, for
+// most of these, shouldn't) accept an explicit actor — see actorNameRef in
+// MockDataProvider, kept fresh by AuthProvider via setActorName whenever the
+// signed-in user changes. Only used before a session exists (should be
+// unreachable in practice — every mutating action already sits behind
+// RouteGuard) or if AuthProvider hasn't synced yet.
+const FALLBACK_ACTOR_NAME = "Sistem Kullanıcısı";
 
 function makeAuditEntry(entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">): AuditLogEntry {
   return {
@@ -228,28 +240,102 @@ interface MockStore {
   ) => void;
   resetSettingsSection: (key: InstitutionSettingsKey) => void;
 
-  // ─── Users & roles (Kullanıcılar ve Roller — no permission engine yet, see
-  //     canAccessSettingsSection in lib/permissions.ts) ─────────────────────
+  // ─── Users & roles (Kullanıcılar ve Roller) — see src/lib/auth for the real
+  //     canonical Role/permission model these reference ─────────────────────
   appUsers: AppUser[];
   /** No-ops on a duplicate email (case-insensitive) — mirrors the "prevent
    *  duplicate email invites" requirement without a separate validation pass. */
   inviteAppUser: (user: AppUser) => void;
+  /** Logs `user_updated`, and additionally `role_changed` when `roleId`
+   *  differs from the previous record — see AuditModule usage below. */
   updateAppUser: (user: AppUser) => void;
   /** No-ops if this would leave zero active owners — deliberately no hard
    *  delete for users either, same reasoning as Student/Teacher/Guardian at
-   *  the top of this file: deactivate, never remove. */
+   *  the top of this file: deactivate, never remove. Logs `user_deactivated`. */
   deactivateAppUser: (id: string) => void;
+  /** Logs `user_activated`. Also clears any prior lockout — this doubles as
+   *  the "unlock" action for a locked account in this phase. */
   activateAppUser: (id: string) => void;
+  /** No-ops for a non-"invited" user. Extends/replaces the pending
+   *  invitation's token and expiry — same "mock resend" reasoning as
+   *  inviteAppUser (nothing is actually emailed). */
+  resendInvitation: (userId: string) => void;
+  /** No-ops for a non-pending invitation. The AppUser stays "invited" — the
+   *  admin re-invites with a fresh token via inviteAppUser/resendInvitation
+   *  rather than this action reviving the old one. */
+  revokeInvitation: (invitationId: string) => void;
+
+  // ─── Roles (Settings → Kullanıcılar ve Roller → Roller/Yetki Matrisi) ─────
+  roles: Role[];
+  /** Adds a custom role (custom or, in principle, a re-seed of a system one
+   *  — the UI only ever calls this for custom roles). */
+  createRole: (role: Role) => void;
+  /** Full replace by id. Callers (the Roller tab's editor) are responsible
+   *  for not letting a system role's `key`/`isSystemRole`/`isOwnerRole`
+   *  change — see RolesTab. */
+  updateRole: (role: Role) => void;
+  /** No-ops for a system role (never deactivatable) or a role still
+   *  referenced by any AppUser — same "usage protection" pattern as
+   *  deleteEducationType above. */
+  deactivateRole: (id: string) => void;
+
+  // ─── Auth (see src/lib/auth/AuthProvider.tsx — the only real consumer) ────
+  /** Never read/written outside src/lib/auth/local-auth-service.ts. */
+  credentials: Credential[];
+  setCredential: (credential: Credential) => void;
+  authSession: AuthSession | null;
+  setAuthSession: (session: AuthSession | null) => void;
+  /** Kept in sync by AuthProvider whenever the signed-in user changes — lets
+   *  pre-existing store actions (addEducationType, updateSession, ...) log
+   *  audit entries under the real actor's name without every one of those
+   *  actions/call sites needing to accept and thread through an explicit
+   *  parameter. See actorNameRef below. */
+  setActorName: (name: string | null) => void;
+
+  // ─── Invitations / password resets (mock-delivery — see types/auth.ts) ────
+  invitations: Invitation[];
+  setInvitation: (invitation: Invitation) => void;
+  passwordResets: PasswordResetToken[];
+  setPasswordReset: (token: PasswordResetToken) => void;
 
   // ─── İşlem Geçmişi ────────────────────────────────────────────────────────
   auditLog: AuditLogEntry[];
   /** General-purpose escape hatch for pages that need to record a one-off
    *  event with no dedicated store action of their own (e.g. Veri Yönetimi's
    *  backup/restore/export buttons). Settings changes, education type
-   *  create/update, imports, payments, session edits, and invites already log
-   *  themselves from within their own store actions — see each action's own
-   *  comment. */
+   *  create/update, imports, payments, session edits, invites, and auth
+   *  events already log themselves from within their own store actions —
+   *  see each action's own comment. */
   logAuditEvent: (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">) => void;
+}
+
+/** Everything persisted to localStorage — see lib/mock/persistence.ts. One
+ *  shape, not per-field bespoke persistence code. */
+interface PersistedState {
+  students: Student[];
+  guardians: Guardian[];
+  teachers: Teacher[];
+  educationTypes: EducationType[];
+  sessions: Session[];
+  payments: Payment[];
+  teacherEarnings: TeacherEarning[];
+  teacherPayments: TeacherPayment[];
+  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
+  installmentPlans: InstallmentPlan[];
+  cashMovements: CashMovement[];
+  openingBalances: OpeningBalance[];
+  importBatches: ImportBatch[];
+  teacherMergeHistory: TeacherMergeHistory[];
+  weeklySessionPlans: WeeklySessionPlan[];
+  notifications: AppNotification[];
+  institutionSettings: InstitutionSettings;
+  appUsers: AppUser[];
+  auditLog: AuditLogEntry[];
+  roles: Role[];
+  credentials: Credential[];
+  authSession: AuthSession | null;
+  invitations: Invitation[];
+  passwordResets: PasswordResetToken[];
 }
 
 // ─── Context ───────────────────────────────────────────────────────────────────
@@ -259,20 +345,32 @@ const MockStoreContext = createContext<MockStore | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function MockDataProvider({ children }: { children: ReactNode }) {
-  const [students, setStudents] = useState<Student[]>(mockStudents);
+  // Read once per mount — every state initializer below reads from this same
+  // snapshot instead of each re-parsing localStorage independently. `null`
+  // (nothing persisted yet, or a stale schema version) falls back to the
+  // existing seed data exactly as before this phase.
+  const [persisted] = useState(() => loadPersistedStore<PersistedState>());
+
+  const [students, setStudents] = useState<Student[]>(() => persisted?.students ?? mockStudents);
   const studentsRef = useRef(students);
   studentsRef.current = students;
-  const [guardians, setGuardians] = useState<Guardian[]>(mockGuardians);
-  const [teachers, setTeachers] = useState<Teacher[]>(mockTeachers);
-  const [educationTypes, setEducationTypes] = useState<EducationType[]>(mockEducationTypes);
+  const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? mockGuardians);
+  const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? mockTeachers);
+  const [educationTypes, setEducationTypes] = useState<EducationType[]>(
+    () => persisted?.educationTypes ?? mockEducationTypes
+  );
   const educationTypesRef = useRef(educationTypes);
   educationTypesRef.current = educationTypes;
-  const [sessions, setSessions] = useState<Session[]>(mockSessions);
+  const [sessions, setSessions] = useState<Session[]>(() => persisted?.sessions ?? mockSessions);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
-  const [payments, setPayments] = useState<Payment[]>(mockPayments);
-  const [teacherEarnings, setTeacherEarnings] = useState<TeacherEarning[]>(mockTeacherEarnings);
-  const [teacherPayments, setTeacherPayments] = useState<TeacherPayment[]>(mockTeacherPayments);
+  const [payments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? mockPayments);
+  const [teacherEarnings, setTeacherEarnings] = useState<TeacherEarning[]>(
+    () => persisted?.teacherEarnings ?? mockTeacherEarnings
+  );
+  const [teacherPayments, setTeacherPayments] = useState<TeacherPayment[]>(
+    () => persisted?.teacherPayments ?? mockTeacherPayments
+  );
   // Refs so addTeacherPayment always validates against the latest pending balance,
   // even when called from a memoised handler holding a stale closure.
   const teachersRef = useRef(teachers);
@@ -280,7 +378,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const teacherPaymentsRef = useRef(teacherPayments);
   teacherPaymentsRef.current = teacherPayments;
   const [teacherEducationTypeAssignments, setTeacherEducationTypeAssignments] = useState<TeacherEducationTypeAssignment[]>(
-    mockTeacherEducationTypeAssignments
+    () => persisted?.teacherEducationTypeAssignments ?? mockTeacherEducationTypeAssignments
   );
   // Refs so mergeTeachers/rollbackTeacherMerge always compute against a single
   // consistent, current snapshot across every array they touch at once — same
@@ -290,31 +388,53 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const teacherEducationTypeAssignmentsRef = useRef(teacherEducationTypeAssignments);
   teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
-    mockInstallmentPlans
+    () => persisted?.installmentPlans ?? mockInstallmentPlans
   );
   // Always-current ref so markInstallmentPaid / cancelInstallment never read
   // a stale closure snapshot when called from memoised event handlers.
   const installmentPlansRef = useRef(installmentPlans);
   installmentPlansRef.current = installmentPlans;
-  const [cashMovements, setCashMovements] = useState<CashMovement[]>(mockCashMovements);
-  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>([]);
-  const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>(
+    () => persisted?.cashMovements ?? mockCashMovements
+  );
+  const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>(
+    () => persisted?.openingBalances ?? []
+  );
+  const [importBatches, setImportBatches] = useState<ImportBatch[]>(() => persisted?.importBatches ?? []);
   const [weeklySessionPlans, setWeeklySessionPlans] = useState<WeeklySessionPlan[]>(
-    mockWeeklySessionPlans
+    () => persisted?.weeklySessionPlans ?? mockWeeklySessionPlans
   );
   const weeklySessionPlansRef = useRef(weeklySessionPlans);
   weeklySessionPlansRef.current = weeklySessionPlans;
-  const [teacherMergeHistory, setTeacherMergeHistory] = useState<TeacherMergeHistory[]>([]);
+  const [teacherMergeHistory, setTeacherMergeHistory] = useState<TeacherMergeHistory[]>(
+    () => persisted?.teacherMergeHistory ?? []
+  );
   const teacherMergeHistoryRef = useRef(teacherMergeHistory);
   teacherMergeHistoryRef.current = teacherMergeHistory;
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => persisted?.notifications ?? []);
   const [institutionSettings, setInstitutionSettings] = useState<InstitutionSettings>(
-    () => structuredClone(DEFAULT_INSTITUTION_SETTINGS)
+    () => persisted?.institutionSettings ?? structuredClone(DEFAULT_INSTITUTION_SETTINGS)
   );
-  const [appUsers, setAppUsers] = useState<AppUser[]>(() => [...mockAppUsers]);
+  const [appUsers, setAppUsers] = useState<AppUser[]>(() => persisted?.appUsers ?? [...mockAppUsers]);
   const appUsersRef = useRef(appUsers);
   appUsersRef.current = appUsers;
-  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
+
+  // ─── Roles / credentials / auth session / invitations / password resets ──
+  const [roles, setRoles] = useState<Role[]>(() => persisted?.roles ?? SYSTEM_ROLES);
+  const rolesRef = useRef(roles);
+  rolesRef.current = roles;
+  const [credentials, setCredentials] = useState<Credential[]>(() => persisted?.credentials ?? mockCredentials);
+  const [authSession, setAuthSessionState] = useState<AuthSession | null>(() => persisted?.authSession ?? null);
+  const [invitations, setInvitations] = useState<Invitation[]>(() => persisted?.invitations ?? []);
+  const invitationsRef = useRef(invitations);
+  invitationsRef.current = invitations;
+  const [passwordResets, setPasswordResets] = useState<PasswordResetToken[]>(() => persisted?.passwordResets ?? []);
+  // Not persisted (ephemeral per-tab) — kept fresh by AuthProvider via
+  // setActorName. See FALLBACK_ACTOR_NAME / the MockStore interface comment.
+  const [actorName, setActorName] = useState<string | null>(null);
+  const actorNameRef = useRef(actorName);
+  actorNameRef.current = actorName;
 
   const AUTO_COMPLETE_THRESHOLD_MS =
     (DEFAULT_SESSION_DURATION_MINUTES + AUTO_COMPLETE_GRACE_MINUTES) * 60_000;
@@ -369,6 +489,100 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Phase 3 role simplification migration — a snapshot persisted from before
+  // Muhasebe/Danışma/Görüntüleyici were removed can still have an AppUser
+  // pointing at one of those roleIds. Runs once on mount so no orphan
+  // roleId survives a reload; see migrateRemovedRoleId's own doc comment
+  // for why every removed role maps to Yönetici (role-admin).
+  useEffect(() => {
+    const affected = appUsersRef.current.filter((u) => migrateRemovedRoleId(u.roleId));
+    if (affected.length === 0) return;
+    const now = new Date().toISOString();
+    setAppUsers((prev) =>
+      prev.map((u) => {
+        const newRoleId = migrateRemovedRoleId(u.roleId);
+        return newRoleId ? { ...u, roleId: newRoleId, updatedAt: now } : u;
+      })
+    );
+    setAuditLog((prev) => [
+      ...affected.map((u) =>
+        makeAuditEntry({
+          userName: "Sistem (rol göçü)",
+          action: "role_changed",
+          module: "users",
+          recordLabel: `${u.name} <${u.email}>`,
+          oldValueSummary: u.roleId,
+          newValueSummary: migrateRemovedRoleId(u.roleId) ?? undefined,
+        })
+      ),
+      ...prev,
+    ]);
+  }, []);
+
+  // Full-store persistence — one write path for every domain instead of
+  // per-field bespoke code, mirrored by the lazy `useState` initializers
+  // above reading loadPersistedStore() back on the next mount. See
+  // lib/mock/persistence.ts.
+  //
+  // Deliberately NOT debounced: a debounced write raced against a fast
+  // reload/relogin (e.g. immediately after signIn) could lose the just-set
+  // authSession/failedLoginAttempts entirely, since the browser can reload
+  // before the timer fires. localStorage.setItem on data this size is cheap
+  // enough that writing on every change is not a real cost here.
+  useEffect(() => {
+    savePersistedStore<PersistedState>({
+      students,
+      guardians,
+      teachers,
+      educationTypes,
+      sessions,
+      payments,
+      teacherEarnings,
+      teacherPayments,
+      teacherEducationTypeAssignments,
+      installmentPlans,
+      cashMovements,
+      openingBalances,
+      importBatches,
+      teacherMergeHistory,
+      weeklySessionPlans,
+      notifications,
+      institutionSettings,
+      appUsers,
+      auditLog,
+      roles,
+      credentials,
+      authSession,
+      invitations,
+      passwordResets,
+    });
+  }, [
+    students,
+    guardians,
+    teachers,
+    educationTypes,
+    sessions,
+    payments,
+    teacherEarnings,
+    teacherPayments,
+    teacherEducationTypeAssignments,
+    installmentPlans,
+    cashMovements,
+    openingBalances,
+    importBatches,
+    teacherMergeHistory,
+    weeklySessionPlans,
+    notifications,
+    institutionSettings,
+    appUsers,
+    auditLog,
+    roles,
+    credentials,
+    authSession,
+    invitations,
+    passwordResets,
+  ]);
 
   // Memoized so this object keeps a stable reference across renders that
   // don't touch any of the data below — e.g. toggling the sidebar re-renders
@@ -452,7 +666,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setEducationTypes((prev) => [...prev, et]);
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "education_type_created",
           module: "education_types",
           recordLabel: et.name,
@@ -468,7 +682,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "education_type_updated",
           module: "education_types",
           recordLabel: et.name,
@@ -712,7 +926,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "session_edited",
           module: "sessions",
           recordLabel: `${s.date} — ${s.status}`,
@@ -730,7 +944,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setPayments((prev) => [...prev, p]);
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "payment_created",
           module: "payments",
           recordLabel: `${p.amount} ₺ — ${p.date}`,
@@ -856,7 +1070,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setImportBatches((prev) => [...prev, batch]);
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "import_performed",
           module: "import",
           recordLabel: batch.fileName,
@@ -898,7 +1112,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
 
     institutionSettings,
     updateSettingsSection: (key, value, updatedBy) => {
-      const who = updatedBy ?? CURRENT_USER.name;
+      const who = updatedBy ?? (actorNameRef.current ?? FALLBACK_ACTOR_NAME);
       setInstitutionSettings((prev) => ({
         ...prev,
         [key]: value,
@@ -929,14 +1143,14 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           ...prev.metadata,
           [key]: {
             updatedAt: new Date().toISOString(),
-            updatedBy: CURRENT_USER.name,
+            updatedBy: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
             version: (prev.metadata[key]?.version ?? 0) + 1,
           },
         },
       }));
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "settings_reset",
           module: "settings",
           recordLabel: INSTITUTION_SETTINGS_FIELD_LABELS[key],
@@ -952,9 +1166,28 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
       if (exists) return;
       setAppUsers((prev) => [...prev, user]);
+      // Mock email delivery: a single-use, 7-day token is created right
+      // alongside the user — the Davetler tab is where an admin copies the
+      // link, nothing is actually sent. See types/auth.ts's Invitation.
+      const now = new Date().toISOString();
+      setInvitations((prev) => [
+        ...prev,
+        {
+          id: `invite-${user.id}`,
+          tenantId: user.tenantId,
+          token: generateToken(),
+          userId: user.id,
+          email: user.email,
+          roleId: user.roleId,
+          status: "pending",
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          createdAt: now,
+          createdBy: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+        },
+      ]);
       setAuditLog((prev) => [
         makeAuditEntry({
-          userName: CURRENT_USER.name,
+          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "user_invited",
           module: "users",
           recordLabel: `${user.name} <${user.email}>`,
@@ -962,30 +1195,195 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         ...prev,
       ]);
     },
-    updateAppUser: (user) =>
-      setAppUsers((prev) => prev.map((u) => (u.id === user.id ? user : u))),
+    updateAppUser: (user) => {
+      const previous = appUsersRef.current.find((u) => u.id === user.id);
+      setAppUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "user_updated",
+          module: "users",
+          recordLabel: `${user.name} <${user.email}>`,
+        }),
+        ...prev,
+      ]);
+      if (previous && previous.roleId !== user.roleId) {
+        const previousRole = SYSTEM_ROLES.find((r) => r.id === previous.roleId);
+        const nextRole = SYSTEM_ROLES.find((r) => r.id === user.roleId);
+        setAuditLog((prev) => [
+          makeAuditEntry({
+            userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+            action: "role_changed",
+            module: "users",
+            recordLabel: `${user.name} <${user.email}>`,
+            oldValueSummary: previousRole?.name,
+            newValueSummary: nextRole?.name,
+          }),
+          ...prev,
+        ]);
+      }
+    },
     deactivateAppUser: (id) => {
       const target = appUsersRef.current.find((u) => u.id === id);
       if (!target) return;
-      if (target.role === "owner") {
-        const otherActiveOwners = appUsersRef.current.filter(
-          (u) => u.role === "owner" && u.status === "active" && u.id !== id
-        );
+      const targetRole = SYSTEM_ROLES.find((r) => r.id === target.roleId);
+      if (targetRole?.isOwnerRole) {
+        const otherActiveOwners = appUsersRef.current.filter((u) => {
+          const role = SYSTEM_ROLES.find((r) => r.id === u.roleId);
+          return role?.isOwnerRole && u.status === "active" && u.id !== id;
+        });
         if (otherActiveOwners.length === 0) return; // never deactivate the sole owner
       }
       setAppUsers((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, status: "inactive" as const } : u))
+        prev.map((u) => (u.id === id ? { ...u, status: "inactive" as const, updatedAt: new Date().toISOString() } : u))
       );
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "user_deactivated",
+          module: "users",
+          recordLabel: `${target.name} <${target.email}>`,
+        }),
+        ...prev,
+      ]);
     },
-    activateAppUser: (id) =>
+    activateAppUser: (id) => {
+      const target = appUsersRef.current.find((u) => u.id === id);
       setAppUsers((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, status: "active" as const } : u))
-      ),
+        prev.map((u) =>
+          u.id === id
+            ? {
+                ...u,
+                status: "active" as const,
+                // Clears any prior lockout alongside reactivating — "Etkinleştir"
+                // on a locked account IS the unlock action (no separate one in Phase 2).
+                failedLoginAttempts: 0,
+                lockedUntil: undefined,
+                updatedAt: new Date().toISOString(),
+              }
+            : u
+        )
+      );
+      if (target) {
+        setAuditLog((prev) => [
+          makeAuditEntry({
+            userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+            action: "user_activated",
+            module: "users",
+            recordLabel: `${target.name} <${target.email}>`,
+          }),
+          ...prev,
+        ]);
+      }
+    },
+    resendInvitation: (userId) => {
+      const target = appUsersRef.current.find((u) => u.id === userId);
+      if (!target || target.status !== "invited") return;
+      const now = new Date().toISOString();
+      const existing = invitationsRef.current.find((i) => i.userId === userId && i.status === "pending");
+      setInvitations((prev) => [
+        ...prev.filter((i) => i.userId !== userId || i.status !== "pending"),
+        {
+          id: existing?.id ?? `invite-${userId}-${Date.now()}`,
+          tenantId: target.tenantId,
+          token: generateToken(),
+          userId,
+          email: target.email,
+          roleId: target.roleId,
+          status: "pending",
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          createdAt: now,
+          createdBy: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+        },
+      ]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "invitation_resent",
+          module: "users",
+          recordLabel: `${target.name} <${target.email}>`,
+        }),
+        ...prev,
+      ]);
+    },
+    revokeInvitation: (invitationId) => {
+      const invitation = invitationsRef.current.find((i) => i.id === invitationId);
+      if (!invitation || invitation.status !== "pending") return;
+      setInvitations((prev) =>
+        prev.map((i) => (i.id === invitationId ? { ...i, status: "revoked" as const, revokedAt: new Date().toISOString() } : i))
+      );
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "invitation_revoked",
+          module: "users",
+          recordLabel: invitation.email,
+        }),
+        ...prev,
+      ]);
+    },
+
+    roles,
+    createRole: (role) => {
+      setRoles((prev) => [...prev, role]);
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "role_created",
+          module: "users",
+          recordLabel: role.name,
+        }),
+        ...prev,
+      ]);
+    },
+    updateRole: (role) => {
+      setRoles((prev) => prev.map((r) => (r.id === role.id ? role : r)));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "role_updated",
+          module: "users",
+          recordLabel: role.name,
+        }),
+        ...prev,
+      ]);
+    },
+    deactivateRole: (id) => {
+      const target = rolesRef.current.find((r) => r.id === id);
+      if (!target || target.isSystemRole) return;
+      const inUse = appUsersRef.current.some((u) => u.roleId === id && u.status !== "inactive");
+      if (inUse) return;
+      setRoles((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: false, updatedAt: new Date().toISOString() } : r)));
+      setAuditLog((prev) => [
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "role_deactivated",
+          module: "users",
+          recordLabel: target.name,
+        }),
+        ...prev,
+      ]);
+    },
+
+    credentials,
+    setCredential: (credential) =>
+      setCredentials((prev) => [...prev.filter((c) => c.userId !== credential.userId), credential]),
+    authSession,
+    setAuthSession: (session) => setAuthSessionState(session),
+    setActorName: (name) => setActorName(name),
+
+    invitations,
+    setInvitation: (invitation) =>
+      setInvitations((prev) => [...prev.filter((i) => i.id !== invitation.id), invitation]),
+    passwordResets,
+    setPasswordReset: (token) =>
+      setPasswordResets((prev) => [...prev.filter((t) => t.token !== token.token), token]),
 
     auditLog,
     logAuditEvent: (entry) => setAuditLog((prev) => [makeAuditEntry(entry), ...prev]),
 
     resetToDemo: () => {
+      clearPersistedStore();
       setStudents([...DEMO_STUDENTS]);
       setGuardians([...DEMO_GUARDIANS]);
       setTeachers([...mockTeachers]);
@@ -1003,8 +1401,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setImportBatches([]);
       setInstitutionSettings(structuredClone(DEFAULT_INSTITUTION_SETTINGS));
       setAppUsers([...mockAppUsers]);
+      setCredentials([...mockCredentials]);
+      setAuthSessionState(null);
       setAuditLog([]);
       setTeacherMergeHistory([]);
+      setRoles(SYSTEM_ROLES);
+      setInvitations([]);
+      setPasswordResets([]);
     },
 
     notifications,
@@ -1058,6 +1461,11 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       institutionSettings,
       appUsers,
       auditLog,
+      roles,
+      credentials,
+      authSession,
+      invitations,
+      passwordResets,
     ]
   );
 

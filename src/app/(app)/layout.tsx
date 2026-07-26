@@ -3,17 +3,26 @@
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { AppTopbar } from "@/components/layout/AppTopbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { MockDataProvider } from "@/lib/mock/store";
 import { useSidebarVisibility } from "@/hooks/use-sidebar-visibility";
+import { RouteGuard } from "@/components/auth/RouteGuard";
+import { InactivityWarningBanner } from "@/components/auth/InactivityWarningBanner";
+import { useMockStore } from "@/lib/mock/store";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { visible, setVisible, toggle } = useSidebarVisibility();
+  // Ayarlar → Belge ve Görünüm's sidebarDefaultState — only wins for a
+  // browser that has never had the sidebar manually toggled; see
+  // useSidebarVisibility's own doc comment.
+  const { institutionSettings } = useMockStore();
+  const { visible, setVisible, toggle } = useSidebarVisibility(
+    institutionSettings.appearance.sidebarDefaultState !== "collapsed"
+  );
 
   return (
-    <MockDataProvider>
+    <RouteGuard>
       <SidebarProvider open={visible} onOpenChange={setVisible}>
         <AppSidebar />
         <SidebarInset className="flex h-svh flex-col overflow-hidden">
+          <InactivityWarningBanner />
           <AppTopbar sidebarVisible={visible} onToggleSidebar={toggle} />
           <div className="flex-1 overflow-y-auto bg-muted/20">
             {/* max-w keeps content at a comfortable reading/table width — wide
@@ -29,6 +38,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarInset>
       </SidebarProvider>
-    </MockDataProvider>
+    </RouteGuard>
   );
 }

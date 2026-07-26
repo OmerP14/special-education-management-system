@@ -54,7 +54,7 @@ export default function SettingsOverviewPage() {
   if (!institutionSettings.institution.phone.trim()) missing.push("Kurum telefonu girilmemiş");
   if (!institutionSettings.institution.email.trim()) missing.push("Kurum e-postası girilmemiş");
   if (activeEducationTypes === 0) missing.push("Aktif eğitim türü yok");
-  if (!appUsers.some((u) => u.role === "owner" && u.status === "active")) {
+  if (!appUsers.some((u) => store.roles.find((r) => r.id === u.roleId)?.isOwnerRole && u.status === "active")) {
     missing.push("Aktif sahip (owner) kullanıcı yok");
   }
 

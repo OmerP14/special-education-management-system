@@ -16,11 +16,15 @@ import {
   PieChart,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { PermissionKey } from "@/types/auth";
 
 export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  /** Required to see this item — see canViewNavigationItem in lib/auth/permissions.ts.
+   *  Absent means "visible to any authenticated user." */
+  permissionKey?: PermissionKey;
 }
 
 export interface NavGroup {
@@ -35,8 +39,8 @@ export interface NavGroup {
 // ─── Ungrouped top-level items — always visible, no section header ───────────
 
 export const NAV_TOP_ITEMS: NavItem[] = [
-  { label: "Panel", href: "/app/dashboard", icon: LayoutDashboard },
-  { label: "Takvim", href: "/app/calendar", icon: Calendar },
+  { label: "Panel", href: "/app/dashboard", icon: LayoutDashboard, permissionKey: "dashboard.view" },
+  { label: "Takvim", href: "/app/calendar", icon: Calendar, permissionKey: "calendar.view" },
 ];
 
 // ─── Grouped sections — each independently collapsible in the sidebar ────────
@@ -51,29 +55,29 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Kişiler",
     icon: Users,
     items: [
-      { label: "Öğrenciler", href: "/app/students", icon: Users },
-      { label: "Veliler", href: "/app/guardians", icon: UserCheck },
-      { label: "Öğretmenler", href: "/app/teachers", icon: GraduationCap },
+      { label: "Öğrenciler", href: "/app/students", icon: Users, permissionKey: "students.view" },
+      { label: "Veliler", href: "/app/guardians", icon: UserCheck, permissionKey: "guardians.view" },
+      { label: "Öğretmenler", href: "/app/teachers", icon: GraduationCap, permissionKey: "teachers.view" },
     ],
   },
   {
     id: "education",
     label: "Eğitim",
     icon: BookOpen,
-    items: [{ label: "Seanslar", href: "/app/sessions", icon: CalendarDays }],
+    items: [{ label: "Seanslar", href: "/app/sessions", icon: CalendarDays, permissionKey: "sessions.view" }],
   },
   {
     id: "finance",
     label: "Finans",
     icon: CircleDollarSign,
-    // Owner/admin only — see canViewFinance() in lib/permissions.ts. The whole
-    // group is gated (not just Finansal Panel below) since every item here is
-    // financial data a teacher/guardian role shouldn't see either.
+    // No per-group permissionKey — a group's visibility is "at least one item
+    // visible," resolved generically in AppSidebar via canViewNavigationItem
+    // per item, not a hardcoded group-id check (see AppSidebar.tsx).
     items: [
-      { label: "Finansal Panel", href: "/app/finance", icon: PieChart },
-      { label: "Öğrenci Ödemeleri", href: "/app/payments", icon: CreditCard },
-      { label: "Öğretmen Hakedişleri", href: "/app/teacher-earnings", icon: Banknote },
-      { label: "Günlük Kasa", href: "/app/cash-register", icon: Wallet },
+      { label: "Finansal Panel", href: "/app/finance", icon: PieChart, permissionKey: "finance.dashboard.view" },
+      { label: "Öğrenci Ödemeleri", href: "/app/payments", icon: CreditCard, permissionKey: "finance.student_payments.view" },
+      { label: "Öğretmen Hakedişleri", href: "/app/teacher-earnings", icon: Banknote, permissionKey: "finance.teacher_earnings.view" },
+      { label: "Günlük Kasa", href: "/app/cash-register", icon: Wallet, permissionKey: "finance.cash.view" },
     ],
   },
   {
@@ -81,8 +85,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Raporlama",
     icon: BarChart3,
     items: [
-      { label: "Raporlar", href: "/app/reports", icon: BarChart3 },
-      { label: "Excel Aktarımı", href: "/app/import", icon: FileUp },
+      { label: "Raporlar", href: "/app/reports", icon: BarChart3, permissionKey: "reports.view" },
+      { label: "Excel Aktarımı", href: "/app/import", icon: FileUp, permissionKey: "import.view" },
     ],
   },
 ];
@@ -93,6 +97,7 @@ export const NAV_SETTINGS_ITEM: NavItem = {
   label: "Ayarlar",
   href: "/app/settings",
   icon: Settings,
+  permissionKey: "settings.view",
 };
 
 // ─── Active-route matching ─────────────────────────────────────────────────────

@@ -12,13 +12,25 @@ import { TodaysScheduleCard } from "@/components/dashboard/TodaysScheduleCard";
 import { UpcomingSessionsCard } from "@/components/dashboard/UpcomingSessionsCard";
 import { TodaysTeachersCard } from "@/components/dashboard/TodaysTeachersCard";
 import { CalendarPreviewCard } from "@/components/dashboard/CalendarPreviewCard";
+import { TeacherDashboard } from "@/components/dashboard/TeacherDashboard";
+import { GuardianDashboard } from "@/components/dashboard/GuardianDashboard";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
 
-// This is the operational, everyone-sees-it dashboard — no revenue, payments,
-// or earnings figures here. Those moved to /app/finance (owner/admin only,
-// see lib/permissions.ts). Only presentation/layout changed: every widget
-// below reads the same store data through the same existing helpers.
+// This is the operational, owner/manager dashboard — no revenue, payments,
+// or earnings figures here. Those moved to /app/finance (permission-gated,
+// see lib/auth/permissions.ts). Teacher/guardian accounts render an
+// entirely different, already-scoped dashboard instead (see
+// components/dashboard/{Teacher,Guardian}Dashboard.tsx) — this component
+// only ever renders for an unrestricted (owner/admin) scope.
 export default function DashboardPage() {
+  const scope = useUserScope();
+  if (scope.teacherId) return <TeacherDashboard />;
+  if (scope.guardianId) return <GuardianDashboard />;
+  return <OwnerDashboard />;
+}
+
+function OwnerDashboard() {
   const store = useMockStore();
 
   const today = useMemo(() => new Date(), []);
@@ -96,9 +108,11 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Today's schedule + session distribution */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      {/* Today's schedule + session distribution — xl (not lg) so each card
+          still has enough width for its own row/column layout once split
+          into 3 columns; see SessionStatusBreakdown's @container query. */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-2">
           <TodaysScheduleCard
             sessions={store.sessions}
             students={store.students}

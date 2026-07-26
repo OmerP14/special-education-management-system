@@ -6,19 +6,6 @@ export interface Tenant {
   createdAt: string;
 }
 
-// ─── User / Auth ───────────────────────────────────────────────────────────────
-export type UserRole = "super_admin" | "institution_admin" | "teacher" | "guardian";
-
-export interface User {
-  id: string;
-  tenantId: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  avatarUrl?: string;
-  createdAt: string;
-}
-
 // ─── Education Type ────────────────────────────────────────────────────────────
 export type EducationTypeStatus = "active" | "inactive";
 

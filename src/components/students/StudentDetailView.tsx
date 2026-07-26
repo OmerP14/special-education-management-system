@@ -30,6 +30,9 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { canAccessStudent } from "@/lib/auth/scope";
+import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildStudentDetail,
   formatCurrency,
@@ -314,6 +317,27 @@ interface StudentDetailViewProps {
 
 export function StudentDetailView({ studentId }: StudentDetailViewProps) {
   const store = useMockStore();
+  const scope = useUserScope();
+
+  // Direct-URL scope enforcement — a teacher/guardian hitting another
+  // teacher's/guardian's student id by URL gets this instead of the record,
+  // not just a hidden list row. See lib/auth/scope.ts.
+  if (!canAccessStudent(studentId, scope, store.students, store.sessions)) {
+    return (
+      <UnauthorizedState
+        title="Bu öğrenciye erişim yetkiniz yok"
+        description="Bu öğrenci kaydı hesabınızla ilişkili değil."
+      />
+    );
+  }
+
+  return <StudentDetailViewContent studentId={studentId} store={store} />;
+}
+
+function StudentDetailViewContent({
+  studentId,
+  store,
+}: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
   const [editOpen, setEditOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(

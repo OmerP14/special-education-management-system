@@ -12,6 +12,8 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { getScopedStudents } from "@/lib/auth/scope";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -37,15 +39,23 @@ const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
 
 export default function StudentsPage() {
   const store = useMockStore();
+  const scope = useUserScope();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
+  // Teacher: students reachable through their own sessions/assignments only.
+  // Guardian: linked children only. Owner/manager: everyone. See lib/auth/scope.ts.
+  const scopedStudents = useMemo(
+    () => getScopedStudents(store.students, store.sessions, scope),
+    [store.students, store.sessions, scope]
+  );
+
   const allItems = useMemo(
     () =>
       buildStudentListItems(
-        store.students,
+        scopedStudents,
         store.guardians,
         store.educationTypes,
         store.teachers,
@@ -53,7 +63,7 @@ export default function StudentsPage() {
         store.payments,
         store.openingBalances
       ),
-    [store.students, store.guardians, store.teachers, store.sessions, store.payments, store.openingBalances]
+    [scopedStudents, store.guardians, store.teachers, store.sessions, store.payments, store.openingBalances]
   );
 
   const filtered = useMemo(() => {
@@ -75,7 +85,7 @@ export default function StudentsPage() {
   const totalDebt = allItems.reduce((sum, s) => sum + s.totalDebt, 0);
 
   const handleEdit = (row: StudentListItem) => {
-    const student = store.students.find((s) => s.id === row.id);
+    const student = scopedStudents.find((s) => s.id === row.id);
     if (student) {
       setEditingStudent(student);
       setDrawerOpen(true);

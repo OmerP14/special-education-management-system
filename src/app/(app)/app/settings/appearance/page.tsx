@@ -260,18 +260,22 @@ function DirtyCombiner({ documentsDirty, appearanceDirty }: { documentsDirty: bo
 }
 
 function AppearanceSettingsContent() {
+  const [documentsDirty, setDocumentsDirty] = useState(false);
+  const [appearanceDirty, setAppearanceDirty] = useState(false);
+
   return (
     <div className="space-y-4">
+      <DirtyCombiner documentsDirty={documentsDirty} appearanceDirty={appearanceDirty} />
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <FileText className="h-3.5 w-3.5" />
         Belge Ayarları
       </div>
-      <DocumentSettingsCard />
+      <DocumentSettingsCard onDirtyChange={setDocumentsDirty} />
       <div className="flex items-center gap-2 pt-2 text-xs font-medium text-muted-foreground">
         <Palette className="h-3.5 w-3.5" />
         Görünüm Ayarları
       </div>
-      <AppearanceSettingsCard />
+      <AppearanceSettingsCard onDirtyChange={setAppearanceDirty} />
     </div>
   );
 }

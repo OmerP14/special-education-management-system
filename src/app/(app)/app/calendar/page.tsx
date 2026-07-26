@@ -21,6 +21,8 @@ import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
 import { CalendarDayView } from "@/components/calendar/CalendarDayView";
 import { CalendarAgendaView } from "@/components/calendar/CalendarAgendaView";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { getScopedSessions, getScopedStudents, getScopedTeachers } from "@/lib/auth/scope";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   buildCalendarEvents,
@@ -156,7 +158,17 @@ function ChipButton({
 
 export default function CalendarPage() {
   const store = useMockStore();
+  const scope = useUserScope();
   const isMobile = useIsMobile();
+
+  // Teacher: own sessions only. Guardian: linked children's sessions only.
+  // Owner/manager: everyone. See lib/auth/scope.ts.
+  const scopedSessions = useMemo(() => getScopedSessions(store.sessions, scope), [store.sessions, scope]);
+  const scopedStudents = useMemo(
+    () => getScopedStudents(store.students, store.sessions, scope),
+    [store.students, store.sessions, scope]
+  );
+  const scopedTeachers = useMemo(() => getScopedTeachers(store.teachers, scope), [store.teachers, scope]);
 
   // View & navigation — initial view comes from Ayarlar → Takvim ve Çalışma
   // Saatleri's configured default (still freely switchable afterward).
@@ -184,14 +196,8 @@ export default function CalendarPage() {
 
   // Build calendar events
   const allEvents = useMemo(
-    () =>
-      buildCalendarEvents(
-        store.sessions,
-        store.students,
-        store.teachers,
-        store.educationTypes
-      ),
-    [store.sessions, store.students, store.teachers, store.educationTypes]
+    () => buildCalendarEvents(scopedSessions, scopedStudents, scopedTeachers, store.educationTypes),
+    [scopedSessions, scopedStudents, scopedTeachers, store.educationTypes]
   );
 
   // Apply filters
@@ -215,15 +221,17 @@ export default function CalendarPage() {
   // Relations for selected session
   const selectedRelations = useMemo(() => {
     if (!selectedSessionId) return null;
+    // scopedSessions guards this the same way handleEditFromDetail below
+    // does — a session id that isn't in scope simply resolves to nothing.
     return getCalendarEventRelations(
       selectedSessionId,
-      store.sessions,
-      store.students,
-      store.teachers,
+      scopedSessions,
+      scopedStudents,
+      scopedTeachers,
       store.educationTypes,
       store.guardians
     );
-  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.guardians, store.educationTypes]);
+  }, [selectedSessionId, scopedSessions, scopedStudents, scopedTeachers, store.guardians, store.educationTypes]);
 
   // Navigation
   const navigate = useCallback(
@@ -275,12 +283,12 @@ export default function CalendarPage() {
   // Edit from detail drawer
   const handleEditFromDetail = useCallback(() => {
     if (!selectedSessionId) return;
-    const session = store.sessions.find((s) => s.id === selectedSessionId);
+    const session = scopedSessions.find((s) => s.id === selectedSessionId);
     if (session) {
       setEditingSession(session);
       setEditDrawerOpen(true);
     }
-  }, [selectedSessionId, store.sessions]);
+  }, [selectedSessionId, scopedSessions]);
 
   const handleEditDrawerClose = (open: boolean) => {
     setEditDrawerOpen(open);
@@ -301,7 +309,11 @@ export default function CalendarPage() {
     setStatusFilter("all");
   };
 
-  const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
+  const showWeekends = store.institutionSettings.calendar.showWeekends;
+  const weekDays = useMemo(() => {
+    const days = getWeekDays(currentDate);
+    return showWeekends ? days : days.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
+  }, [currentDate, showWeekends]);
   const navLabel = getNavLabel(view, currentDate);
 
   return (
@@ -447,7 +459,7 @@ export default function CalendarPage() {
                 className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Tüm Öğretmenler</option>
-                {store.teachers.map((t) => (
+                {scopedTeachers.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.fullName}
                   </option>
@@ -461,7 +473,7 @@ export default function CalendarPage() {
                 className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Tüm Öğrenciler</option>
-                {store.students.map((s) => (
+                {scopedStudents.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.fullName}
                   </option>
@@ -522,11 +534,22 @@ export default function CalendarPage() {
           )}
         </div>
 
-        {/* Calendar view — always agenda on mobile regardless of the picked
-            desktop view, since it's the one that stays legible on a phone */}
-        <div key={isMobile ? "agenda" : view} className="animate-in fade-in duration-200">
+        {/* Calendar view — on mobile, uses Ayarlar → Takvim's configured
+            mobile default (Ajanda/Günlük) instead of the picked desktop
+            view, since month/week grids don't stay legible on a phone. */}
+        <div key={isMobile ? "mobile" : view} className="animate-in fade-in duration-200">
           {isMobile ? (
-            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+            store.institutionSettings.calendar.mobileDefaultView === "day" ? (
+              <CalendarDayView
+                date={currentDate}
+                events={filteredEvents}
+                onEventClick={handleEventClick}
+                hourStart={hourStart}
+                hourEnd={hourEnd}
+              />
+            ) : (
+              <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+            )
           ) : view === "month" ? (
             <CalendarMonthView
               year={currentDate.getFullYear()}

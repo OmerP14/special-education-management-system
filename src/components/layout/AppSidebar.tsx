@@ -7,7 +7,8 @@ import { ChevronRight, GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_TOP_ITEMS, NAV_GROUPS, NAV_SETTINGS_ITEM, isNavItemActive, type NavGroup } from "@/lib/nav";
 import { useCollapsedNavGroups } from "@/hooks/use-collapsed-nav-groups";
-import { CURRENT_USER, canViewFinance } from "@/lib/permissions";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { canViewNavigationItem } from "@/lib/auth/permissions";
 import { useMockStore } from "@/lib/mock/store";
 import {
   Sidebar,
@@ -101,12 +102,17 @@ export const AppSidebar = memo(function AppSidebar() {
   // Kurum Bilgileri (Settings → Kurum Bilgileri) drives this directly — see
   // lib/settings/defaults.ts for the starting name/logo before anyone edits it.
   const { institution } = useMockStore().institutionSettings;
+  const { permissions } = useAuth();
 
-  // Finans is financial data end-to-end — hidden entirely for roles without
-  // canViewFinance (see lib/permissions.ts). Every other group is unfiltered.
-  const visibleGroups = canViewFinance(CURRENT_USER.role)
-    ? NAV_GROUPS
-    : NAV_GROUPS.filter((group) => group.id !== "finance");
+  // Generic per-item permission filter — each NavItem/NavGroup declares its
+  // own permissionKey (see lib/nav.ts); a group is dropped entirely once
+  // every one of its items is filtered out. This subsumes the old
+  // Finance-only special case with no group hard-coded by id anymore.
+  const visibleTopItems = NAV_TOP_ITEMS.filter((item) => canViewNavigationItem(permissions, item));
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => canViewNavigationItem(permissions, item)),
+  })).filter((group) => group.items.length > 0);
 
   const activeGroupId =
     visibleGroups.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
@@ -153,7 +159,7 @@ export const AppSidebar = memo(function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_TOP_ITEMS.map((item) => {
+              {visibleTopItems.map((item) => {
                 const active = isNavItemActive(pathname, item.href);
                 return (
                   <SidebarMenuItem key={item.href}>
@@ -186,17 +192,19 @@ export const AppSidebar = memo(function AppSidebar() {
 
       <SidebarFooter>
         <SidebarSeparator className="mb-1" />
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={isNavItemActive(pathname, NAV_SETTINGS_ITEM.href)}
-              render={<Link href={NAV_SETTINGS_ITEM.href} />}
-            >
-              <NAV_SETTINGS_ITEM.icon />
-              <span>{NAV_SETTINGS_ITEM.label}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {canViewNavigationItem(permissions, NAV_SETTINGS_ITEM) && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={isNavItemActive(pathname, NAV_SETTINGS_ITEM.href)}
+                render={<Link href={NAV_SETTINGS_ITEM.href} />}
+              >
+                <NAV_SETTINGS_ITEM.icon />
+                <span>{NAV_SETTINGS_ITEM.label}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
         <p className="truncate px-2 pb-1 text-[10px] text-sidebar-foreground/60">
           Demo Kurum · v1.0.0
         </p>

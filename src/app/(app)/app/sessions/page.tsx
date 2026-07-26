@@ -24,6 +24,8 @@ import { DonutChart, type DonutSegment } from "@/components/shared/DonutChart";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { getScopedSessions, getScopedStudents, getScopedTeachers } from "@/lib/auth/scope";
 import {
   buildSessionListItems,
   buildSessionPageStats,
@@ -208,6 +210,7 @@ export default function SessionsPage() {
 
 function SessionsPageContent() {
   const store = useMockStore();
+  const scope = useUserScope();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -220,12 +223,21 @@ function SessionsPageContent() {
   const [studentFilter, setStudentFilter] = useState("all");
   const [edTypeFilter, setEdTypeFilter] = useState("all");
 
+  // Teacher: own sessions only. Guardian: linked children's sessions only.
+  // Owner/manager: everyone. See lib/auth/scope.ts.
+  const scopedSessions = useMemo(() => getScopedSessions(store.sessions, scope), [store.sessions, scope]);
+  const scopedStudents = useMemo(
+    () => getScopedStudents(store.students, store.sessions, scope),
+    [store.students, store.sessions, scope]
+  );
+  const scopedTeachers = useMemo(() => getScopedTeachers(store.teachers, scope), [store.teachers, scope]);
+
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const stats = useMemo(
-    () => buildSessionPageStats(store.sessions, currentYear, currentMonth),
-    [store.sessions, currentYear, currentMonth]
+    () => buildSessionPageStats(scopedSessions, currentYear, currentMonth),
+    [scopedSessions, currentYear, currentMonth]
   );
 
   const statusDonutSegments: DonutSegment[] = useMemo(
@@ -261,17 +273,17 @@ function SessionsPageContent() {
   const allItems = useMemo(
     () =>
       buildSessionListItems(
-        store.sessions,
-        store.students,
-        store.teachers,
+        scopedSessions,
+        scopedStudents,
+        scopedTeachers,
         store.educationTypes,
         store.teacherEducationTypeAssignments
       ),
-    [store.sessions, store.students, store.teachers, store.teacherEducationTypeAssignments]
+    [scopedSessions, scopedStudents, scopedTeachers, store.educationTypes, store.teacherEducationTypeAssignments]
   );
 
   const handleEdit = (row: SessionListItem) => {
-    const session = store.sessions.find((s) => s.id === row.id);
+    const session = scopedSessions.find((s) => s.id === row.id);
     if (session) {
       setEditingSession(session);
       setDrawerOpen(true);
@@ -289,7 +301,7 @@ function SessionsPageContent() {
   useEffect(() => {
     const sessionId = searchParams.get("sessionId");
     if (!sessionId) return;
-    const session = store.sessions.find((s) => s.id === sessionId);
+    const session = scopedSessions.find((s) => s.id === sessionId);
     if (session) {
       setEditingSession(session);
       setDrawerOpen(true);
