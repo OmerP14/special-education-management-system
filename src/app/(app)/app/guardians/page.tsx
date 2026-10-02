@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Users,
   AlertCircle,
@@ -82,6 +83,7 @@ function FilterChip({
 
 export default function GuardiansPage() {
   const store = useMockStore();
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
   const [search, setSearch] = useState("");
@@ -430,7 +432,7 @@ export default function GuardiansPage() {
               : "Henüz veli kaydı oluşturulmamış. Yeni veli eklemek için butona tıklayın."
           }
           onRowClick={(row) => {
-            window.location.href = `/app/guardians/${row.id}`;
+            router.push(`/app/guardians/${row.id}`);
           }}
         />
       </div>

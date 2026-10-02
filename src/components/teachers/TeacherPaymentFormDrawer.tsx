@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
@@ -20,9 +20,12 @@ import {
   TEACHER_PAYMENT_TYPES,
   getTeacherPaymentTypeLabel,
   isDeductionPaymentType,
+  getCurrencySymbol,
 } from "@/lib/helpers/finance";
 import type { TeacherPayment, PaymentMethod, TeacherPaymentType } from "@/types";
 import { cn } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { canExceedPendingEarning, getAllowedTeacherPaymentTypes } from "@/lib/helpers/finance-rules";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 // Institutions pay teachers by cash or bank transfer only — no card option here.
@@ -39,8 +42,12 @@ function getMethodLabel(method: PaymentMethod): string {
   return METHOD_OPTIONS.find((o) => o.value === method)?.label ?? method;
 }
 
+function newTeacherPaymentId(): string {
+  return `tpmt-${Date.now()}`;
+}
+
 function today(): string {
-  return new Date().toISOString().split("T")[0]!;
+  return toLocalDateKey(new Date());
 }
 
 // ─── Preview row ───────────────────────────────────────────────────────────────
@@ -99,7 +106,12 @@ export function TeacherPaymentFormDrawer({
   const [paymentType, setPaymentType] = useState<TeacherPaymentType>(DEFAULT_PAYMENT_TYPE);
   const [description, setDescription] = useState("");
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? preselectedTeacherId ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setTeacherId(preselectedTeacherId ?? "");
       setDate(today());
@@ -108,16 +120,23 @@ export function TeacherPaymentFormDrawer({
       setPaymentType(DEFAULT_PAYMENT_TYPE);
       setDescription("");
     }
-  }, [open, preselectedTeacherId]);
+  }
 
   const isDeduction = isDeductionPaymentType(paymentType);
+
+  // Ayarlar → Öğretmen ve Hakediş: Kesinti/Avans availability and whether a
+  // payment may exceed the pending earning.
+  const policy = store.institutionSettings.teacherEarnings;
+  const allowedTypes = getAllowedTeacherPaymentTypes(TEACHER_PAYMENT_TYPES, policy);
+  const mayExceed = canExceedPendingEarning(paymentType, policy);
+  const anyTypeMayExceed = allowedTypes.some((t) => canExceedPendingEarning(t, policy));
 
   const teachersWithPending = store.teachers
     .map((t) => ({
       teacher: t,
       totals: getTeacherEarningTotals(t, store.sessions, store.teacherPayments),
     }))
-    .filter((t) => t.totals.pendingEarning > 0);
+    .filter((t) => t.totals.pendingEarning > 0 || (anyTypeMayExceed && t.teacher.status === "active"));
 
   const selected = teachersWithPending.find((t) => t.teacher.id === teacherId);
   const pendingEarning = selected?.totals.pendingEarning ?? 0;
@@ -128,12 +147,13 @@ export function TeacherPaymentFormDrawer({
   const isOverpayment = amount > pendingEarning && amount > 0;
   const remainingAfter = Math.max(0, pendingEarning - amount);
 
-  const canSave = !!teacherId && !!date && amount > 0 && !isOverpayment;
+  const canSave =
+    !!teacherId && !!date && amount > 0 && allowedTypes.includes(paymentType) && (!isOverpayment || mayExceed);
 
   const handleSave = () => {
     if (!canSave) return;
     const payment: TeacherPayment = {
-      id: `tpmt-${Date.now()}`,
+      id: newTeacherPaymentId(),
       tenantId: selected?.teacher.tenantId ?? "tenant-1",
       teacherId,
       amount,
@@ -155,6 +175,7 @@ export function TeacherPaymentFormDrawer({
       description="Öğretmene yapılan ödeme, öğrenci/veli ödemesinden bağımsızdır."
       onSave={handleSave}
       saveLabel="Ödeme Kaydet"
+      saveDisabled={!canSave}
     >
       <div className="space-y-5">
         {/* Öğretmen */}
@@ -202,7 +223,7 @@ export function TeacherPaymentFormDrawer({
 
         {/* Tutar */}
         <div className="space-y-1.5">
-          <Label htmlFor="tp-amount">Tutar (₺)</Label>
+          <Label htmlFor="tp-amount">Tutar ({getCurrencySymbol()})</Label>
           <NumericInput
             id="tp-amount"
             min={0}
@@ -226,7 +247,7 @@ export function TeacherPaymentFormDrawer({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {TEACHER_PAYMENT_TYPES.map((type) => (
+              {allowedTypes.map((type) => (
                 <SelectItem key={type} value={type}>
                   {getTeacherPaymentTypeLabel(type)}
                 </SelectItem>
@@ -317,14 +338,19 @@ export function TeacherPaymentFormDrawer({
         )}
 
         {isOverpayment && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:bg-amber-950/20">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
               Girilen tutar bekleyen hakedişten{" "}
               <span className="font-semibold">
                 {formatCurrency(amount - pendingEarning)}
               </span>{" "}
-              fazla. Bekleyen hakedişten fazla {isDeduction ? "kesinti" : "ödeme"} kaydedilemez.
+              fazla.{" "}
+              {mayExceed
+                ? paymentType === "advance"
+                  ? "Fazlası avans olarak sonraki hakedişlerden düşülecek."
+                  : "Kurum ayarları fazla ödemeye izin veriyor; fazlası sonraki hakedişlerden düşülecek."
+                : `Bekleyen hakedişten fazla ${isDeduction ? "kesinti" : "ödeme"} kaydedilemez.`}
             </p>
           </div>
         )}

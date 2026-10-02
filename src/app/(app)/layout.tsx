@@ -34,6 +34,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 top/bottom whitespace. */}
             <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
               {children}
+              {/* Ayarlar → Belge ve Görünüm → Kurum Alt Bilgi Metni */}
+              {institutionSettings.appearance.institutionFooterText.trim() && (
+                <footer className="mt-8 border-t border-border/60 pt-3 text-center text-xs text-muted-foreground">
+                  {institutionSettings.appearance.institutionFooterText}
+                </footer>
+              )}
             </div>
           </div>
         </SidebarInset>

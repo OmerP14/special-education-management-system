@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -14,7 +14,11 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { useMockStore } from "@/lib/mock/store";
-import { getTeacherStatusLabel } from "@/lib/helpers/finance";
+import type { TeacherEarningsSettings } from "@/types/settings";
+import {
+  getTeacherStatusLabel,
+  getCurrencySymbol,
+} from "@/lib/helpers/finance";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import { getTeacherEducationAssignments } from "@/lib/helpers/teacher-assignments";
 import type {
@@ -77,7 +81,8 @@ interface FormState {
   notes: string;
 }
 
-function buildEmptyForm(): FormState {
+/** New teachers start with Ayarlar → Öğretmen ve Hakediş's default model and quota. */
+function buildEmptyForm(policy: TeacherEarningsSettings): FormState {
   return {
     fullName: "",
     phone: "",
@@ -85,9 +90,9 @@ function buildEmptyForm(): FormState {
     status: "active",
     hasCustomBranch: false,
     customBranch: "",
-    earningType: "per_session",
+    earningType: policy.defaultEarningType,
     monthlySalary: 0,
-    monthlySessionQuota: 0,
+    monthlySessionQuota: policy.defaultQuota,
     extraSessionRate: 0,
     earningPercentage: 0,
     assignmentRows: {},
@@ -155,20 +160,24 @@ export function TeacherFormDrawer({
   const [form, setForm] = useState<FormState>(() =>
     initialData
       ? buildFormFromTeacher(initialData, buildExistingAssignmentRows(), store.educationTypes)
-      : buildEmptyForm()
+      : buildEmptyForm(store.institutionSettings.teacherEarnings)
   );
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? initialData?.id ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       const rows = buildExistingAssignmentRows();
       setForm(
         initialData
           ? buildFormFromTeacher(initialData, rows, store.educationTypes)
-          : buildEmptyForm()
+          : buildEmptyForm(store.institutionSettings.teacherEarnings)
       );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -336,7 +345,13 @@ export function TeacherFormDrawer({
         <div className="space-y-2">
           <Label>Hakediş Modeli</Label>
           <div className="space-y-2">
-            {EARNING_TYPE_OPTIONS.map((opt) => (
+            {EARNING_TYPE_OPTIONS.filter(
+              // Only the models Ayarlar → Öğretmen ve Hakediş offers — but an
+              // existing teacher always keeps (and sees) their current model.
+              (opt) =>
+                store.institutionSettings.teacherEarnings.availableEarningTypes.includes(opt.value) ||
+                opt.value === initialData?.earningType
+            ).map((opt) => (
               <label
                 key={opt.value}
                 className="flex items-start gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
@@ -362,7 +377,7 @@ export function TeacherFormDrawer({
         {(form.earningType === "monthly_salary" ||
           form.earningType === "salary_plus_quota") && (
           <div className="space-y-1.5">
-            <Label htmlFor="monthly-salary">Aylık Maaş (₺)</Label>
+            <Label htmlFor="monthly-salary">Aylık Maaş ({getCurrencySymbol()})</Label>
             <NumericInput
               id="monthly-salary"
               min={0}
@@ -375,6 +390,13 @@ export function TeacherFormDrawer({
         )}
 
         {/* Kota alanları */}
+        {form.earningType === "salary_plus_quota" && store.institutionSettings.teacherEarnings.postQuotaBehavior !== "extra_rate" && (
+          <p className="text-xs text-muted-foreground">
+            {store.institutionSettings.teacherEarnings.postQuotaBehavior === "same_rate"
+              ? "Kurum ayarına göre kota üstü seanslar, maaşın kotaya bölünmesiyle bulunan normal seans ücretinden ödenir; aşağıdaki ek ücret kullanılmaz."
+              : "Kurum ayarına göre kota üstü seanslar için ek ödeme yapılmaz; aşağıdaki ek ücret kullanılmaz."}
+          </p>
+        )}
         {form.earningType === "salary_plus_quota" && (
           <div className="space-y-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -396,7 +418,7 @@ export function TeacherFormDrawer({
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="extra-session-rate">Kota Üstü Seans Hakedişi (₺)</Label>
+              <Label htmlFor="extra-session-rate">Kota Üstü Seans Hakedişi ({getCurrencySymbol()})</Label>
               <NumericInput
                 id="extra-session-rate"
                 min={0}

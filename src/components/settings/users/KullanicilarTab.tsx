@@ -19,6 +19,7 @@ import { formatDateTime } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types/auth";
 import type { AppUser, AppUserStatus } from "@/types/settings";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 const STATUS_CONFIG: Record<AppUserStatus, { label: string; className: string }> = {
   active: { label: "Aktif", className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
@@ -230,6 +231,7 @@ function UserFormDrawer({
 
 export function KullanicilarTab() {
   const store = useMockStore();
+  const confirm = useConfirm();
   const { user: currentUser } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
@@ -384,7 +386,16 @@ export function KullanicilarTab() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => store.deactivateAppUser(u.id)}
+                            onClick={async () => {
+                              const ok = await confirm({
+                                kind: "sensitive",
+                                title: `${u.name} devre dışı bırakılsın mı?`,
+                                description: "Kullanıcı artık giriş yapamaz.",
+                                confirmLabel: "Devre Dışı Bırak",
+                                destructive: true,
+                              });
+                              if (ok) store.deactivateAppUser(u.id);
+                            }}
                             disabled={isSoleActiveOwner}
                             title={isSoleActiveOwner ? "Tek aktif sahip devre dışı bırakılamaz" : undefined}
                             className="gap-1 text-destructive hover:text-destructive/80"

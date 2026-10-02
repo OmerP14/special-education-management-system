@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/helpers/education-types";
 import { cn } from "@/lib/utils";
 import type { EducationType, EducationTypeStatus } from "@/types";
+import { getCurrencySymbol } from "@/lib/helpers/finance";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,12 @@ export function EducationTypeFormDrawer({
   );
   const [errors, setErrors] = useState<ReturnType<typeof validateEducationTypeForm>>({});
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? initialData?.id ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setForm(
         initialData
@@ -92,8 +98,7 @@ export function EducationTypeFormDrawer({
       );
       setErrors({});
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -217,7 +222,7 @@ export function EducationTypeFormDrawer({
 
         {/* Varsayılan Öğrenci Ücreti */}
         <div className="space-y-1.5">
-          <Label htmlFor="et-price">Varsayılan Öğrenci Ücreti (₺)</Label>
+          <Label htmlFor="et-price">Varsayılan Öğrenci Ücreti ({getCurrencySymbol()})</Label>
           <NumericInput
             id="et-price"
             min={0}

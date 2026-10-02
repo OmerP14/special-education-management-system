@@ -123,7 +123,7 @@ function CalendarSettingsContent() {
   return (
     <SettingsFormSection
       title="Takvim ve Çalışma Saatleri"
-      description="Çalışma günleri ve saatleri, Takvim'in Günlük ve Haftalık görünümlerinin zaman aralığını doğrudan belirler."
+      description="Takvim görünümünü ve seans planlamayı belirler: kapalı günler ve tatiller takvimde işaretlenir, bu günlere/saatlere seans girilirken uyarı verilir ve haftalık planlar resmi tatilleri atlar."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -210,9 +210,6 @@ function CalendarSettingsContent() {
           onChange={(v) => set("overlapDisplay", v)}
           labels={OVERLAP_LABELS}
         />
-        <SettingsField label="Saat Dilimi">
-          <Input value={draft.timezone} onChange={(e) => set("timezone", e.target.value)} />
-        </SettingsField>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -221,7 +218,10 @@ function CalendarSettingsContent() {
           <Switch checked={draft.showWeekends} onCheckedChange={(v) => set("showWeekends", v)} />
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Boş saatleri gizle</p>
+          <div>
+            <p className="text-sm text-foreground">Boş saatleri gizle</p>
+            <p className="text-xs text-muted-foreground">Haftalık/günlük görünüm yalnızca seans olan saatleri gösterir.</p>
+          </div>
           <Switch checked={draft.hideEmptyHours} onCheckedChange={(v) => set("hideEmptyHours", v)} />
         </div>
       </div>

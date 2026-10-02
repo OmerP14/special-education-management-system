@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/password";
+import { useMockStore } from "@/lib/mock/store";
 
 // Minimal, read-only-plus-change-password profile page — full profile
 // editing (avatar, notification preferences, default landing page, active
@@ -17,6 +19,8 @@ import { Button } from "@/components/ui/button";
 // somewhere in the UI.
 export default function ProfilePage() {
   const { user, role, changePassword } = useAuth();
+  // Ayarlar → Güvenlik ve Sistem → Parola Politikası
+  const passwordPolicy = useMockStore().institutionSettings.security;
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -30,8 +34,9 @@ export default function ProfilePage() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    if (newPassword.length < 8) {
-      setError("Yeni şifre en az 8 karakter olmalıdır.");
+    const policyError = validatePasswordPolicy(newPassword, passwordPolicy);
+    if (policyError) {
+      setError(policyError);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -105,6 +110,7 @@ export default function ProfilePage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">{describePasswordPolicy(passwordPolicy)}</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password">Yeni Şifre (Tekrar)</Label>

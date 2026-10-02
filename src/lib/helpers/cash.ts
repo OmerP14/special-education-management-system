@@ -151,8 +151,7 @@ export function calculateCashBalance(
   upToDate: string,
   teacherPayments: TeacherPayment[] = []
 ): number {
-  const cutoff = new Date(upToDate);
-  cutoff.setHours(23, 59, 59, 999);
+  const cutoff = new Date(`${upToDate.slice(0, 10)}T23:59:59.999`);
 
   const manualNet = movements
     .filter((m) => new Date(m.date) <= cutoff)
@@ -200,10 +199,10 @@ export function buildDailyCashSummary(
       .reduce((s, m) => s + m.amount, 0) +
     dayTeacherPayments.reduce((s, p) => s + p.amount, 0);
 
-  // Opening balance: cumulative through day before
-  const prevDay = new Date(date);
+  // Opening balance: cumulative through day before (local calendar day).
+  const prevDay = new Date(`${date}T00:00:00`);
   prevDay.setDate(prevDay.getDate() - 1);
-  const prevDateStr = prevDay.toISOString().split("T")[0]!;
+  const prevDateStr = `${prevDay.getFullYear()}-${String(prevDay.getMonth() + 1).padStart(2, "0")}-${String(prevDay.getDate()).padStart(2, "0")}`;
   const openingBalance = calculateCashBalance(movements, payments, prevDateStr, teacherPayments);
 
   const netMovement = totalIncome - totalExpense;
@@ -217,4 +216,19 @@ export function buildDailyCashSummary(
     closingBalance: openingBalance + netMovement,
     movementCount: dayMovements.length + dayPayments.length + dayTeacherPayments.length,
   };
+}
+
+// ─── Day closing (Ayarlar → Finans → Kasa Kapanış Davranışı) ────────────────
+
+/** Whether cash movements dated `date` are locked: with "Gün sonunda otomatik
+ *  kilitle" every day before today is closed; with "Manuel kapanış" only the
+ *  days someone explicitly closed. */
+export function isCashDayLocked(
+  date: string,
+  cashClosingBehavior: "manual" | "auto_lock",
+  closedDays: string[],
+  today: string
+): boolean {
+  if (cashClosingBehavior === "auto_lock") return date < today;
+  return closedDays.includes(date);
 }

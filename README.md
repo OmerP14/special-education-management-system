@@ -64,19 +64,26 @@ It centralizes student management, session scheduling, financial tracking, repor
 - Preview
 - Data mapping
 
+### 🔐 Users & Permissions
+
+- Login, invitations and password reset
+- Roles (Owner, Manager, Teacher, Guardian) and custom roles
+- Permission matrix and per-role dashboards
+- Teachers and guardians only see their own records
+
 ---
 
 ## 🛠 Tech Stack
 
 | Category | Technologies |
 |----------|--------------|
-| Frontend | Next.js, React, TypeScript |
-| Styling | Tailwind CSS, shadcn/ui |
-| State Management | React Hooks |
-| Forms | React Hook Form |
-| Validation | Zod |
+| Frontend | Next.js (App Router), React, TypeScript |
+| Styling | Tailwind CSS, shadcn/ui (Base UI) |
+| State Management | React Context + localStorage (mock store) |
 | Charts | Recharts |
+| Excel | SheetJS (xlsx) |
 | Icons | Lucide React |
+| Testing | Vitest |
 
 ---
 
@@ -84,15 +91,20 @@ It centralizes student management, session scheduling, financial tracking, repor
 
 ```text
 src/
- ├── app/
- ├── components/
- ├── features/
- ├── hooks/
+ ├── app/            # Routes: (auth) login pages, (app)/app/* application pages
+ ├── components/     # Feature components (students, sessions, payments…) and ui/ primitives
+ ├── hooks/          # Shared React hooks
  ├── lib/
- ├── mock/
- ├── types/
- └── utils/
+ │   ├── auth/       # Auth service, roles, permissions, scoping
+ │   ├── helpers/    # Business logic (finance, installments, conflicts, import…)
+ │   ├── mock/       # Seed data and the localStorage-backed store
+ │   └── settings/   # Institution settings defaults and validation
+ └── types/          # Shared TypeScript types
 ```
+
+> **Note:** There is no backend yet. All data, including users and passwords,
+> lives in the browser's localStorage, so this build is for demos only and
+> must not be used with real student data.
 
 ---
 
@@ -122,6 +134,29 @@ Open
 http://localhost:3000
 ```
 
+### Demo accounts
+
+All demo accounts use the password `Demo1234!`.
+
+| Role | Email |
+|------|-------|
+| Owner (Sahip) | admin@ornekokul.com |
+| Manager (Yönetici) | mudur@ornekokul.com |
+| Teacher (Öğretmen) | ogretmen@ornekokul.com |
+| Guardian (Veli) | veli@ornekokul.com |
+
+Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets everything back to the demo data.
+
+### Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start the development server |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript check |
+| `npm test` | Unit tests (Vitest) |
+
 ---
 
 ## 🎯 Project Goals
@@ -143,7 +178,8 @@ http://localhost:3000
 - [x] Reporting
 - [x] Calendar
 - [x] Excel Import
-- [ ] Authentication
+- [x] Users, roles and permissions (client-side mock)
+- [ ] Backend, database and server-side authentication
 - [ ] Multi-tenant Architecture
 - [ ] Production Deployment
 

@@ -158,18 +158,27 @@ PHASE 3 — Role simplification / Resource scoping / Role dashboards /
   branching.
 
 ====================================================
+PHASE 4 — Every setting wired to real behavior   [DONE]
+====================================================
+- Every InstitutionSettings field now drives real behavior; fields that
+  can't work without a backend were removed (late tolerance / no-show
+  threshold, timezone, locale, 2FA, email/SMS/WhatsApp channels, quiet
+  hours, finance visibility toggles — the permission matrix covers that).
+- Non-React helpers read settings via src/lib/settings/runtime.ts
+  (published by MockDataProvider each render). Persisted settings from
+  older versions go through normalizeInstitutionSettings.
+- Rules live in pure helpers: scheduling-rules.ts, finance-rules.ts,
+  student-rules.ts, notifications.ts; covered by
+  src/lib/helpers/__tests__/settings-rules.test.ts.
+- Teacher earning status shares (telafi/iptal/gelmedi) are stamped on each
+  session as `earningFactor` when its status is saved; past sessions are
+  only re-stamped when "Geçmişe dönük yeniden hesaplama" is on.
+- Data management backups/exports are real files (JSON backup + restore,
+  daily in-browser auto-backup, CSV exports).
+
+====================================================
 DEFERRED — not yet scheduled to a phase
 ====================================================
-- Remaining settings activation (see Phase 3's "NOT activated" list for
-  the exact field-by-field breakdown): session cancellation-notice/
-  makeup-billing rules, calendar working-days/week-start/color-source/
-  time-format, finance installment-availability/overpayment-policy/
-  receipt-numbering, ALL of teacherEarnings.* (currently zero consumers),
-  student-number auto-generation (needs a Student.studentNumber field —
-  a data-model change, not just wiring), student/guardian required-field
-  validation rules, appearance density/card-radius (CSS-variable
-  threading across the whole UI), documents.* (date/CSV/PDF export
-  formatting).
 - Notification engine (email/SMS/WhatsApp — provider-ready adapters only,
   in-app notifications already exist and work).
 - Dedicated "Bildirimler" nav page for the guardian nav list — today

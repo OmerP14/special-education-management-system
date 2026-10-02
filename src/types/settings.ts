@@ -69,8 +69,6 @@ export interface SessionSettings {
   timeStepMinutes: SessionTimeStepMinutes;
   autoCompleteEnabled: boolean;
   autoCompleteDelayMinutes: number;
-  lateToleranceMinutes: number;
-  noShowThresholdMinutes: number;
   cancellationMinNoticeHours: number;
   preventStudentConflict: boolean;
   preventTeacherConflict: boolean;
@@ -103,7 +101,6 @@ export interface CalendarSettings {
   defaultView: CalendarView;
   weekStartsOn: 0 | 1;
   timeFormat: "24h" | "12h";
-  timezone: string;
   showWeekends: boolean;
   hideEmptyHours: boolean;
   colorSource: CalendarColorSource;
@@ -116,8 +113,10 @@ export interface CalendarSettings {
 export type OverpaymentPolicy = "credit" | "block" | "warn";
 export type CashClosingBehavior = "manual" | "auto_lock";
 
+export type CurrencyCode = "TRY" | "USD" | "EUR" | "GBP";
+
 export interface FinanceSettings {
-  currency: string;
+  currency: CurrencyCode;
   currencySymbolPosition: "before" | "after";
   defaultPaymentMethod: PaymentMethod;
   enabledPaymentMethods: PaymentMethod[];
@@ -132,13 +131,11 @@ export interface FinanceSettings {
   collectionDescriptionTemplate: string;
   cashClosingBehavior: CashClosingBehavior;
   negativeCashWarning: boolean;
-  showFinanceOnGeneralDashboard: boolean;
-  restrictFinanceToAuthorized: boolean;
 }
 
 // ─── 5. Öğretmen ve Hakediş Ayarları ─────────────────────────────────────────
 
-export type TeacherEarningTypeOption = "per_session" | "salary_plus_quota" | "percentage";
+export type TeacherEarningTypeOption = "per_session" | "monthly_salary" | "salary_plus_quota" | "percentage";
 export type EarningTriggerMoment = "on_completion" | "on_admin_approval";
 export type MakeupEarningBehavior = "full" | "half" | "none";
 export type CancelledEarningBehavior = "none" | "partial";
@@ -186,10 +183,9 @@ export interface StudentSettings {
 
 // ─── 7. Bildirim Ayarları ─────────────────────────────────────────────────────
 
-export type NotificationChannel = "inApp" | "email" | "sms" | "whatsapp";
-
 export type NotificationEventKey =
   | "session_upcoming"
+  | "session_auto_completed"
   | "session_cancelled"
   | "student_no_show"
   | "payment_received"
@@ -197,23 +193,18 @@ export type NotificationEventKey =
   | "installment_overdue"
   | "teacher_earning_created"
   | "teacher_payment_made"
-  | "user_invited"
-  | "system_alert";
+  | "user_invited";
 
 export interface NotificationEventConfig {
   enabled: boolean;
-  channels: Record<NotificationChannel, boolean>;
+  /** Only for reminder events (session_upcoming, installment_due). */
   reminderMinutesBefore?: number;
 }
 
-export type NotificationRecipientType = "guardian" | "teacher" | "both";
-
+/** In-app notifications only — external channels (e-posta/SMS/WhatsApp)
+ *  need a server-side sender and arrive with the backend. */
 export interface NotificationSettings {
   events: Record<NotificationEventKey, NotificationEventConfig>;
-  defaultRecipientType: NotificationRecipientType;
-  quietHoursStart: string | null;
-  quietHoursEnd: string | null;
-  notifyOnWeekends: boolean;
 }
 
 // ─── 8. Belge ve Görünüm Ayarları ────────────────────────────────────────────
@@ -224,6 +215,9 @@ export type ExportOrientation = "portrait" | "landscape";
 export type UiDensity = "comfortable" | "compact";
 export type CardRadiusPreference = "sm" | "md" | "lg" | "xl";
 export type SidebarDefaultState = "expanded" | "collapsed";
+export type ThemePreference = "light" | "dark" | "system";
+export type DocumentDateFormat = "DD.MM.YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD";
+export type NumberFormatPreference = "1.234,56" | "1,234.56";
 export type LandingPage = "dashboard" | "calendar" | "sessions";
 
 export interface DocumentSettings {
@@ -233,7 +227,7 @@ export interface DocumentSettings {
   pdfFooterText: string;
   showSignatureArea: boolean;
   showStampArea: boolean;
-  dateFormat: string;
+  dateFormat: DocumentDateFormat;
   csvDelimiter: CsvDelimiter;
   pdfPageSize: PdfPageSize;
   defaultExportOrientation: ExportOrientation;
@@ -247,14 +241,14 @@ export interface AppearanceSettings {
   tableRowDensity: UiDensity;
   cardRadius: CardRadiusPreference;
   animationsEnabled: boolean;
-  darkModeReady: boolean;
+  theme: ThemePreference;
   sidebarDefaultState: SidebarDefaultState;
   defaultLandingPage: LandingPage;
 }
 
 // ─── 9. Güvenlik ve Sistem ────────────────────────────────────────────────────
-// Frontend/mock-only — see the section page's own notice. There is no real
-// auth/session backend yet, so nothing here is actually enforced.
+// Enforced by LocalAuthService/AuthProvider in this client-only build; moves
+// server-side together with authentication when the backend arrives.
 
 export interface SecuritySettings {
   sessionTimeoutMinutes: number;
@@ -265,15 +259,11 @@ export interface SecuritySettings {
   requireSpecialChar: boolean;
   failedLoginThreshold: number;
   lockoutDurationMinutes: number;
-  twoFactorReady: boolean;
   auditLoggingEnabled: boolean;
   confirmSensitiveActions: boolean;
   confirmFinancialEdits: boolean;
   confirmDataExport: boolean;
-  timezone: string;
-  locale: string;
-  dateFormat: string;
-  numberFormat: string;
+  numberFormat: NumberFormatPreference;
 }
 
 // ─── 10. Excel ve Veri Yönetimi ──────────────────────────────────────────────

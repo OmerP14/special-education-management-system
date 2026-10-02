@@ -33,6 +33,10 @@ export interface CheckSessionConflictParams {
    *  behavior — any time-range intersection blocks. false narrows blocking to an exact
    *  same start+end match only, letting partially-overlapping bookings through. */
   blockPartialOverlap?: boolean;
+  /** Settings → "Seanslar Arası Mola" — minimum gap a teacher needs between two
+   *  sessions. Only applies to the teacher side and only with blockPartialOverlap.
+   *  Defaults to 0 (no gap) so import pipelines keep their exact-overlap rule. */
+  teacherBreakMinutes?: number;
 }
 
 export interface SessionConflictResult {
@@ -68,6 +72,7 @@ export function checkSessionConflict({
   preventStudentConflict = true,
   preventTeacherConflict = true,
   blockPartialOverlap = true,
+  teacherBreakMinutes = 0,
 }: CheckSessionConflictParams): SessionConflictResult {
   const newStart = new Date(startsAt).getTime();
   const newEnd = newStart + durationMinutes * 60_000;
@@ -92,9 +97,11 @@ export function checkSessionConflict({
 
     const existingStart = new Date(s.date).getTime();
     const existingEnd = existingStart + (s.durationMinutes || DEFAULT_CONFLICT_DURATION_MINUTES) * 60_000;
-    return blockPartialOverlap
-      ? rangesOverlap(newStart, newEnd, existingStart, existingEnd)
-      : existingStart === newStart && existingEnd === newEnd;
+    if (!blockPartialOverlap) return existingStart === newStart && existingEnd === newEnd;
+    if (rangesOverlap(newStart, newEnd, existingStart, existingEnd)) return true;
+    // Not overlapping, but too close to another session of the same teacher.
+    const breakMs = isTeacherMatch && preventTeacherConflict ? teacherBreakMinutes * 60_000 : 0;
+    return breakMs > 0 && rangesOverlap(newStart, newEnd + breakMs, existingStart, existingEnd + breakMs);
   });
 
   if (conflictingSessions.length === 0) {
@@ -118,8 +125,16 @@ export function checkSessionConflict({
         new Date(s.date).getTime() === newStart
     );
 
+  const onlyBreakConflicts = conflictingSessions.every((s) => {
+    const existingStart = new Date(s.date).getTime();
+    const existingEnd = existingStart + (s.durationMinutes || DEFAULT_CONFLICT_DURATION_MINUTES) * 60_000;
+    return !rangesOverlap(newStart, newEnd, existingStart, existingEnd);
+  });
+
   const message = isDuplicate
     ? "Bu seans zaten mevcut."
+    : onlyBreakConflicts
+      ? `Öğretmenin seansları arasında en az ${teacherBreakMinutes} dakika mola olmalıdır.`
     : conflictType === "both"
       ? "Bu öğrenci ve öğretmen seçilen saatte başka bir seansa kayıtlı."
       : conflictType === "student"
@@ -193,13 +208,17 @@ export function partitionDatesByConflict(
   studentId: string,
   teacherId: string,
   durationMinutes: number,
-  sessions: Session[]
+  sessions: Session[],
+  options: Pick<
+    CheckSessionConflictParams,
+    "preventStudentConflict" | "preventTeacherConflict" | "blockPartialOverlap" | "teacherBreakMinutes"
+  > = {}
 ): { datesToCreate: string[]; conflicts: BatchConflictEntry[] } {
   const datesToCreate: string[] = [];
   const conflicts: BatchConflictEntry[] = [];
 
   for (const date of dates) {
-    const result = checkSessionConflict({ sessions, studentId, teacherId, startsAt: date, durationMinutes });
+    const result = checkSessionConflict({ sessions, studentId, teacherId, startsAt: date, durationMinutes, ...options });
     if (result.hasConflict) {
       conflicts.push({ date, result });
     } else {

@@ -5,10 +5,16 @@ import {
   isSameDay,
   getSessionsForDate,
   layoutOverlappingEvents,
-  SESSION_STATUS_BLOCK_COLORS,
+  getCalendarDayMeta,
+  getEventBlockAppearance,
+  getLunchBreakHours,
+  getOverlapPosition,
+  getWeekdayShortLabel,
+  type CalendarDisplayOptions,
   type CalendarEvent,
   type EventLayout,
 } from "@/lib/helpers/calendar";
+import { formatHourLabel } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
 
 // ─── Time grid constants ────────────────────────────────────────────────────────
@@ -21,11 +27,6 @@ const HOUR_HEIGHT = 64; // px per hour
 // close instead of the last hour block just stopping at the container edge.
 const END_LABEL_HEIGHT = 28;
 
-function formatHourLabel(h: number): string {
-  return `${String(h).padStart(2, "0")}:00`;
-}
-
-const DAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
 function getEventTop(event: CalendarEvent, hourStart: number, hourEnd: number): number {
   const h = event.date.getHours();
@@ -46,34 +47,31 @@ function EventBlock({
   layout,
   hourStart,
   hourEnd,
+  display,
   onClick,
 }: {
   event: CalendarEvent;
   layout: EventLayout;
   hourStart: number;
   hourEnd: number;
+  display: CalendarDisplayOptions;
   onClick: () => void;
 }) {
   const top = getEventTop(event, hourStart, hourEnd);
   const height = getEventHeight(event.durationMinutes);
-  const { col, totalCols } = layout;
-  const widthPct = 100 / totalCols;
+  const { totalCols } = layout;
+  const position = getOverlapPosition(layout, display.overlapDisplay, 2);
+  const appearance = getEventBlockAppearance(event, display.colorSource);
 
   return (
     <button
       onClick={onClick}
-      style={{
-        top,
-        height,
-        left: `calc(${col * widthPct}% + 2px)`,
-        width: `calc(${widthPct}% - ${totalCols > 1 ? 3 : 4}px)`,
-        borderLeft: `3px solid ${event.educationTypeColor}`,
-      }}
+      style={{ top, height, ...position, ...appearance.style }}
       className={cn(
         "absolute rounded-lg pl-1 pr-1.5 py-1 text-left overflow-hidden z-0",
         "transition-all duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
         "focus:outline-none focus:ring-2 focus:ring-primary/50",
-        SESSION_STATUS_BLOCK_COLORS[event.status]
+        appearance.className
       )}
     >
       {event.billingMode === "historical_non_billable" && (
@@ -85,7 +83,7 @@ function EventBlock({
       <p className="text-[11px] font-semibold leading-tight mt-0.5 truncate">
         {event.studentName}
       </p>
-      {height > 40 && totalCols === 1 && (
+      {height > 40 && (totalCols === 1 || display.overlapDisplay === "compact") && (
         <p className="text-[10px] opacity-70 leading-tight truncate">
           {event.teacherName}
         </p>
@@ -104,6 +102,7 @@ function DayColumn({
   totalHeight,
   hourStart,
   hourEnd,
+  display,
   onEventClick,
 }: {
   date: Date;
@@ -113,12 +112,20 @@ function DayColumn({
   totalHeight: number;
   hourStart: number;
   hourEnd: number;
+  display: CalendarDisplayOptions;
   onEventClick: (id: string) => void;
 }) {
   const eventLayout = layoutOverlappingEvents(events);
+  const meta = getCalendarDayMeta(date, display.calendar);
 
   return (
-    <div className="relative flex-1 border-l border-border/60 min-w-0">
+    <div
+      className={cn(
+        "relative flex-1 border-l border-border/60 min-w-0",
+        // Ayarlar → Takvim: closed days and holidays are visibly greyed out.
+        (meta.closed || meta.holiday) && "bg-muted/60"
+      )}
+    >
       {/* Hour grid lines */}
       <div style={{ height: totalHeight }} className="relative">
         {hours.map((h) => (
@@ -132,6 +139,8 @@ function DayColumn({
             column stays the same total height and the gridlines line up. */}
         <div style={{ height: END_LABEL_HEIGHT }} />
 
+        <LunchBand calendar={display.calendar} hourStart={hourStart} hourEnd={hourEnd} />
+
         {/* Events */}
         {events.map((event) => (
           <EventBlock
@@ -140,6 +149,7 @@ function DayColumn({
             layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
             hourStart={hourStart}
             hourEnd={hourEnd}
+            display={display}
             onClick={() => onEventClick(event.id)}
           />
         ))}
@@ -147,6 +157,34 @@ function DayColumn({
         {/* Current time indicator (only for today) */}
         {isToday && <CurrentTimeBar hourStart={hourStart} hourEnd={hourEnd} />}
       </div>
+    </div>
+  );
+}
+
+// ─── Lunch break band ──────────────────────────────────────────────────────────
+
+/** Shaded band for Ayarlar → Takvim → Öğle Arası, clipped to the visible hours. */
+export function LunchBand({
+  calendar,
+  hourStart,
+  hourEnd,
+}: {
+  calendar: CalendarDisplayOptions["calendar"];
+  hourStart: number;
+  hourEnd: number;
+}) {
+  const lunch = getLunchBreakHours(calendar);
+  if (!lunch) return null;
+  const start = Math.max(lunch.start, hourStart);
+  const end = Math.min(lunch.end, hourEnd);
+  if (end <= start) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute left-0 right-0 bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,var(--color-border)_6px,var(--color-border)_7px)] opacity-70"
+      style={{ top: (start - hourStart) * HOUR_HEIGHT, height: (end - start) * HOUR_HEIGHT }}
+    >
+      <span className="absolute left-1 top-0.5 text-[9px] font-medium text-muted-foreground">Öğle arası</span>
     </div>
   );
 }
@@ -185,6 +223,7 @@ interface CalendarWeekViewProps {
   /** Configured work-day hour range (Ayarlar → Takvim ve Çalışma Saatleri). */
   hourStart: number;
   hourEnd: number;
+  display: CalendarDisplayOptions;
 }
 
 export function CalendarWeekView({
@@ -194,6 +233,7 @@ export function CalendarWeekView({
   onDayHeaderClick,
   hourStart,
   hourEnd,
+  display,
 }: CalendarWeekViewProps) {
   const today = new Date();
   const hourCount = Math.max(hourEnd - hourStart, 1);
@@ -203,10 +243,14 @@ export function CalendarWeekView({
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Day headers */}
-      <div className="grid border-b border-border bg-muted/40" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
+      <div
+        className="grid border-b border-border bg-muted/40"
+        style={{ gridTemplateColumns: `48px repeat(${weekDays.length}, 1fr)` }}
+      >
         <div className="border-r border-border" />
         {weekDays.map((day, i) => {
           const isToday = isSameDay(day, today);
+          const meta = getCalendarDayMeta(day, display.calendar);
           return (
             <button
               key={i}
@@ -220,7 +264,7 @@ export function CalendarWeekView({
               )}
             >
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {DAY_LABELS[i]}
+                {getWeekdayShortLabel(day.getDay())}
               </p>
               <p
                 className={cn(
@@ -230,6 +274,11 @@ export function CalendarWeekView({
               >
                 {day.getDate()}
               </p>
+              {(meta.holiday || meta.closed) && (
+                <p className="mt-0.5 truncate px-1 text-[9px] font-medium text-muted-foreground" title={meta.holiday ?? undefined}>
+                  {meta.holiday ?? "Kapalı"}
+                </p>
+              )}
             </button>
           );
         })}
@@ -282,6 +331,7 @@ export function CalendarWeekView({
                   totalHeight={totalHeight}
                   hourStart={hourStart}
                   hourEnd={hourEnd}
+                  display={display}
                   onEventClick={onEventClick}
                 />
               );

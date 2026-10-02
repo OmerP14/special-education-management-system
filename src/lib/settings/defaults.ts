@@ -4,34 +4,21 @@ import type { InstitutionSettings, NotificationEventConfig, NotificationEventKey
 // "Reset to defaults" action read from here, so a field can never drift
 // between what a fresh install starts with and what "Reset" restores.
 
-function eventConfig(
-  enabled: boolean,
-  channels: Partial<Record<"inApp" | "email" | "sms" | "whatsapp", boolean>>,
-  reminderMinutesBefore?: number
-): NotificationEventConfig {
-  return {
-    enabled,
-    channels: {
-      inApp: channels.inApp ?? false,
-      email: channels.email ?? false,
-      sms: channels.sms ?? false,
-      whatsapp: channels.whatsapp ?? false,
-    },
-    reminderMinutesBefore,
-  };
+function eventConfig(enabled: boolean, reminderMinutesBefore?: number): NotificationEventConfig {
+  return reminderMinutesBefore === undefined ? { enabled } : { enabled, reminderMinutesBefore };
 }
 
 const DEFAULT_NOTIFICATION_EVENTS: Record<NotificationEventKey, NotificationEventConfig> = {
-  session_upcoming: eventConfig(true, { inApp: true, email: false }, 60),
-  session_cancelled: eventConfig(true, { inApp: true, email: true }),
-  student_no_show: eventConfig(true, { inApp: true }),
-  payment_received: eventConfig(true, { inApp: true, email: true }),
-  installment_due: eventConfig(true, { inApp: true, email: true }, 1440),
-  installment_overdue: eventConfig(true, { inApp: true, email: true }),
-  teacher_earning_created: eventConfig(false, { inApp: true }),
-  teacher_payment_made: eventConfig(true, { inApp: true, email: true }),
-  user_invited: eventConfig(true, { email: true }),
-  system_alert: eventConfig(true, { inApp: true }),
+  session_upcoming: eventConfig(true, 60),
+  session_auto_completed: eventConfig(true),
+  session_cancelled: eventConfig(true),
+  student_no_show: eventConfig(true),
+  payment_received: eventConfig(true),
+  installment_due: eventConfig(true, 1440),
+  installment_overdue: eventConfig(true),
+  teacher_earning_created: eventConfig(false),
+  teacher_payment_made: eventConfig(true),
+  user_invited: eventConfig(true),
 };
 
 export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
@@ -61,8 +48,6 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     timeStepMinutes: 15,
     autoCompleteEnabled: true,
     autoCompleteDelayMinutes: 60,
-    lateToleranceMinutes: 15,
-    noShowThresholdMinutes: 20,
     cancellationMinNoticeHours: 24,
     preventStudentConflict: true,
     preventTeacherConflict: true,
@@ -81,7 +66,6 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     defaultView: "week",
     weekStartsOn: 1,
     timeFormat: "24h",
-    timezone: "Europe/Istanbul",
     showWeekends: true,
     hideEmptyHours: false,
     colorSource: "status",
@@ -104,11 +88,9 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     collectionDescriptionTemplate: "{ogrenciAdi} - {ay} tahsilatı",
     cashClosingBehavior: "manual",
     negativeCashWarning: true,
-    showFinanceOnGeneralDashboard: false,
-    restrictFinanceToAuthorized: true,
   },
   teacherEarnings: {
-    availableEarningTypes: ["per_session", "salary_plus_quota", "percentage"],
+    availableEarningTypes: ["per_session", "monthly_salary", "salary_plus_quota", "percentage"],
     defaultEarningType: "per_session",
     earningTriggerMoment: "on_completion",
     makeupSessionEarningBehavior: "full",
@@ -140,10 +122,6 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
   },
   notifications: {
     events: DEFAULT_NOTIFICATION_EVENTS,
-    defaultRecipientType: "guardian",
-    quietHoursStart: "21:00",
-    quietHoursEnd: "09:00",
-    notifyOnWeekends: false,
   },
   documents: {
     documentLogoUrl: null,
@@ -165,7 +143,7 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     tableRowDensity: "comfortable",
     cardRadius: "lg",
     animationsEnabled: true,
-    darkModeReady: false,
+    theme: "light",
     sidebarDefaultState: "expanded",
     defaultLandingPage: "dashboard",
   },
@@ -178,14 +156,10 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     requireSpecialChar: false,
     failedLoginThreshold: 5,
     lockoutDurationMinutes: 15,
-    twoFactorReady: false,
     auditLoggingEnabled: true,
     confirmSensitiveActions: true,
     confirmFinancialEdits: true,
     confirmDataExport: false,
-    timezone: "Europe/Istanbul",
-    locale: "tr-TR",
-    dateFormat: "DD.MM.YYYY",
     numberFormat: "1.234,56",
   },
   dataManagement: {
@@ -205,4 +179,66 @@ export function getSettingsDefaults<K extends keyof Omit<InstitutionSettings, "m
 export function getSettingsDefaults(section?: keyof Omit<InstitutionSettings, "metadata">) {
   const clone = structuredClone(DEFAULT_INSTITUTION_SETTINGS);
   return section ? clone[section] : clone;
+}
+
+/** Brings a persisted settings object (possibly saved by an older version of
+ *  the app) onto the current shape: every section is rebuilt from today's
+ *  defaults, then only fields that still exist are copied over. Removed
+ *  fields drop out and new ones get their default. */
+export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings {
+  const defaults = getSettingsDefaults();
+  if (!raw || typeof raw !== "object") return defaults;
+  const source = raw as Record<string, unknown>;
+  const result = defaults as unknown as Record<string, unknown>;
+
+  for (const key of Object.keys(defaults) as (keyof InstitutionSettings)[]) {
+    if (key === "metadata") {
+      if (source.metadata && typeof source.metadata === "object") result.metadata = source.metadata;
+      continue;
+    }
+    // Notification events are merged per event below.
+    if (key === "notifications") continue;
+    const saved = source[key];
+    if (!saved || typeof saved !== "object") continue;
+    const section = result[key] as Record<string, unknown>;
+    for (const field of Object.keys(section)) {
+      const value = (saved as Record<string, unknown>)[field];
+      if (value === undefined) continue;
+      // A field whose type changed shape (e.g. string → union) keeps its default.
+      if (typeof value !== typeof section[field] && section[field] !== null) continue;
+      section[field] = value;
+    }
+  }
+
+  // Notification events are a keyed record — merge per event, ignoring
+  // events that no longer exist and old per-channel flags.
+  const savedEvents = (source.notifications as { events?: Record<string, { enabled?: unknown; reminderMinutesBefore?: unknown }> } | undefined)?.events;
+  const events = defaults.notifications.events;
+  for (const key of Object.keys(events) as NotificationEventKey[]) {
+    const saved = savedEvents?.[key];
+    if (!saved) continue;
+    if (typeof saved.enabled === "boolean") events[key].enabled = saved.enabled;
+    if (typeof saved.reminderMinutesBefore === "number" && events[key].reminderMinutesBefore !== undefined) {
+      events[key].reminderMinutesBefore = saved.reminderMinutesBefore;
+    }
+  }
+  // Fields that used to be free text are now fixed choices — anything else
+  // falls back to the default.
+  const fallback = getSettingsDefaults();
+  if (!["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD"].includes(defaults.documents.dateFormat)) {
+    defaults.documents.dateFormat = fallback.documents.dateFormat;
+  }
+  if (!["1.234,56", "1,234.56"].includes(defaults.security.numberFormat)) {
+    defaults.security.numberFormat = fallback.security.numberFormat;
+  }
+  if (!["TRY", "USD", "EUR", "GBP"].includes(defaults.finance.currency)) {
+    defaults.finance.currency = fallback.finance.currency;
+  }
+
+  // Old "darkModeReady" flag maps onto the real theme switch.
+  const oldAppearance = source.appearance as { darkModeReady?: unknown } | undefined;
+  if (oldAppearance?.darkModeReady === true && !("theme" in (oldAppearance as object))) {
+    defaults.appearance.theme = "dark";
+  }
+  return defaults;
 }

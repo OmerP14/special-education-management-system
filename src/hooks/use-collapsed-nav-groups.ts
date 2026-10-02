@@ -1,8 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { readLocalStorageValue, useHydrated, useLocalStorageValue } from "@/hooks/use-local-storage-value";
 
 const STORAGE_KEY = "nav-collapsed-groups";
+
+function parse(raw: string | null): Record<string, boolean> {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Malformed value — fall back to everything expanded.
+    return {};
+  }
+}
 
 /**
  * Persists which sidebar nav groups the user has collapsed, keyed by group id.
@@ -17,53 +28,31 @@ const STORAGE_KEY = "nav-collapsed-groups";
  * currently showing labels at all.
  */
 export function useCollapsedNavGroups() {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const [raw, write] = useLocalStorageValue(STORAGE_KEY);
+  const collapsed = useMemo(() => parse(raw), [raw]);
+  const hydrated = useHydrated();
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) setCollapsed(JSON.parse(raw));
-    } catch {
-      // Malformed value or storage unavailable (private browsing, etc.) —
-      // fall back to everything expanded.
-    }
-    setHydrated(true);
-  }, []);
-
-  const persist = useCallback((next: Record<string, boolean>) => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // Storage unavailable — state still updates for this session.
-    }
-  }, []);
-
+  // Both read the latest stored value at call time (not the render-time
+  // `collapsed`) so their identities stay stable for memoized consumers.
   const toggle = useCallback(
     (groupId: string) => {
-      setCollapsed((prev) => {
-        const next = { ...prev, [groupId]: !prev[groupId] };
-        persist(next);
-        return next;
-      });
+      const prev = parse(readLocalStorageValue(STORAGE_KEY));
+      write(JSON.stringify({ ...prev, [groupId]: !prev[groupId] }));
     },
-    [persist]
+    [write]
   );
 
   /** Forces a single group open — used to auto-open whichever group contains
-   *  the active route. No-ops (no state update, no persist write) if the
-   *  group is already open, so it never fights a manual re-collapse of the
-   *  SAME group later in the same visit — see AppSidebar's effect. */
+   *  the active route. No-ops (no persist write) if the group is already
+   *  open, so it never fights a manual re-collapse of the SAME group later in
+   *  the same visit — see AppSidebar's effect. */
   const ensureOpen = useCallback(
     (groupId: string) => {
-      setCollapsed((prev) => {
-        if (!prev[groupId]) return prev;
-        const next = { ...prev, [groupId]: false };
-        persist(next);
-        return next;
-      });
+      const prev = parse(readLocalStorageValue(STORAGE_KEY));
+      if (!prev[groupId]) return;
+      write(JSON.stringify({ ...prev, [groupId]: false }));
     },
-    [persist]
+    [write]
   );
 
   const isCollapsed = useCallback((groupId: string) => !!collapsed[groupId], [collapsed]);

@@ -213,7 +213,7 @@ export function SessionDetailDrawer({
               Finansal Özet
             </p>
             <FinanceRow
-              label={`Öğrenci Ücreti (${session.sessionCount} × ₺${session.studentPrice})`}
+              label={`Öğrenci Ücreti (${session.sessionCount} × ${formatCurrency(session.studentPrice)})`}
               value={formatCurrency(totalStudentAmount)}
             />
             {earningStatus === "unknown" ? (
@@ -225,7 +225,7 @@ export function SessionDetailDrawer({
               </div>
             ) : (
               <FinanceRow
-                label={`Öğretmen Hakedişi (${session.sessionCount} × ₺${session.teacherEarning})`}
+                label={`Öğretmen Hakedişi (${session.sessionCount} × ${formatCurrency(session.teacherEarning)})`}
                 value={formatCurrency(totalTeacherEarning)}
                 variant="warning"
               />

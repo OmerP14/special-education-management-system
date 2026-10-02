@@ -1,7 +1,7 @@
 import type { AppUser, AuditLogEntry, SecuritySettings } from "@/types/settings";
 import type { AuthSession, AuthUser, Credential, Invitation, PasswordResetToken, Role } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { validatePasswordPolicy, hashPassword, verifyPassword } from "@/lib/auth/password";
 import { generateToken } from "@/lib/auth/tokens";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -193,6 +193,8 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       if (!ok) {
         return { success: false, error: "invalid_credentials", errorMessage: "Mevcut şifre hatalı." };
       }
+      const policyError = validatePasswordPolicy(newPassword, deps.security);
+      if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
       const { salt, hash } = await hashPassword(newPassword);
       deps.setCredential({ userId, salt, hash, updatedAt: new Date().toISOString() });
       deps.logAuditEvent({ userName: user.name, action: "password_changed", module: "auth", recordLabel: user.email });
@@ -227,6 +229,8 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       if (!user) {
         return { success: false, error: "unknown", errorMessage: "Kullanıcı bulunamadı." };
       }
+      const policyError = validatePasswordPolicy(newPassword, deps.security);
+      if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
       const { salt, hash } = await hashPassword(newPassword);
       deps.setCredential({ userId: user.id, salt, hash, updatedAt: new Date().toISOString() });
       deps.setPasswordReset({ ...entry, usedAt: new Date().toISOString() });
@@ -246,6 +250,8 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       }
 
       const now = new Date().toISOString();
+      const policyError = validatePasswordPolicy(password, deps.security);
+      if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
       const { salt, hash } = await hashPassword(password);
       deps.setCredential({ userId: user.id, salt, hash, updatedAt: now });
       const activatedUser: AppUser = { ...user, status: "active", invitationAcceptedAt: now, updatedAt: now };

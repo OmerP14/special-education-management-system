@@ -18,6 +18,8 @@ import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFo
 import { useMockStore } from "@/lib/mock/store";
 import {
   getTeacherMonthAccountSummary,
+  getEarningPeriod,
+  getEarningPeriodLabel,
   getMonthKey,
   getMonthLabel,
   getShortPaymentMethodLabel,
@@ -28,6 +30,7 @@ import {
 } from "@/lib/helpers/finance";
 import { downloadCsv, printHtmlReport } from "@/lib/helpers/export";
 import type { TeacherPayment } from "@/types";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // Kesinti isn't a cash/bank payment — it has no meaningful method.
 function methodDisplay(p: TeacherPayment): string {
@@ -47,6 +50,7 @@ interface TeacherPaymentHistoryTabProps {
 
 export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTabProps) {
   const store = useMockStore();
+  const confirm = useConfirm();
   const [monthFilter, setMonthFilter] = useState("all");
   const [payOpen, setPayOpen] = useState(false);
 
@@ -86,13 +90,12 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
   // The summary always reflects whichever month is selected in the dropdown below —
   // falling back to the real current month only when "Tüm Aylar" is picked, never
   // silently pinned to "now" while the user is looking at a past month.
-  const now = new Date();
+  const currentPeriod = getEarningPeriod(new Date());
   const [summaryYear, summaryMonth] =
     monthFilter === "all"
-      ? [now.getFullYear(), now.getMonth() + 1]
+      ? [currentPeriod.year, currentPeriod.month]
       : (monthFilter.split("-").map(Number) as [number, number]);
-  const summaryMonthLabel =
-    monthFilter === "all" ? getMonthLabel(getMonthKey(now)) : getMonthLabel(monthFilter);
+  const summaryMonthLabel = getEarningPeriodLabel(summaryYear, summaryMonth);
 
   const account = getTeacherMonthAccountSummary(
     teacher,
@@ -105,7 +108,15 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
   const filteredMonthLabel = monthFilter === "all" ? "Tüm Aylar" : getMonthLabel(monthFilter);
   const filenameSuffix = monthFilter === "all" ? "" : `-${monthFilter}`;
 
-  const handleExportCsv = () => {
+  const confirmExport = () =>
+    confirm({
+      kind: "export",
+      title: "Ödeme geçmişi dışa aktarılsın mı?",
+      confirmLabel: "Dışa Aktar",
+    });
+
+  const handleExportCsv = async () => {
+    if (!(await confirmExport())) return;
     downloadCsv(
       `${slugify(teacher.fullName)}-odeme-gecmisi${filenameSuffix}.csv`,
       ["Tarih", "Dönem", "Ödeme Türü", "Tutar", "Yöntem", "Açıklama"],
@@ -120,7 +131,8 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
     );
   };
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
+    if (!(await confirmExport())) return;
     printHtmlReport({
       title: `${teacher.fullName} — Ödeme Geçmişi`,
       subtitle: filteredMonthLabel,

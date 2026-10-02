@@ -43,6 +43,7 @@ import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildTeacherDetail,
   calculateTeacherMonthlyPayable,
+  getEarningPeriod,
   getTeacherIncludedQuotaUsage,
   getTeacherExtraSessionCount,
   getTeacherPaymentModelLabel,
@@ -534,7 +535,7 @@ function TeacherDetailViewContent({
                 <> — <span className="font-semibold">{formatCurrency(detail.monthlySalary ?? 0)}</span></>
               )}
               {detail.earningType === "salary_plus_quota" && (
-                <> — <span className="font-semibold">{formatCurrency(detail.monthlySalary ?? 0)}</span> + kota üstü ₺{detail.extraSessionEarning ?? 0}/seans</>
+                <> — <span className="font-semibold">{formatCurrency(detail.monthlySalary ?? 0)}</span> + kota üstü {formatCurrency(detail.extraSessionEarning ?? 0)}/seans</>
               )}
               {detail.earningType === "percentage" && (
                 <> — <span className="font-semibold">%{detail.earningPercentage ?? 0}</span></>
@@ -604,9 +605,7 @@ function TeacherDetailViewContent({
     }
 
     if (detail.earningType === "salary_plus_quota") {
-      const now = new Date();
-      const yr = now.getFullYear();
-      const mo = now.getMonth() + 1;
+      const { year: yr, month: mo } = getEarningPeriod(new Date());
       const rawTeacherObj = store.teachers.find((t) => t.id === teacherId)!;
       const totalPayable = calculateTeacherMonthlyPayable(rawTeacherObj, store.sessions, yr, mo);
       const quotaUsed = getTeacherIncludedQuotaUsage(rawTeacherObj, store.sessions, yr, mo);
@@ -868,8 +867,9 @@ function TeacherDetailViewContent({
                       <span
                         className={cn(
                           "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
-                          detail.configurationStatus === "missing_pricing" ||
-                            detail.configurationStatus === "no_assignment"
+                          store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig &&
+                            (detail.configurationStatus === "missing_pricing" ||
+                              detail.configurationStatus === "no_assignment")
                             ? "bg-amber-100 text-amber-700"
                             : "bg-emerald-100 text-emerald-700"
                         )}

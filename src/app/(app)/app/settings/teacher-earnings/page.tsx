@@ -27,6 +27,7 @@ import type {
 
 const EARNING_TYPE_LABELS: Record<TeacherEarningTypeOption, string> = {
   per_session: "Seans Başı",
+  monthly_salary: "Sabit Maaş",
   salary_plus_quota: "Sabit Maaş + Kota Üstü Hakediş",
   percentage: "Yüzde Hakediş",
 };
@@ -38,18 +39,18 @@ const TRIGGER_LABELS: Record<EarningTriggerMoment, string> = {
 
 const MAKEUP_LABELS: Record<MakeupEarningBehavior, string> = {
   full: "Tam hakediş",
-  half: "Yarım hakediş",
+  half: "Yarım hakediş (%50)",
   none: "Hakediş oluşturma",
 };
 
 const CANCELLED_LABELS: Record<CancelledEarningBehavior, string> = {
   none: "Hakediş oluşturma",
-  partial: "Kısmi hakediş oluştur",
+  partial: "Kısmi hakediş (%50)",
 };
 
 const NO_SHOW_LABELS: Record<NoShowEarningBehavior, string> = {
   none: "Hakediş oluşturma",
-  partial: "Kısmi hakediş oluştur",
+  partial: "Kısmi hakediş (%50)",
   full: "Tam hakediş oluştur",
 };
 
@@ -62,7 +63,7 @@ const ROUNDING_LABELS: Record<EarningRoundingRule, string> = {
 
 const POST_QUOTA_LABELS: Record<PostQuotaBehavior, string> = {
   extra_rate: "Ek (kota üstü) oranla öde",
-  same_rate: "Normal oranla öde",
+  same_rate: "Normal oranla öde (maaş ÷ kota)",
   no_extra: "Ek ödeme yapma",
 };
 
@@ -117,7 +118,7 @@ function TeacherEarningsSettingsContent() {
   return (
     <SettingsFormSection
       title="Öğretmen ve Hakediş Ayarları"
-      description="Kurum geneli hakediş politikaları ve varsayılanlar. Öğretmen + Eğitim Türü ataması hâlâ gerçek hakediş kaynağıdır — bu ayarlar yalnızca genel davranışı ve yeni öğretmen varsayılanlarını belirler."
+      description="Hakediş tutarı öğretmenin Eğitim Türü atamasından gelir; bu kurallar telafi/iptal/gelmedi seanslarının ne kadar hakediş doğuracağını, onay, yuvarlama, dönem ve ödeme kurallarını belirler. Seans durumuna bağlı kurallar seans kaydedildiği anda uygulanır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -199,10 +200,14 @@ function TeacherEarningsSettingsContent() {
 
       {/* Numbers */}
       <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <SettingsField label="Varsayılan Kota (seans/ay)">
+        <SettingsField label="Varsayılan Kota (seans/ay)" description="Yeni 'Sabit Maaş + Kota' öğretmenlerine önerilir.">
           <NumericInput min={0} value={draft.defaultQuota} onValueChange={(v) => set("defaultQuota", v ?? 0)} />
         </SettingsField>
-        <SettingsField label="Hakediş Dönemi Başlangıç Günü" error={errors.payPeriodStartDay}>
+        <SettingsField
+          label="Hakediş Dönemi Başlangıç Günü"
+          error={errors.payPeriodStartDay}
+          description="Örn. 15: dönem ayın 15'inden sonraki ayın 14'üne kadar sürer."
+        >
           <NumericInput
             min={1}
             max={28}
@@ -215,22 +220,34 @@ function TeacherEarningsSettingsContent() {
       {/* Toggles */}
       <div className="grid gap-3 border-t border-border/60 pt-5 sm:grid-cols-2">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Kesintilere izin ver</p>
+          <div>
+            <p className="text-sm text-foreground">Kesintilere izin ver</p>
+            <p className="text-xs text-muted-foreground">Kapalıysa öğretmen ödemesinde &quot;Kesinti&quot; türü sunulmaz.</p>
+          </div>
           <Switch checked={draft.allowDeductions} onCheckedChange={(v) => set("allowDeductions", v)} />
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Avanslara izin ver</p>
+          <div>
+            <p className="text-sm text-foreground">Avanslara izin ver</p>
+            <p className="text-xs text-muted-foreground">Avans, bekleyen hakedişi aşabilir; fazlası sonraki hakedişlerden düşülür.</p>
+          </div>
           <Switch checked={draft.allowAdvances} onCheckedChange={(v) => set("allowAdvances", v)} />
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
           <div>
             <p className="text-sm font-medium text-foreground">Fazla ödemeyi engelle</p>
-            <p className="text-xs text-muted-foreground">Hesaplanan hakedişi aşan manuel ödemeyi engeller.</p>
+            <p className="text-xs text-muted-foreground">Bekleyen hakedişi aşan ödemeyi (avans hariç) engeller.</p>
           </div>
           <Switch checked={draft.preventOverpayment} onCheckedChange={(v) => set("preventOverpayment", v)} />
         </div>
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Geçmişe dönük yeniden hesaplamaya izin ver</p>
+          <div>
+            <p className="text-sm text-foreground">Geçmişe dönük yeniden hesaplamaya izin ver</p>
+            <p className="text-xs text-muted-foreground">
+              Açıksa bu sayfa kaydedildiğinde geçmiş seansların hakedişi yeni kurallarla yeniden hesaplanır; kapalıysa
+              yeni kurallar yalnızca bundan sonra kaydedilen seanslara uygulanır.
+            </p>
+          </div>
           <Switch
             checked={draft.allowHistoricalRecalculation}
             onCheckedChange={(v) => set("allowHistoricalRecalculation", v)}
@@ -240,7 +257,7 @@ function TeacherEarningsSettingsContent() {
           <div>
             <p className="text-sm font-medium text-foreground">Eksik hakediş yapılandırmasında uyar</p>
             <p className="text-xs text-muted-foreground">
-              Bir öğretmen için Eğitim Türü ataması hakediş bilgisi olmadan kaydedilirse uyarı gösterir.
+              Hakediş tutarı tanımlanmamış öğretmen/eğitim türü eşleşmelerini listelerde ve seans formunda vurgular.
             </p>
           </div>
           <Switch

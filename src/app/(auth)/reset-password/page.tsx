@@ -8,12 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/password";
+import { useMockStore } from "@/lib/mock/store";
 
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const { resetPassword } = useAuth();
+  // Ayarlar → Güvenlik ve Sistem → Parola Politikası
+  const passwordPolicy = useMockStore().institutionSettings.security;
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -23,8 +27,9 @@ function ResetPasswordForm() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (password.length < 8) {
-      setError("Şifre en az 8 karakter olmalıdır.");
+    const policyError = validatePasswordPolicy(password, passwordPolicy);
+    if (policyError) {
+      setError(policyError);
       return;
     }
     if (password !== confirmPassword) {
@@ -77,6 +82,7 @@ function ResetPasswordForm() {
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     autoFocus
                   />
+                <p className="text-xs text-muted-foreground">{describePasswordPolicy(passwordPolicy)}</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="confirm-password">Yeni Şifre (Tekrar)</Label>

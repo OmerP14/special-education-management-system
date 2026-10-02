@@ -42,7 +42,7 @@ function SessionSettingsContent() {
   return (
     <SettingsFormSection
       title="Seans Ayarları"
-      description="Seans süresi, çakışma kontrolü ve devam/telafi kurallarını yönetin. Bu ayarlar Yeni/Düzenle Seans formunu ve haftalık plan oluşturmayı doğrudan etkiler."
+      description="Seans süresi, çakışma, iptal ve telafi kuralları. Yeni/Düzenle Seans formu, haftalık plan oluşturma ve otomatik tamamlama bu ayarlara göre çalışır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -53,14 +53,21 @@ function SessionSettingsContent() {
     >
       {/* Duration */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SettingsField label="Varsayılan Süre (dk)" error={errors.defaultDurationMinutes}>
+        <SettingsField
+          label="Varsayılan Süre (dk)"
+          error={errors.defaultDurationMinutes}
+          description="Eğitim türünün kendi süresi yoksa kullanılır."
+        >
           <NumericInput
             min={1}
             value={draft.defaultDurationMinutes}
             onValueChange={(v) => set("defaultDurationMinutes", v ?? 0)}
           />
         </SettingsField>
-        <SettingsField label="Varsayılan Mola (dk)">
+        <SettingsField
+          label="Seanslar Arası Mola (dk)"
+          description="Bir öğretmenin art arda iki seansı arasında olması gereken en az süre. 0 = kontrol yok."
+        >
           <NumericInput
             min={0}
             value={draft.defaultBreakMinutes}
@@ -101,31 +108,11 @@ function SessionSettingsContent() {
         </Select>
       </SettingsField>
 
-      {/* Auto-complete & tolerances */}
+      {/* Cancellation notice */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <SettingsField
-          label="Geç Kalma Toleransı (dk)"
-          description="Öğrenci bu süreyi aşarsa geç kalmış sayılır."
-        >
-          <NumericInput
-            min={0}
-            value={draft.lateToleranceMinutes}
-            onValueChange={(v) => set("lateToleranceMinutes", v ?? 0)}
-          />
-        </SettingsField>
-        <SettingsField
-          label="Devamsızlık Eşiği (dk)"
-          description="Bu süreyi aşan gecikme, gelmedi (no-show) sayılır."
-        >
-          <NumericInput
-            min={0}
-            value={draft.noShowThresholdMinutes}
-            onValueChange={(v) => set("noShowThresholdMinutes", v ?? 0)}
-          />
-        </SettingsField>
-        <SettingsField
           label="İptal İçin Minimum Bildirim (saat)"
-          description="Bir seans, başlangıcından en az bu kadar önce iptal edilebilir."
+          description="Daha geç iptallerde form uyarır ve seansın 'Gelmedi' (ücretli) işaretlenmesini önerir. 0 = kural yok."
         >
           <NumericInput
             min={0}
@@ -139,7 +126,7 @@ function SessionSettingsContent() {
         <div>
           <p className="text-sm font-medium text-foreground">Seansları Otomatik Tamamla</p>
           <p className="text-xs text-muted-foreground">
-            Planlanmış bir seans, bitişinden belirtilen süre sonra otomatik olarak &quot;Tamamlandı&quot; durumuna geçer.
+            Planlanmış bir seans, bitişinden (başlangıç + seans süresi) belirtilen süre sonra otomatik olarak &quot;Tamamlandı&quot; durumuna geçer.
           </p>
         </div>
         <Switch checked={draft.autoCompleteEnabled} onCheckedChange={(v) => set("autoCompleteEnabled", v)} />
@@ -211,7 +198,11 @@ function SessionSettingsContent() {
             onCheckedChange={(v) => set("allowEditingCompletedSessions", v)}
           />
         </div>
-        <SettingsField label="Telafi Seansı Ücretlendirmesi" className="sm:max-w-md">
+        <SettingsField
+          label="Telafi Seansı Ücretlendirmesi"
+          className="sm:max-w-md"
+          description="Ücretsiz seçilirse bir seans 'Telafi' yapıldığında ücreti 0'a çekilir."
+        >
           <Select
             value={draft.makeupSessionBehavior}
             onValueChange={(val) => { if (val) set("makeupSessionBehavior", val as MakeupSessionBillingBehavior); }}

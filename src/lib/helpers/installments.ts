@@ -5,11 +5,11 @@ import type {
   InstallmentInterval,
   InstallmentRow,
   StudentInstallmentSummary,
-  PaymentMethod,
   Payment,
   Student,
   Guardian,
 } from "@/types";
+import { getActiveSettings } from "@/lib/settings/runtime";
 import { getPaymentMethodLabel } from "@/lib/helpers/finance";
 
 // ─── Payment record builder ────────────────────────────────────────────────────
@@ -59,13 +59,22 @@ export function computeInstallmentDueDate(
   interval: InstallmentInterval,
   customIntervalDays: number
 ): string {
+  // All arithmetic in UTC: a "YYYY-MM-DD" string parses as UTC midnight and is
+  // formatted back via toISOString, so mixing in local-time setters could
+  // shift the day depending on the browser's time zone.
   const d = new Date(firstDueDate);
   if (interval === "monthly") {
-    d.setMonth(d.getMonth() + offset);
+    // Clamp to the target month's last day — a plan starting on the 31st
+    // must fall due on Feb 28/29, not spill over into early March.
+    const day = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + offset);
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(day, lastDay));
   } else if (interval === "weekly") {
-    d.setDate(d.getDate() + offset * 7);
+    d.setUTCDate(d.getUTCDate() + offset * 7);
   } else {
-    d.setDate(d.getDate() + offset * customIntervalDays);
+    d.setUTCDate(d.getUTCDate() + offset * customIntervalDays);
   }
   return d.toISOString().split("T")[0]!;
 }
@@ -99,11 +108,13 @@ export function buildInstallmentRecords(
  */
 export function getInstallmentDisplayStatus(
   record: InstallmentRecord,
-  today: Date
+  today: Date,
+  toleranceDays: number = getActiveSettings().finance.latePaymentToleranceDays
 ): InstallmentStatus {
   if (record.status === "paid" || record.status === "cancelled") return record.status;
-  const due = new Date(record.dueDate);
-  due.setHours(23, 59, 59, 999);
+  // Local end of the due day, plus Ayarlar → Finans → Gecikme Toleransı.
+  const due = new Date(`${record.dueDate.slice(0, 10)}T23:59:59.999`);
+  due.setDate(due.getDate() + Math.max(0, toleranceDays));
   return due < today ? "overdue" : "pending";
 }
 

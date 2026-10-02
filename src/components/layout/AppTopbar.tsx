@@ -18,6 +18,8 @@ import { useSidebar } from "@/components/ui/sidebar";
 import { useMockStore } from "@/lib/mock/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { useUserScope } from "@/lib/auth/use-scope";
+import { getVisibleNotifications } from "@/lib/helpers/notifications";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name: string): string {
@@ -36,7 +38,12 @@ interface AppTopbarProps {
 // sidebar's active item is already enough wayfinding).
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
-  const { notifications, markAllNotificationsRead, students, teachers } = store;
+  const scope = useUserScope();
+  // Only what this account may see — teachers their own sessions, guardians
+  // their children (see getVisibleNotifications).
+  const notifications = getVisibleNotifications(store.notifications, scope);
+  const markAllNotificationsRead = () =>
+    store.markNotificationsRead(notifications.filter((n) => !n.readAt).map((n) => n.id));
   const { user, signOut } = useAuth();
   const router = useRouter();
   // On mobile the sidebar is always a Sheet overlay with its own open/closed
@@ -141,20 +148,20 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
             )}
 
             {/* Notification items – direct children of content, no extra <div> wrapper */}
-            {sorted.map((n) => {
-              const studentName =
-                students.find((s) => s.id === n.studentId)?.fullName ?? "Bilinmeyen öğrenci";
-              const teacherName =
-                teachers.find((t) => t.id === n.teacherId)?.fullName ?? "Bilinmeyen öğretmen";
+            {sorted.slice(0, 30).map((n) => {
               const isRead = !!n.readAt;
 
               return (
                 <DropdownMenuItem
                   key={n.id}
                   className={cn(
-                    "flex items-start gap-2 px-3 py-2.5 cursor-default",
+                    "flex items-start gap-2 px-3 py-2.5",
+                    n.href ? "cursor-pointer" : "cursor-default",
                     !isRead && "bg-primary/5 focus:bg-primary/8"
                   )}
+                  onClick={() => {
+                    if (n.href) router.push(n.href);
+                  }}
                 >
                   <div
                     className={cn(
@@ -176,13 +183,11 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
                         isRead ? "text-muted-foreground" : "text-foreground font-medium"
                       )}
                     >
-                      Seans otomatik tamamlandı
+                      {n.title}
                     </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {studentName} · {teacherName}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {formatDate(n.sessionDate)} {formatTime(n.sessionDate)}
+                    {n.message && <p className="text-[11px] text-muted-foreground mt-0.5">{n.message}</p>}
+                    <p className="text-[10px] text-muted-foreground/70">
+                      {formatDate(n.createdAt)} {formatTime(n.createdAt)}
                     </p>
                   </div>
                   {!isRead && (

@@ -9,13 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/password";
 
 function AcceptInviteForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
   const { getInvitationByToken, acceptInvitation, isAuthenticated, isLoading } = useAuth();
-  const { roles } = useMockStore();
+  // Ayarlar → Güvenlik ve Sistem → Parola Politikası
+  const { roles, institutionSettings: { security } } = useMockStore();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -37,8 +39,9 @@ function AcceptInviteForm() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (password.length < 8) {
-      setError("Şifre en az 8 karakter olmalıdır.");
+    const policyError = validatePasswordPolicy(password, security);
+    if (policyError) {
+      setError(policyError);
       return;
     }
     if (password !== confirmPassword) {
@@ -102,6 +105,7 @@ function AcceptInviteForm() {
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     autoFocus
                   />
+                  <p className="text-xs text-muted-foreground">{describePasswordPolicy(security)}</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="confirm-password">Şifre (Tekrar)</Label>

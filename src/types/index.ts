@@ -41,6 +41,17 @@ export interface Student {
   weeklySessionCount?: number;
   assignedTeacherIds?: string[];
   notes?: string;
+  /** Ayarlar → Öğrenci ve Veli → Öğrenci numarası (auto-generated or manual). */
+  studentNumber?: string;
+  /** Sequence behind an auto-generated studentNumber. */
+  studentSequence?: number;
+  /** KVKK (personal data) consent and when it was recorded. */
+  kvkkConsent?: boolean;
+  kvkkConsentDate?: string;
+  /** Health / diagnosis information relevant to sessions. */
+  healthInfo?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   createdAt: string;
   updatedAt?: string;
   /** Set when created by Excel Import — lets that batch be rolled back. */
@@ -148,6 +159,14 @@ export interface Session {
    *  before this field existed) is resolved via resolveTeacherEarningStatus()
    *  in finance.ts, never re-derived ad hoc. */
   teacherEarningStatus?: TeacherEarningCalculationStatus;
+  /** Share of `teacherEarning` the teacher is owed for this session's status
+   *  (1 = full, 0.5 = half/partial, 0 = none), fixed from Ayarlar → Öğretmen
+   *  ve Hakediş when the session is saved — so later policy changes never
+   *  silently rewrite past earnings. See getSessionEarningFactor. */
+  earningFactor?: number;
+  /** Set when a manager approves the earning (only matters with "Hakediş
+   *  Oluşturma Anı: Yönetici onayladığında"). */
+  earningApprovedAt?: string;
 }
 
 // ─── Weekly Session Plan ───────────────────────────────────────────────────────
@@ -192,6 +211,9 @@ export interface Payment {
   installmentPlanId?: string;
   installmentNumber?: number;
   notes?: string;
+  /** Issued on creation from Ayarlar → Finans (Makbuz Numara Formatı). */
+  receiptNumber?: string;
+  receiptSequence?: number;
   createdAt: string;
   updatedAt?: string;
   importBatchId?: string;
@@ -402,6 +424,7 @@ export interface StudentListItem {
   id: string;
   tenantId: string;
   fullName: string;
+  studentNumber?: string;
   birthDate: string;
   status: StudentStatus;
   notes?: string;

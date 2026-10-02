@@ -232,9 +232,8 @@ function SessionsPageContent() {
   );
   const scopedTeachers = useMemo(() => getScopedTeachers(store.teachers, scope), [store.teachers, scope]);
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
   const stats = useMemo(
     () => buildSessionPageStats(scopedSessions, currentYear, currentMonth),
     [scopedSessions, currentYear, currentMonth]
@@ -267,7 +266,7 @@ function SessionsPageContent() {
         color: STATUS_DONUT_COLORS.cancelledAndNoShow,
       },
     ],
-    [stats.completed, stats.planned, stats.makeup, stats.cancelledAndNoShow]
+    [stats]
   );
 
   const allItems = useMemo(
@@ -298,17 +297,21 @@ function SessionsPageContent() {
   // Deep-link support: "Son Seanslar" on the Dashboard links here with ?sessionId=,
   // since there's no dedicated /app/sessions/[id] route — this opens that session's
   // edit drawer directly, then strips the param so it doesn't re-trigger on refresh.
-  useEffect(() => {
-    const sessionId = searchParams.get("sessionId");
-    if (!sessionId) return;
-    const session = scopedSessions.find((s) => s.id === sessionId);
+  const deepLinkSessionId = searchParams.get("sessionId");
+  const [handledDeepLinkId, setHandledDeepLinkId] = useState<string | null>(null);
+  if (deepLinkSessionId !== handledDeepLinkId) {
+    setHandledDeepLinkId(deepLinkSessionId);
+    const session = deepLinkSessionId
+      ? scopedSessions.find((s) => s.id === deepLinkSessionId)
+      : undefined;
     if (session) {
       setEditingSession(session);
       setDrawerOpen(true);
     }
-    router.replace("/app/sessions");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }
+  useEffect(() => {
+    if (deepLinkSessionId) router.replace("/app/sessions");
+  }, [deepLinkSessionId, router]);
 
   const editColumnEntry: Column<SessionListItem> = {
     key: "action",
@@ -383,7 +386,7 @@ function SessionsPageContent() {
     setEdTypeFilter("all");
   };
 
-  const thisMonthLabel = monthLabel(monthKey(now));
+  const thisMonthLabel = monthLabel(monthKey(new Date()));
 
   return (
     <>

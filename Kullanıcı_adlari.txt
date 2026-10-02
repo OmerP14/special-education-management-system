@@ -1,0 +1,7 @@
+Şifre: Demo1234!
+Kullanabileceğiniz hesaplar:
+
+Yönetici: admin@ornekokul.com
+Müdür: mudur@ornekokul.com
+Öğretmen: ogretmen@ornekokul.com
+Veli: veli@ornekokul.com

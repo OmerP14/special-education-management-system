@@ -21,6 +21,7 @@ import {
 import { formatCurrency } from "@/lib/helpers/finance";
 import type { EducationType, EducationTypeStatus } from "@/types";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Status filter options ─────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ function usageBreakdownText(usage: EducationTypeUsage): string {
 
 export default function EducationTypesSettingsPage() {
   const store = useMockStore();
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<EducationTypeStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -99,9 +101,16 @@ export default function EducationTypesSettingsPage() {
     store.setEducationTypeStatus(row.id, row.status === "active" ? "inactive" : "active");
   };
 
-  const handleDelete = (row: EducationTypeRow) => {
+  const handleDelete = async (row: EducationTypeRow) => {
     if (!canDeleteEducationType(row.usage)) return;
-    store.deleteEducationType(row.id);
+    const ok = await confirm({
+      kind: "sensitive",
+      title: `"${row.name}" silinsin mi?`,
+      description: "Bu eğitim türü kalıcı olarak silinir.",
+      confirmLabel: "Sil",
+      destructive: true,
+    });
+    if (ok) store.deleteEducationType(row.id);
   };
 
   const columns: Column<EducationTypeRow>[] = [

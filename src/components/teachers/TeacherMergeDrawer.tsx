@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeftRight, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   Sheet,
@@ -50,14 +50,19 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
   const [reason, setReason] = useState("");
   const [result, setResult] = useState<MergeResultSummary | null>(null);
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? "open" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setIndex(0);
       setSwapped(false);
       setReason("");
       setResult(null);
     }
-  }, [open]);
+  }
 
   const candidate = queue[index] ?? null;
 

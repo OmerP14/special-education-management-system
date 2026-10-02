@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Lock } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
@@ -17,26 +17,37 @@ import {
 import { useMockStore } from "@/lib/mock/store";
 import { getStudentStatusLabel } from "@/lib/helpers/finance";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
+import {
+  formatStudentNumber,
+  getNextStudentSequence,
+  validateStudentFields,
+  type StudentFormFields,
+} from "@/lib/helpers/student-rules";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import type { Student, StudentStatus } from "@/types";
+import { cn } from "@/lib/utils";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
-interface FormState {
-  fullName: string;
-  birthDate: string;
+interface FormState extends StudentFormFields {
   status: StudentStatus;
-  guardianId: string;
   educationTypeIds: string[];
   weeklySessionCount: number;
   notes: string;
 }
 
-function buildEmpty(): FormState {
+/** New students start with Ayarlar → Öğrenci ve Veli → Varsayılan Öğrenci Durumu. */
+function buildEmpty(defaultStatus: StudentStatus): FormState {
   return {
     fullName: "",
     birthDate: "",
-    status: "active",
+    status: defaultStatus,
     guardianId: "",
+    studentNumber: "",
+    kvkkConsent: false,
+    healthInfo: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
     educationTypeIds: [],
     weeklySessionCount: 0,
     notes: "",
@@ -49,10 +60,19 @@ function buildFromStudent(student: Student): FormState {
     birthDate: student.birthDate,
     status: student.status,
     guardianId: student.guardianIds[0] ?? "",
+    studentNumber: student.studentNumber ?? "",
+    kvkkConsent: student.kvkkConsent ?? false,
+    healthInfo: student.healthInfo ?? "",
+    emergencyContactName: student.emergencyContactName ?? "",
+    emergencyContactPhone: student.emergencyContactPhone ?? "",
     educationTypeIds: student.educationTypeIds,
     weeklySessionCount: student.weeklySessionCount ?? 0,
     notes: student.notes ?? "",
   };
+}
+
+function FieldError({ message }: { message?: string }) {
+  return message ? <p className="text-xs text-destructive">{message}</p> : null;
 }
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
@@ -75,24 +95,29 @@ export function StudentFormDrawer({
 }: StudentFormDrawerProps) {
   const store = useMockStore();
   const isEditing = !!initialData;
+  const rules = store.institutionSettings.students;
 
   const buildInitial = (): FormState => {
     if (initialData) return buildFromStudent(initialData);
-    const empty = buildEmpty();
+    const empty = buildEmpty(rules.defaultStudentStatus);
     if (defaultGuardianId) empty.guardianId = defaultGuardianId;
     return empty;
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
+  const [submitted, setSubmitted] = useState(false);
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? `${initialData?.id ?? ""}|${defaultGuardianId ?? ""}` : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
-      const f = initialData ? buildFromStudent(initialData) : buildEmpty();
-      if (!initialData && defaultGuardianId) f.guardianId = defaultGuardianId;
-      setForm(f);
+      setForm(buildInitial());
+      setSubmitted(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id, defaultGuardianId]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -117,12 +142,29 @@ export function StudentFormDrawer({
     }));
   };
 
+  // Ayarlar → Öğrenci ve Veli: required fields + unique student number.
+  const otherStudents = store.students.filter((s) => s.id !== initialData?.id);
+  const errors = validateStudentFields(form, rules, otherStudents);
+  const shownErrors = submitted ? errors : {};
+  const hasErrors = Object.keys(errors).length > 0;
+  const nextAutoNumber = formatStudentNumber(rules.studentNumberFormat, getNextStudentSequence(store.students));
+
   const handleSave = () => {
-    if (!form.fullName.trim()) return;
+    setSubmitted(true);
+    if (hasErrors) return;
 
     const tenantId = initialData?.tenantId ?? "tenant-1";
     const id = initialData?.id ?? `student-${Date.now()}`;
-    const guardianIds = form.guardianId ? [form.guardianId] : [];
+    const previousPrimary = initialData?.guardianIds[0];
+    // The form edits the primary guardian; any additional guardians (added from
+    // a guardian's own page) stay linked unless multiple guardians are off.
+    const extraGuardians = rules.allowMultipleGuardians
+      ? (initialData?.guardianIds ?? []).filter((g) => g !== previousPrimary && g !== form.guardianId)
+      : [];
+    const guardianIds = form.guardianId ? [form.guardianId, ...extraGuardians] : extraGuardians;
+    const kvkkConsentDate = form.kvkkConsent
+      ? initialData?.kvkkConsent ? initialData.kvkkConsentDate : toLocalDateKey(new Date())
+      : undefined;
 
     const student: Student = {
       id,
@@ -135,6 +177,16 @@ export function StudentFormDrawer({
       weeklySessionCount: form.weeklySessionCount > 0 ? form.weeklySessionCount : undefined,
       assignedTeacherIds: initialData?.assignedTeacherIds ?? [],
       notes: form.notes.trim() || undefined,
+      // Auto mode: the store assigns the number; manual mode: whatever was typed.
+      studentNumber: rules.autoGenerateStudentNumber
+        ? initialData?.studentNumber
+        : form.studentNumber.trim() || undefined,
+      studentSequence: initialData?.studentSequence,
+      kvkkConsent: form.kvkkConsent || undefined,
+      kvkkConsentDate,
+      healthInfo: form.healthInfo.trim() || undefined,
+      emergencyContactName: form.emergencyContactName.trim() || undefined,
+      emergencyContactPhone: form.emergencyContactPhone.trim() || undefined,
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
     };
 
@@ -144,6 +196,13 @@ export function StudentFormDrawer({
         const guardian = store.guardians.find((g) => g.id === form.guardianId);
         if (guardian && !guardian.studentIds.includes(id)) {
           store.updateGuardian({ ...guardian, studentIds: [...guardian.studentIds, id] });
+        }
+      }
+      // Moving the student to another guardian unlinks the previous one.
+      if (previousPrimary && previousPrimary !== form.guardianId && !guardianIds.includes(previousPrimary)) {
+        const oldGuardian = store.guardians.find((g) => g.id === previousPrimary);
+        if (oldGuardian) {
+          store.updateGuardian({ ...oldGuardian, studentIds: oldGuardian.studentIds.filter((sid) => sid !== id) });
         }
       }
     } else {
@@ -172,6 +231,7 @@ export function StudentFormDrawer({
       description="Öğrenci bilgilerini doldurun. Veli kaydı önceden oluşturulmuş olmalıdır."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Öğrenci Ekle"}
+      saveDisabled={submitted && hasErrors}
     >
       <div className="space-y-5">
         {/* Ad Soyad */}
@@ -183,17 +243,39 @@ export function StudentFormDrawer({
             value={form.fullName}
             onChange={(e) => set("fullName", e.target.value)}
           />
+          <FieldError message={shownErrors.fullName} />
+        </div>
+
+        {/* Öğrenci No */}
+        <div className="space-y-1.5">
+          <Label htmlFor="student-number">Öğrenci No</Label>
+          {rules.autoGenerateStudentNumber ? (
+            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground tabular-nums">
+              {initialData?.studentNumber ?? `${nextAutoNumber} (otomatik atanacak)`}
+            </p>
+          ) : (
+            <Input
+              id="student-number"
+              placeholder="örn. 2026-015"
+              value={form.studentNumber}
+              onChange={(e) => set("studentNumber", e.target.value)}
+            />
+          )}
+          <FieldError message={shownErrors.studentNumber} />
         </div>
 
         {/* Doğum Tarihi */}
         <div className="space-y-1.5">
-          <Label htmlFor="student-birth">Doğum Tarihi</Label>
+          <Label htmlFor="student-birth">
+            Doğum Tarihi{rules.requireBirthDate && <span className="text-destructive"> *</span>}
+          </Label>
           <Input
             id="student-birth"
             type="date"
             value={form.birthDate}
             onChange={(e) => set("birthDate", e.target.value)}
           />
+          <FieldError message={shownErrors.birthDate} />
         </div>
 
         {/* Durum */}
@@ -213,7 +295,7 @@ export function StudentFormDrawer({
 
         {/* Veli */}
         <div className="space-y-1.5">
-          <Label>Veli</Label>
+          <Label>Veli{rules.guardianRequired && <span className="text-destructive"> *</span>}</Label>
           {defaultGuardianId && !isEditing ? (
             (() => {
               const g = store.guardians.find((x) => x.id === defaultGuardianId);
@@ -254,6 +336,74 @@ export function StudentFormDrawer({
               Veliler sekmesinden yeni veli kaydı oluşturabilirsiniz.
             </p>
           )}
+          <FieldError message={shownErrors.guardianId} />
+        </div>
+
+        {/* Acil durum kişisi */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="emergency-name">
+              Acil Durum Kişisi{rules.requireEmergencyContact && <span className="text-destructive"> *</span>}
+            </Label>
+            <Input
+              id="emergency-name"
+              value={form.emergencyContactName}
+              onChange={(e) => set("emergencyContactName", e.target.value)}
+              placeholder="Ad soyad"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="emergency-phone">Acil Durum Telefonu</Label>
+            <Input
+              id="emergency-phone"
+              type="tel"
+              value={form.emergencyContactPhone}
+              onChange={(e) => set("emergencyContactPhone", e.target.value)}
+              placeholder="05xx xxx xx xx"
+            />
+          </div>
+        </div>
+        <FieldError message={shownErrors.emergencyContactName} />
+
+        {/* Sağlık bilgisi */}
+        <div className="space-y-1.5">
+          <Label htmlFor="student-health">
+            Sağlık Bilgisi{rules.requireHealthInfo && <span className="text-destructive"> *</span>}
+          </Label>
+          <textarea
+            id="student-health"
+            rows={2}
+            placeholder="Tanı, ilaç, alerji vb."
+            value={form.healthInfo}
+            onChange={(e) => set("healthInfo", e.target.value)}
+            className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <FieldError message={shownErrors.healthInfo} />
+        </div>
+
+        {/* KVKK */}
+        <div className="space-y-1.5">
+          <label
+            className={cn(
+              "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer",
+              shownErrors.kvkkConsent ? "border-destructive/50" : "border-border"
+            )}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded"
+              checked={form.kvkkConsent}
+              onChange={(e) => set("kvkkConsent", e.target.checked)}
+            />
+            <span className="text-sm">
+              Veliden KVKK aydınlatma onayı alındı
+              {rules.requireKvkkConsent && <span className="text-destructive"> *</span>}
+              {initialData?.kvkkConsentDate && form.kvkkConsent && (
+                <span className="block text-xs text-muted-foreground">Onay tarihi: {initialData.kvkkConsentDate}</span>
+              )}
+            </span>
+          </label>
+          <FieldError message={shownErrors.kvkkConsent} />
         </div>
 
         <Separator />

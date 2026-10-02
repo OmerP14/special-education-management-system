@@ -5,10 +5,11 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import {
   isSameDay,
-  SESSION_STATUS_BLOCK_COLORS,
+  getEventBlockAppearance,
   type CalendarEvent,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
+import type { CalendarColorSource } from "@/types/settings";
 
 // ─── Day header ─────────────────────────────────────────────────────────────────
 
@@ -55,23 +56,26 @@ function DayGroupHeader({ date }: { date: Date }) {
 
 function AgendaEventRow({
   event,
+  colorSource,
   onClick,
 }: {
   event: CalendarEvent;
+  colorSource: CalendarColorSource;
   onClick: () => void;
 }) {
+  const appearance = getEventBlockAppearance(event, colorSource);
   return (
     <button
       onClick={onClick}
-      style={{ borderLeft: `3px solid ${event.educationTypeColor}` }}
+      style={appearance.style}
       className={cn(
         "w-full text-left rounded-xl pl-2.5 pr-3 py-2.5 mb-1.5",
         "flex items-center gap-3 shadow-sm",
         "transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md",
-        SESSION_STATUS_BLOCK_COLORS[event.status]
+        appearance.className
       )}
     >
-      <span className="text-xs font-semibold tabular-nums shrink-0 w-10">
+      <span className="text-xs font-semibold tabular-nums shrink-0 min-w-10">
         {event.timeStr}
       </span>
       <div className="flex-1 min-w-0">
@@ -90,9 +94,10 @@ function AgendaEventRow({
 interface CalendarAgendaViewProps {
   events: CalendarEvent[];
   onEventClick: (eventId: string) => void;
+  colorSource: CalendarColorSource;
 }
 
-export function CalendarAgendaView({ events, onEventClick }: CalendarAgendaViewProps) {
+export function CalendarAgendaView({ events, onEventClick, colorSource }: CalendarAgendaViewProps) {
   if (events.length === 0) {
     return (
       <EmptyState
@@ -123,6 +128,7 @@ export function CalendarAgendaView({ events, onEventClick }: CalendarAgendaViewP
             <AgendaEventRow
               key={event.id}
               event={event}
+              colorSource={colorSource}
               onClick={() => onEventClick(event.id)}
             />
           ))}

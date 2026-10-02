@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { User, AlertTriangle, CheckCircle2, Info, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMockStore } from "@/lib/mock/store";
-import { getEducationTypeById, getActiveEducationTypes } from "@/lib/helpers/education-types";
+import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
   calculateTeacherSessionEarning,
@@ -25,6 +25,7 @@ import {
   getStudentGuardian,
   getSessionStatusLabel,
   formatCurrency,
+  getCurrencySymbol,
 } from "@/lib/helpers/finance";
 import {
   isTeacherAssignedToEducationType,
@@ -32,6 +33,14 @@ import {
   getTeacherEducationAssignment,
 } from "@/lib/helpers/teacher-assignments";
 import { checkSessionConflict } from "@/lib/helpers/session-conflict";
+import {
+  getConflictOptions,
+  getDefaultSessionDuration,
+  getDurationError,
+  getScheduleIssues,
+  isLateCancellation,
+  toLocalDateKey,
+} from "@/lib/helpers/scheduling-rules";
 import { SessionConflictError } from "@/components/sessions/SessionConflictError";
 import type { Session, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -158,23 +167,25 @@ export function SessionFormDrawer({
   const [incompatibilityAcknowledged, setIncompatibilityAcknowledged] = useState(false);
   const [manualEarningMode, setManualEarningMode] = useState(false);
   const [manualEarningAcknowledged, setManualEarningAcknowledged] = useState(false);
+  const [scheduleAcknowledged, setScheduleAcknowledged] = useState(false);
+  const [lateCancelAcknowledged, setLateCancelAcknowledged] = useState(false);
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? `${initialData?.id ?? ""}|${preselectedStudentId ?? ""}` : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
-      setForm(
-        initialData
-          ? buildFromSession(initialData)
-          : preselectedStudentId
-          ? { ...EMPTY_FORM, studentId: preselectedStudentId }
-          : EMPTY_FORM
-      );
+      setForm(buildInitial());
       setLossAcknowledged(false);
       setIncompatibilityAcknowledged(false);
       setManualEarningMode(false);
       setManualEarningAcknowledged(false);
+      setScheduleAcknowledged(false);
+      setLateCancelAcknowledged(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id, preselectedStudentId]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -182,6 +193,7 @@ export function SessionFormDrawer({
   const selectedTeacher = form.teacherId
     ? store.teachers.find((t) => t.id === form.teacherId) ?? null
     : null;
+  const selectedTeacherId = selectedTeacher?.id ?? null;
 
   // ── Teacher change ─────────────────────────────────────────────────────────
   const handleTeacherChange = (teacherId: string) => {
@@ -216,8 +228,7 @@ export function SessionFormDrawer({
       // session that already exists, since this only runs from the form's own
       // Select onChange (see AGENTS §9: changing the EducationType default
       // later must not retroactively change existing sessions).
-      const defaultDuration =
-        getEducationTypeById(etId, store.educationTypes)?.defaultDurationMinutes ?? prev.durationMinutes;
+      const defaultDuration = getDefaultSessionDuration(etId, store.educationTypes, store.institutionSettings.sessions);
       if (teacher && !isTeacherAssignedToEducationType(teacher.id, etId, store.teacherEducationTypeAssignments)) {
         return {
           ...prev,
@@ -272,7 +283,6 @@ export function SessionFormDrawer({
     if (!startsAt || !form.studentId || !form.teacherId) {
       return { hasConflict: false, isDuplicate: false, conflictType: null, conflictingSessions: [], message: null };
     }
-    const sessionSettings = store.institutionSettings.sessions;
     return checkSessionConflict({
       sessions: store.sessions,
       studentId: form.studentId,
@@ -282,9 +292,7 @@ export function SessionFormDrawer({
       excludeSessionId: initialData?.id,
       educationTypeId: form.educationTypeId || undefined,
       fee: form.studentPrice,
-      preventStudentConflict: sessionSettings.preventStudentConflict,
-      preventTeacherConflict: sessionSettings.preventTeacherConflict,
-      blockPartialOverlap: sessionSettings.conflictBehavior === "block_full_and_partial",
+      ...getConflictOptions(store.institutionSettings),
     });
   }, [
     startsAt,
@@ -294,9 +302,34 @@ export function SessionFormDrawer({
     form.studentPrice,
     form.durationMinutes,
     store.sessions,
-    store.institutionSettings.sessions,
+    store.institutionSettings,
     initialData?.id,
   ]);
+
+  // ── Institution rules (Ayarlar → Seans / Takvim) ───────────────────────────
+  const sessionSettings = store.institutionSettings.sessions;
+  const durationError = getDurationError(form.durationMinutes, sessionSettings);
+  // Only judged when the date/time is being set — an untouched historical
+  // session isn't re-flagged just because the calendar settings changed since.
+  const scheduleChanged =
+    !isEditing || !initialData || new Date(initialData.date).getTime() !== new Date(startsAt ?? "").getTime();
+  const scheduleIssues =
+    startsAt && form.time && scheduleChanged
+      ? getScheduleIssues(new Date(startsAt), form.durationMinutes, store.institutionSettings.calendar)
+      : [];
+  const isNewlyCancelled = isEditing && form.status === "cancelled" && initialData?.status !== "cancelled";
+  const lateCancellation = isNewlyCancelled && !!startsAt && isLateCancellation(new Date(startsAt), sessionSettings);
+
+  const handleStatusChange = (status: SessionStatus) => {
+    setLateCancelAcknowledged(false);
+    setForm((prev) => {
+      // Ayarlar → Seans → Telafi Seansı Ücretlendirmesi: free makeups start at 0.
+      if (status === "makeup" && sessionSettings.makeupSessionBehavior === "non_billable") {
+        return { ...prev, status, studentPrice: 0 };
+      }
+      return { ...prev, status };
+    });
+  };
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = () => {
@@ -304,6 +337,9 @@ export function SessionFormDrawer({
     if (isLoss && !lossAcknowledged) return;
     if (isIncompatible && !incompatibilityAcknowledged) return;
     if (conflictResult.hasConflict) return;
+    if (durationError) return;
+    if (scheduleIssues.length > 0 && !scheduleAcknowledged) return;
+    if (lateCancellation && !lateCancelAcknowledged) return;
 
     const tenantId = initialData?.tenantId ?? "tenant-1";
     const id = initialData?.id ?? `session-${Date.now()}`;
@@ -384,7 +420,7 @@ export function SessionFormDrawer({
   // constrains NEW sessions; an existing session keeps whatever date it has.
   const minSessionDate =
     !isEditing && !store.institutionSettings.sessions.allowPastDateSessions
-      ? new Date().toISOString().slice(0, 10)
+      ? toLocalDateKey(new Date())
       : undefined;
   const showPreview = !!form.educationTypeId;
   const isBillable = BILLABLE_STATUSES.includes(form.status);
@@ -419,7 +455,8 @@ export function SessionFormDrawer({
     return base;
   }, [store.teachers, store.teacherEducationTypeAssignments, form.educationTypeId, form.teacherId]);
 
-  const filteredEducationTypeOptions = useMemo(() => {
+  // Cheap filter over a handful of types — computed inline, no memo needed.
+  const filteredEducationTypeOptions = (() => {
     // Active-only for new selections, but never drops an already-selected
     // inactive type (editing a historical session must keep it visible).
     const active = getActiveEducationTypes(store.educationTypes);
@@ -427,10 +464,10 @@ export function SessionFormDrawer({
       form.educationTypeId && !active.some((et) => et.id === form.educationTypeId)
         ? [...active, ...store.educationTypes.filter((et) => et.id === form.educationTypeId)]
         : active;
-    if (!form.teacherId || !selectedTeacher) return base;
-    const activeIds = getTeacherActiveEducationTypeIds(selectedTeacher.id, store.teacherEducationTypeAssignments);
+    if (!selectedTeacherId) return base;
+    const activeIds = getTeacherActiveEducationTypeIds(selectedTeacherId, store.teacherEducationTypeAssignments);
     return base.filter((et) => activeIds.includes(et.id));
-  }, [store.educationTypes, store.teacherEducationTypeAssignments, form.teacherId, form.educationTypeId, selectedTeacher]);
+  })();
 
   const studentOptions = useMemo(() => {
     const active = store.students.filter((s) => s.status !== "inactive");
@@ -464,7 +501,13 @@ export function SessionFormDrawer({
       description="Seans bilgilerini girin. Fiyatlar anlaşmaya göre otomatik hesaplanır."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Seans Ekle"}
-      saveDisabled={conflictResult.hasConflict || isLockedCompleted}
+      saveDisabled={
+        conflictResult.hasConflict ||
+        isLockedCompleted ||
+        !!durationError ||
+        (scheduleIssues.length > 0 && !scheduleAcknowledged) ||
+        (lateCancellation && !lateCancelAcknowledged)
+      }
     >
       <div className="space-y-5">
 
@@ -645,13 +688,40 @@ export function SessionFormDrawer({
           <Label htmlFor="session-duration">Süre (dakika)</Label>
           <NumericInput
             id="session-duration"
-            min={1}
+            min={sessionSettings.minDurationMinutes}
+            max={sessionSettings.maxDurationMinutes}
             integer
             value={form.durationMinutes}
             onValueChange={(v) => set("durationMinutes", v ?? 0)}
             className="w-28"
           />
+          {durationError && <p className="text-xs text-destructive">{durationError}</p>}
         </div>
+
+        {/* Takvim kuralları */}
+        {scheduleIssues.length > 0 && (
+          <div className="rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="space-y-0.5">
+                {scheduleIssues.map((issue) => (
+                  <p key={issue} className="text-xs text-amber-700 dark:text-amber-400">{issue}</p>
+                ))}
+              </div>
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={scheduleAcknowledged}
+                onChange={(e) => setScheduleAcknowledged(e.target.checked)}
+                className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
+              />
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Takvim dışı seansı onaylıyorum
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* Zamanlama çakışması */}
         <SessionConflictError
@@ -663,7 +733,7 @@ export function SessionFormDrawer({
 
         {/* Seans Ücreti */}
         <div className="space-y-1.5">
-          <Label htmlFor="student-price">Seans Ücreti (₺)</Label>
+          <Label htmlFor="student-price">Seans Ücreti ({getCurrencySymbol()})</Label>
           <NumericInput
             id="student-price"
             min={0}
@@ -677,7 +747,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <Label htmlFor="teacher-earning" className="flex items-center gap-1.5">
-              Öğretmen Hakedişi (₺)
+              Öğretmen Hakedişi ({getCurrencySymbol()})
               {hasCustomPrice && !manualEarningMode && (
                 <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary leading-none">
                   Özel
@@ -751,7 +821,7 @@ export function SessionFormDrawer({
         )}
 
         {/* Hakediş ayarı eksik uyarısı */}
-        {noCustomPriceWarning && !manualEarningMode && (
+        {noCustomPriceWarning && !manualEarningMode && store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
             <Info className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
             <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -782,7 +852,7 @@ export function SessionFormDrawer({
         {isEditing ? (
           <div className="space-y-1.5">
             <Label>Durum</Label>
-            <Select value={form.status} onValueChange={(val) => set("status", val as SessionStatus)}>
+            <Select value={form.status} onValueChange={(val) => handleStatusChange(val as SessionStatus)}>
               <SelectTrigger className="w-full">
                 <SelectValue>{statusDisplayLabel}</SelectValue>
               </SelectTrigger>
@@ -792,6 +862,41 @@ export function SessionFormDrawer({
                 ))}
               </SelectContent>
             </Select>
+            {form.status === "makeup" && sessionSettings.makeupSessionBehavior === "non_billable" && (
+              <p className="text-xs text-muted-foreground">
+                Kurum ayarlarına göre telafi seansları ücretsizdir; seans ücreti 0 olarak ayarlandı.
+              </p>
+            )}
+            {lateCancellation && (
+              <div className="rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Geç iptal</p>
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
+                      Seansa {sessionSettings.cancellationMinNoticeHours} saatten az kaldı. Kurum kuralına göre bu
+                      seans ücretsiz iptal edilemez; &quot;Gelmedi&quot; olarak işaretlenirse ücretlendirilir.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button type="button" size="sm" variant="outline" onClick={() => handleStatusChange("no_show")}>
+                    Gelmedi olarak işaretle
+                  </Button>
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={lateCancelAcknowledged}
+                      onChange={(e) => setLateCancelAcknowledged(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
+                    />
+                    <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Yine de ücretsiz iptal et
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
@@ -825,8 +930,8 @@ export function SessionFormDrawer({
                   Bu seans merkezin zarar etmesine neden olacaktır.
                 </p>
                 <p className="mt-0.5 text-xs text-destructive/80">
-                  Öğretmen hakedişi (₺{form.teacherEarningPrice.toLocaleString("tr-TR")}) seans
-                  ücretini (₺{form.studentPrice.toLocaleString("tr-TR")}) aşıyor.
+                  Öğretmen hakedişi ({formatCurrency(form.teacherEarningPrice)}) seans
+                  ücretini ({formatCurrency(form.studentPrice)}) aşıyor.
                 </p>
               </div>
             </div>

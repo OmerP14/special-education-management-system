@@ -47,6 +47,8 @@ import type {
   TeacherEarningCalculationStatus,
 } from "@/types";
 import { normalizeName } from "./import-match";
+import { getActiveSettings } from "@/lib/settings/runtime";
+import type { CurrencyCode, TeacherEarningsSettings } from "@/types/settings";
 import {
   getTeacherEducationAssignment,
   getTeacherActiveEducationTypeIds,
@@ -54,7 +56,129 @@ import {
 } from "./teacher-assignments";
 
 const BILLABLE_STATUSES: Session["status"][] = ["completed", "no_show", "makeup"];
-export const EARNING_STATUSES: Session["status"][] = ["completed", "makeup"];
+
+// ─── Teacher earning policy (Ayarlar → Öğretmen ve Hakediş) ─────────────────
+
+/** Share of a session's teacherEarning owed for its status under `policy`. */
+export function computeEarningFactor(status: SessionStatus, policy: TeacherEarningsSettings): number {
+  switch (status) {
+    case "completed":
+      return 1;
+    case "makeup":
+      return policy.makeupSessionEarningBehavior === "full" ? 1 : policy.makeupSessionEarningBehavior === "half" ? 0.5 : 0;
+    case "no_show":
+      return policy.noShowSessionEarning === "full" ? 1 : policy.noShowSessionEarning === "partial" ? 0.5 : 0;
+    case "cancelled":
+      return policy.cancelledSessionEarning === "partial" ? 0.5 : 0;
+    default:
+      return 0;
+  }
+}
+
+/** Stamps a session with the earning factor for its status under the given
+ *  policy — called whenever a session is created or its status saved. */
+export function withEarningFactor<T extends Session>(session: T, policy: TeacherEarningsSettings): T {
+  return { ...session, earningFactor: computeEarningFactor(session.status, policy) };
+}
+
+/** True when the session would earn but still waits for manager approval
+ *  ("Hakediş Oluşturma Anı: Yönetici onayladığında"). */
+export function isAwaitingEarningApproval(
+  session: Session,
+  policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
+): boolean {
+  if (policy.earningTriggerMoment !== "on_admin_approval") return false;
+  const base = session.earningFactor ?? computeEarningFactor(session.status, policy);
+  return base > 0 && !session.earningApprovedAt;
+}
+
+/** The weight (0–1) a session contributes to its teacher's earnings: the
+ *  stored factor for its status, or 0 while awaiting approval. */
+export function getSessionEarningFactor(
+  session: Session,
+  policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
+): number {
+  if (isAwaitingEarningApproval(session, policy)) return 0;
+  return session.earningFactor ?? computeEarningFactor(session.status, policy);
+}
+
+/** Whether a session counts toward its teacher's earnings at all. */
+export function isEarningSession(
+  session: Session,
+  policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
+): boolean {
+  return getSessionEarningFactor(session, policy) > 0;
+}
+
+/** Ayarlar → Öğretmen ve Hakediş → Yuvarlama Kuralı. "none" keeps kuruş. */
+export function roundEarning(
+  amount: number,
+  rule: TeacherEarningsSettings["earningRoundingRule"] = getActiveSettings().teacherEarnings.earningRoundingRule
+): number {
+  switch (rule) {
+    case "nearest_1":
+      return Math.round(amount);
+    case "nearest_5":
+      return Math.round(amount / 5) * 5;
+    case "nearest_10":
+      return Math.round(amount / 10) * 10;
+    default:
+      return Math.round(amount * 100) / 100;
+  }
+}
+
+/** Earning owed for one session (amount × count × status share, rounded). */
+export function getSessionEarningAmount(
+  session: Session,
+  policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
+): number {
+  return roundEarning(
+    session.teacherEarning * session.sessionCount * getSessionEarningFactor(session, policy),
+    policy.earningRoundingRule
+  );
+}
+
+/**
+ * Hakediş dönemi for a date — Ayarlar → Öğretmen ve Hakediş → Hakediş Dönemi
+ * Başlangıç Günü. With start day 15, 10 March belongs to the period that began
+ * 15 February, labeled February. Start day 1 is the plain calendar month.
+ */
+export function getEarningPeriod(date: string | Date): { year: number; month: number } {
+  const d = typeof date === "string" ? (date.includes("T") ? new Date(date) : parseDateOnly(date)) : date;
+  const startDay = getActiveSettings().teacherEarnings.payPeriodStartDay;
+  let year = d.getFullYear();
+  let month = d.getMonth() + 1;
+  if (startDay > 1 && d.getDate() < startDay) {
+    month -= 1;
+    if (month === 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return { year, month };
+}
+
+function isInEarningPeriod(date: string, year: number, month: number): boolean {
+  const p = getEarningPeriod(date);
+  return p.year === year && p.month === month;
+}
+
+function isBeforeEarningPeriod(date: string, year: number, month: number): boolean {
+  const p = getEarningPeriod(date);
+  return p.year < year || (p.year === year && p.month < month);
+}
+
+/** "Mart 2026", or "15 Mar – 14 Nis 2026" when periods don't start on the 1st. */
+export function getEarningPeriodLabel(year: number, month: number): string {
+  const startDay = getActiveSettings().teacherEarnings.payPeriodStartDay;
+  if (startDay <= 1) {
+    return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  }
+  const start = new Date(year, month - 1, startDay);
+  const end = new Date(year, month, startDay - 1);
+  const fmt = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "short" });
+  return `${fmt.format(start)} – ${fmt.format(end)} ${end.getFullYear()}`;
+}
 
 /** The single source of truth for "does this session count toward student/
  *  guardian debt, tahakkuk, or receivables". A session must both be in a
@@ -149,7 +273,7 @@ export function getTeacherPendingEarnings(
 
 export function getTeacherCompletedSessions(teacherId: string, sessions: Session[]): number {
   return sessions.filter(
-    (s) => s.teacherId === teacherId && EARNING_STATUSES.includes(s.status)
+    (s) => s.teacherId === teacherId && isEarningSession(s)
   ).length;
 }
 
@@ -251,12 +375,48 @@ export function buildTeacherSummaries(
   }));
 }
 
+const CURRENCY_SYMBOLS: Record<CurrencyCode, string> = {
+  TRY: "₺",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
+/** Symbol for the institution's currency (Ayarlar → Finans) — for input labels like "Tutar (₺)". */
+export function getCurrencySymbol(): string {
+  return CURRENCY_SYMBOLS[getActiveSettings().finance.currency] ?? "₺";
+}
+
+const numberFormatterCache = new Map<string, Intl.NumberFormat>();
+
+function getNumberFormatter(locale: string, maximumFractionDigits: number): Intl.NumberFormat {
+  const key = `${locale}|${maximumFractionDigits}`;
+  let formatter = numberFormatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { minimumFractionDigits: 0, maximumFractionDigits });
+    numberFormatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
+/** Locale implied by Ayarlar → Güvenlik ve Sistem → Sayı Formatı. */
+function getNumberLocale(): string {
+  return getActiveSettings().security.numberFormat === "1,234.56" ? "en-US" : "tr-TR";
+}
+
+/** Plain number with the institution's thousands/decimal separators. */
+export function formatNumber(value: number, maximumFractionDigits = 2): string {
+  return getNumberFormatter(getNumberLocale(), maximumFractionDigits).format(value);
+}
+
+/** Money in the institution's currency, symbol position and number format
+ *  (Ayarlar → Finans / Güvenlik ve Sistem). */
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("tr-TR", {
-    style: "currency",
-    currency: "TRY",
-    minimumFractionDigits: 0,
-  }).format(amount);
+  const { currencySymbolPosition } = getActiveSettings().finance;
+  const symbol = getCurrencySymbol();
+  const number = formatNumber(Math.abs(amount));
+  const sign = amount < 0 ? "-" : "";
+  return currencySymbolPosition === "after" ? `${sign}${number} ${symbol}` : `${sign}${symbol}${number}`;
 }
 
 /** Imported/hand-entered data can carry a malformed or empty date string (a bad
@@ -296,7 +456,13 @@ export function formatDateTime(dateStr: string | null | undefined): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: is12HourClock(),
   }).format(d);
+}
+
+/** Ayarlar → Takvim → Saat Formatı. */
+export function is12HourClock(): boolean {
+  return getActiveSettings().calendar.timeFormat === "12h";
 }
 
 export function formatTime(dateStr: string | null | undefined): string {
@@ -305,7 +471,26 @@ export function formatTime(dateStr: string | null | undefined): string {
   return new Intl.DateTimeFormat("tr-TR", {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: is12HourClock(),
   }).format(d);
+}
+
+/** "HH:mm" (24h, as stored in settings/forms) rendered in the configured clock format. */
+export function formatClock(hhmm: string): string {
+  if (!is12HourClock()) return hhmm;
+  const [h, m] = hhmm.split(":").map(Number);
+  if (h === undefined || m === undefined || Number.isNaN(h) || Number.isNaN(m)) return hhmm;
+  const suffix = h < 12 ? "ÖÖ" : "ÖS";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/** Hour label for calendar grids ("09:00" or "9 ÖÖ"). */
+export function formatHourLabel(hour: number): string {
+  if (!is12HourClock()) return `${String(hour).padStart(2, "0")}:00`;
+  const suffix = hour < 12 || hour === 24 ? "ÖÖ" : "ÖS";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12} ${suffix}`;
 }
 
 /** "06.07.2026" — day.month.year, for report "Tarih" columns. Handles both full ISO
@@ -317,7 +502,16 @@ export function formatDateDMY(dateStr: string | null | undefined): string {
   if (!isValidDate(d)) return invalidDateFallback(raw);
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
-  return `${day}.${month}.${d.getFullYear()}`;
+  const year = d.getFullYear();
+  // Ayarlar → Belge ve Görünüm → Tarih Formatı (reports, exports, receipts).
+  switch (getActiveSettings().documents.dateFormat) {
+    case "DD/MM/YYYY":
+      return `${day}/${month}/${year}`;
+    case "YYYY-MM-DD":
+      return `${year}-${month}-${day}`;
+    default:
+      return `${day}.${month}.${year}`;
+  }
 }
 
 // ─── Student-specific helpers ──────────────────────────────────────────────────
@@ -538,6 +732,7 @@ export function buildStudentListItems(
       id: student.id,
       tenantId: student.tenantId,
       fullName: student.fullName,
+      studentNumber: student.studentNumber,
       birthDate: student.birthDate,
       status: student.status,
       notes: student.notes,
@@ -765,9 +960,8 @@ export function buildTeacherDetail(
   const teacher = teachers.find((t) => t.id === teacherId);
   if (!teacher) return null;
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  // Current hakediş dönemi (calendar month unless payPeriodStartDay > 1).
+  const { year, month } = getEarningPeriod(new Date());
 
   const activeIds = getTeacherActiveEducationTypeIds(teacherId, assignments);
   const educationTypeNames = [
@@ -846,22 +1040,22 @@ export function buildStudentDetail(
 
 // ─── Session timing constants ──────────────────────────────────────────────────
 
+/** Fallback for sessions stored without a duration (very old/imported rows). */
 export const DEFAULT_SESSION_DURATION_MINUTES = 40;
-export const AUTO_COMPLETE_GRACE_MINUTES = 5;
 
 /**
  * Returns the display status for a session.
- * For planned sessions that have started but not yet reached the auto-complete
- * threshold (start + duration), returns "in_progress" as a display-only value.
+ * For planned sessions that are currently running (start → start + duration),
+ * returns "in_progress" as a display-only value.
  */
 export function getSessionDisplayStatus(
-  session: Pick<Session, "status" | "date">,
+  session: Pick<Session, "status" | "date"> & { durationMinutes?: number },
   now: Date = new Date()
 ): SessionStatus | "in_progress" {
   if (session.status !== "planned") return session.status;
   const start = new Date(session.date);
   const end = new Date(
-    start.getTime() + DEFAULT_SESSION_DURATION_MINUTES * 60_000
+    start.getTime() + (session.durationMinutes || DEFAULT_SESSION_DURATION_MINUTES) * 60_000
   );
   if (now >= start && now < end) return "in_progress";
   return "planned";
@@ -940,7 +1134,7 @@ export function resolveTeacherSessionEarning(params: {
       );
     case "percentage":
       return resolved(
-        Math.round((sessionFee * (teacher.earningPercentage ?? 0)) / 100),
+        roundEarning((sessionFee * (teacher.earningPercentage ?? 0)) / 100),
         "teacher_percentage",
         `Öğrenci seans ücretinin %${teacher.earningPercentage ?? 0}'i.`
       );
@@ -1055,7 +1249,7 @@ export function buildEarningRecalculationPreview(
     .filter(
       (s) =>
         s.teacherId === teacher.id &&
-        EARNING_STATUSES.includes(s.status) &&
+        isEarningSession(s) &&
         resolveTeacherEarningStatus(s, teacher, assignments) === "unknown"
     )
     .map((s) => {
@@ -1106,13 +1300,14 @@ export function calculateTeacherMonthlyPayable(
   year: number,
   month: number
 ): number {
-  const earningSessions = sessions.filter((s) => {
-    if (s.teacherId !== teacher.id) return false;
-    if (!EARNING_STATUSES.includes(s.status)) return false;
-    const d = new Date(s.date);
-    return d.getFullYear() === year && d.getMonth() + 1 === month;
-  });
-  const totalSessionCount = earningSessions.reduce((sum, s) => sum + s.sessionCount, 0);
+  const earningSessions = sessions.filter(
+    (s) => s.teacherId === teacher.id && isEarningSession(s) && isInEarningPeriod(s.date, year, month)
+  );
+  // Partial/half sessions count proportionally toward the quota.
+  const totalSessionCount = earningSessions.reduce(
+    (sum, s) => sum + s.sessionCount * getSessionEarningFactor(s),
+    0
+  );
 
   switch (teacher.earningType) {
     case "monthly_salary":
@@ -1120,18 +1315,25 @@ export function calculateTeacherMonthlyPayable(
     case "salary_plus_quota": {
       const salary = teacher.monthlySalary ?? 0;
       const quota = teacher.includedSessionQuota ?? 0;
-      const rate = teacher.extraSessionEarning ?? 0;
       const extra = Math.max(0, totalSessionCount - quota);
-      return salary + extra * rate;
+      // Ayarlar → Öğretmen ve Hakediş → Kota Üstü Davranış
+      const { postQuotaBehavior } = getActiveSettings().teacherEarnings;
+      const rate =
+        postQuotaBehavior === "no_extra"
+          ? 0
+          : postQuotaBehavior === "same_rate"
+            ? quota > 0 ? salary / quota : 0
+            : teacher.extraSessionEarning ?? 0;
+      return roundEarning(salary + extra * rate);
     }
     case "percentage":
       return earningSessions.reduce((sum, s) => {
         const pct = teacher.earningPercentage ?? 0;
-        return sum + Math.round(s.studentPrice * pct / 100) * s.sessionCount;
+        return sum + roundEarning((s.studentPrice * pct) / 100) * s.sessionCount * getSessionEarningFactor(s);
       }, 0);
     case "per_session":
     default:
-      return earningSessions.reduce((sum, s) => sum + s.teacherEarning * s.sessionCount, 0);
+      return earningSessions.reduce((sum, s) => sum + getSessionEarningAmount(s), 0);
   }
 }
 
@@ -1143,13 +1345,13 @@ function getTeacherEarningMonths(
 ): { year: number; month: number }[] {
   const seen = new Set<string>();
   sessions
-    .filter((s) => s.teacherId === teacherId && EARNING_STATUSES.includes(s.status))
+    .filter((s) => s.teacherId === teacherId && isEarningSession(s))
     .forEach((s) => {
-      const d = new Date(s.date);
-      seen.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+      const p = getEarningPeriod(s.date);
+      seen.add(`${p.year}-${p.month}`);
     });
-  const now = new Date();
-  seen.add(`${now.getFullYear()}-${now.getMonth() + 1}`);
+  const current = getEarningPeriod(new Date());
+  seen.add(`${current.year}-${current.month}`);
 
   return [...seen].map((key) => {
     const [year, month] = key.split("-").map(Number);
@@ -1198,7 +1400,7 @@ function countUnknownEarningSessions(
   return sessions.filter(
     (s) =>
       s.teacherId === teacher.id &&
-      EARNING_STATUSES.includes(s.status) &&
+      isEarningSession(s) &&
       isInScope(s) &&
       resolveTeacherEarningStatus(s, teacher, assignments) === "unknown"
   ).length;
@@ -1301,10 +1503,9 @@ export function getTeacherMonthEarningTotals(
   }
 
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
-  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) => {
-    const d = new Date(s.date);
-    return d.getFullYear() === year && d.getMonth() + 1 === month;
-  });
+  const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) =>
+    isInEarningPeriod(s.date, year, month)
+  );
   return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning, unknownSessionCount };
 }
 
@@ -1323,14 +1524,9 @@ export function getTeacherMonthAccountSummary(
   month: number,
   assignments: TeacherEducationTypeAssignment[] = []
 ): TeacherMonthAccountSummary {
-  const isBeforeMonth = (dateStr: string) => {
-    const d = parseDateOnly(dateStr);
-    return d.getFullYear() < year || (d.getFullYear() === year && d.getMonth() + 1 < month);
-  };
-  const isInMonth = (dateStr: string) => {
-    const d = parseDateOnly(dateStr);
-    return d.getFullYear() === year && d.getMonth() + 1 === month;
-  };
+  // Hakediş dönemi (payPeriodStartDay) — the plain calendar month when it's 1.
+  const isBeforeMonth = (dateStr: string) => isBeforeEarningPeriod(dateStr, year, month);
+  const isInMonth = (dateStr: string) => isInEarningPeriod(dateStr, year, month);
 
   const thisMonthEarning = calculateTeacherMonthlyPayable(teacher, sessions, year, month);
 
@@ -1369,7 +1565,7 @@ export function getTeacherMonthAccountSummary(
   const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments, (s) => isInMonth(s.date));
 
   const earningSessions = sessions.filter(
-    (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
+    (s) => s.teacherId === teacher.id && isEarningSession(s)
   );
   const lastSessionDate =
     earningSessions.length === 0
@@ -1421,12 +1617,13 @@ export function getTeacherEarningTotalsForRange(
 
   const seen = new Set<string>();
   sessions
-    .filter((s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status))
+    .filter((s) => s.teacherId === teacher.id && isEarningSession(s))
     .forEach((s) => {
       const d = new Date(s.date);
       if (start && d < start) return;
       if (end && d > end) return;
-      seen.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+      const p = getEarningPeriod(d);
+      seen.add(`${p.year}-${p.month}`);
     });
 
   // Every calendar month the range spans, so a salary teacher still shows up even with
@@ -1498,13 +1695,8 @@ export function getTeacherIncludedQuotaUsage(
   if (teacher.earningType !== "salary_plus_quota") return 0;
   const quota = teacher.includedSessionQuota ?? 0;
   const total = sessions
-    .filter((s) => {
-      if (s.teacherId !== teacher.id) return false;
-      if (!EARNING_STATUSES.includes(s.status)) return false;
-      const d = new Date(s.date);
-      return d.getFullYear() === year && d.getMonth() + 1 === month;
-    })
-    .reduce((sum, s) => sum + s.sessionCount, 0);
+    .filter((s) => s.teacherId === teacher.id && isEarningSession(s) && isInEarningPeriod(s.date, year, month))
+    .reduce((sum, s) => sum + s.sessionCount * getSessionEarningFactor(s), 0);
   return Math.min(total, quota);
 }
 
@@ -1517,13 +1709,8 @@ export function getTeacherExtraSessionCount(
   if (teacher.earningType !== "salary_plus_quota") return 0;
   const quota = teacher.includedSessionQuota ?? 0;
   const total = sessions
-    .filter((s) => {
-      if (s.teacherId !== teacher.id) return false;
-      if (!EARNING_STATUSES.includes(s.status)) return false;
-      const d = new Date(s.date);
-      return d.getFullYear() === year && d.getMonth() + 1 === month;
-    })
-    .reduce((sum, s) => sum + s.sessionCount, 0);
+    .filter((s) => s.teacherId === teacher.id && isEarningSession(s) && isInEarningPeriod(s.date, year, month))
+    .reduce((sum, s) => sum + s.sessionCount * getSessionEarningFactor(s), 0);
   return Math.max(0, total - quota);
 }
 
@@ -1893,7 +2080,7 @@ export function buildTeacherEarningOverviewItems(
     .map((teacher) => {
       const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments);
       const earningCount = sessions.filter(
-        (s) => s.teacherId === teacher.id && EARNING_STATUSES.includes(s.status)
+        (s) => s.teacherId === teacher.id && isEarningSession(s)
       ).length;
       return {
         teacherId: teacher.id,
@@ -1947,14 +2134,7 @@ export function buildMonthlyTeacherEarningSummary(
   month: number,
   assignments: TeacherEducationTypeAssignment[] = []
 ): MonthlyTeacherEarningSummary[] {
-  const inMonthSessions = sessions.filter((s) => {
-    const d = new Date(s.date);
-    return (
-      d.getFullYear() === year &&
-      d.getMonth() + 1 === month &&
-      EARNING_STATUSES.includes(s.status)
-    );
-  });
+  const inMonthSessions = sessions.filter((s) => isEarningSession(s) && isInEarningPeriod(s.date, year, month));
 
   // Include salary teachers unconditionally, per-session/percentage only if they have sessions
   const relevantTeachers = teachers.filter((t) => {
@@ -2034,7 +2214,7 @@ export function buildTeacherReportRows(
         endDate,
         assignments
       );
-      const earningSessions = teacherSessions.filter((s) => EARNING_STATUSES.includes(s.status));
+      const earningSessions = teacherSessions.filter((s) => isEarningSession(s));
       const lastSessionDate =
         earningSessions.length === 0
           ? null

@@ -37,11 +37,7 @@ import {
   formatDate,
 } from "@/lib/helpers/finance";
 import { normalizeName } from "@/lib/helpers/import-match";
-import {
-  buildInstallmentRows,
-  getIntervalLabel,
-  getInstallmentDisplayStatus,
-} from "@/lib/helpers/installments";
+import { buildInstallmentRows } from "@/lib/helpers/installments";
 import type {
   Payment,
   PaymentListItem,
@@ -52,6 +48,10 @@ import type {
   Student,
 } from "@/types";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { hasPermission } from "@/lib/auth/permissions";
+import { printPaymentReceipt } from "@/lib/helpers/export";
 
 // ─── Debt status badge (local — avoids collision with EarningStatus "paid") ───
 
@@ -493,6 +493,9 @@ function InstallmentTable({
 
 export default function PaymentsPage() {
   const store = useMockStore();
+  const confirm = useConfirm();
+  const { permissions } = useAuth();
+  const canEditPayments = hasPermission(permissions, "finance.student_payments.edit");
   const scope = useUserScope();
 
   // Guardian: linked children + their payments/installments only. Teacher:
@@ -640,19 +643,47 @@ export default function PaymentsPage() {
     }
   };
 
+  const handlePrintReceipt = async (row: PaymentListItem) => {
+    const payment = scopedPayments.find((p) => p.id === row.id);
+    if (!payment) return;
+    const ok = await confirm({
+      kind: "export",
+      title: "Makbuz yazdırılsın mı?",
+      description: "Makbuz, öğrenci ve veli bilgilerini içeren bir belge olarak açılacak.",
+      confirmLabel: "Yazdır",
+    });
+    if (!ok) return;
+    printPaymentReceipt({
+      payment,
+      studentName: row.studentName,
+      guardianName: row.guardianName ?? undefined,
+    });
+  };
+
   const editColumnEntry: Column<PaymentListItem> = {
     key: "action",
     header: "",
     render: (row) => (
-      <button
-        className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-        onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
-      >
-        Düzenle
-      </button>
+      <div className="flex items-center justify-end gap-3">
+        <button
+          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => { e.stopPropagation(); void handlePrintReceipt(row); }}
+          title={store.payments.find((p) => p.id === row.id)?.receiptNumber ?? "Makbuz"}
+        >
+          Makbuz
+        </button>
+        {canEditPayments && (
+          <button
+            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+          >
+            Düzenle
+          </button>
+        )}
+      </div>
     ),
-    className: "text-right w-16",
-    headerClassName: "text-right w-16",
+    className: "text-right w-32",
+    headerClassName: "text-right w-32",
   };
 
   const columnsWithEdit: Column<PaymentListItem>[] = [...columns, editColumnEntry];
@@ -1009,7 +1040,18 @@ export default function PaymentsPage() {
             </div>
             <InstallmentTable
               rows={filteredInstallmentRows}
-              onMarkPaid={store.markInstallmentPaid}
+              onMarkPaid={async (planId: string, installmentId: string) => {
+                if (
+                  await confirm({
+                    kind: "financial",
+                    title: "Taksit ödendi olarak işaretlensin mi?",
+                    description: "Bu işlem öğrencinin hesabına bir ödeme kaydı ekler.",
+                    confirmLabel: "Ödendi İşaretle",
+                  })
+                ) {
+                  store.markInstallmentPaid(planId, installmentId);
+                }
+              }}
               highlightOverdue={store.institutionSettings.finance.highlightOverdueInstallments}
             />
           </div>

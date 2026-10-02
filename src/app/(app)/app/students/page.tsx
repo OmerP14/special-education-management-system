@@ -63,22 +63,32 @@ export default function StudentsPage() {
         store.payments,
         store.openingBalances
       ),
-    [scopedStudents, store.guardians, store.teachers, store.sessions, store.payments, store.openingBalances]
+    [scopedStudents, store.guardians, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
   );
+
+  // Ayarlar → Öğrenci ve Veli: inactive students hidden or greyed out; debt
+  // warning above Ayarlar → Finans → Öğrenci Borç Uyarı Eşiği.
+  const { inactiveStudentBehavior, debtWarningEnabled } = store.institutionSettings.students;
+  const debtThreshold = store.institutionSettings.finance.studentDebtWarningThreshold;
+  const isOverDebtThreshold = (debt: number) => debtWarningEnabled && debt > 0 && debt >= debtThreshold;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allItems.filter((item) => {
+      if (inactiveStudentBehavior === "hide" && item.status === "inactive" && statusFilter !== "inactive") {
+        return false;
+      }
       const matchesSearch =
         !q ||
         item.fullName.toLowerCase().includes(q) ||
+        (item.studentNumber?.toLowerCase().includes(q) ?? false) ||
         item.primaryGuardian?.fullName.toLowerCase().includes(q) ||
         item.primaryGuardian?.phone.includes(q);
       const matchesStatus =
         statusFilter === "all" || item.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [allItems, search, statusFilter]);
+  }, [allItems, search, statusFilter, inactiveStudentBehavior]);
 
   const activeCount = allItems.filter((s) => s.status === "active").length;
   const onHoldCount = allItems.filter((s) => s.status === "on_hold").length;
@@ -112,7 +122,12 @@ export default function StudentsPage() {
               {initialsOf(row.fullName)}
             </AvatarFallback>
           </Avatar>
-          <span className="truncate">{row.fullName}</span>
+          <span className="min-w-0">
+            <span className="block truncate">{row.fullName}</span>
+            {row.studentNumber && (
+              <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">{row.studentNumber}</span>
+            )}
+          </span>
         </Link>
       ),
     },
@@ -204,10 +219,15 @@ export default function StudentsPage() {
       render: (row) => (
         <span
           className={cn(
-            "tabular-nums font-semibold",
+            "inline-flex items-center justify-end gap-1 tabular-nums font-semibold",
             row.totalDebt > 0 ? "text-destructive" : "text-muted-foreground"
           )}
         >
+          {isOverDebtThreshold(row.totalDebt) && (
+            <AlertCircle className="h-3.5 w-3.5">
+              <title>Borç uyarı eşiğini ({formatCurrency(debtThreshold)}) aşıyor</title>
+            </AlertCircle>
+          )}
           {formatCurrency(row.totalDebt)}
         </span>
       ),
@@ -286,7 +306,7 @@ export default function StudentsPage() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Öğrenci veya veli ara…"
+              placeholder="Öğrenci, numara veya veli ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-9 text-sm"
@@ -315,6 +335,9 @@ export default function StudentsPage() {
           data={filtered}
           columns={columns}
           keyExtractor={(s) => s.id}
+          rowClassName={(s) =>
+            inactiveStudentBehavior === "show_greyed" && s.status === "inactive" ? "opacity-50" : undefined
+          }
           emptyTitle={
             search || statusFilter !== "all"
               ? "Eşleşen öğrenci bulunamadı"

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { FileSpreadsheet, DownloadCloud, DatabaseBackup, RotateCcw, AlertTriangle } from "lucide-react";
 import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
-import { useMockStore } from "@/lib/mock/store";
+import { useMockStore, type PersistedState } from "@/lib/mock/store";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,21 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { formatDateTime } from "@/lib/helpers/finance";
+import {
+  formatDateDMY,
+  formatDateTime,
+  formatTime,
+  getPaymentMethodLabel,
+  getSessionStatusLabel,
+  getStudentDebt,
+  getStudentStatusLabel,
+  getTeacherPaymentModelLabel,
+  getTeacherStatusLabel,
+} from "@/lib/helpers/finance";
+import { downloadBlob, downloadCsv } from "@/lib/helpers/export";
+import { buildBackupFile, loadAutoBackups, parseBackupFile } from "@/lib/mock/persistence";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Dangerous action confirmation ──────────────────────────────────────────
 
@@ -125,53 +139,154 @@ function ActionCard({
   );
 }
 
+type ExportKind = "students" | "guardians" | "teachers" | "sessions" | "payments";
+
+const EXPORT_LABELS: Record<ExportKind, string> = {
+  students: "Öğrenciler",
+  guardians: "Veliler",
+  teachers: "Öğretmenler",
+  sessions: "Seanslar",
+  payments: "Ödemeler",
+};
+
 function DataManagementContent() {
   const store = useMockStore();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const actorName = user?.name ?? "Bilinmeyen kullanıcı";
   const { dataManagement } = store.institutionSettings;
-  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<{ data: PersistedState; label: string } | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [autoBackups, setAutoBackups] = useState(() => loadAutoBackups<PersistedState>());
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+  const showToast = (text: string, tone: "success" | "error" = "success") => {
+    setToast({ tone, text });
+    setTimeout(() => setToast(null), 4000);
   };
 
   const handleBackup = () => {
-    store.updateSettingsSection("dataManagement", {
-      ...dataManagement,
-      lastBackupAt: new Date().toISOString(),
-      backupCount: dataManagement.backupCount + 1,
-    });
-    store.logAuditEvent({
-      userName: actorName,
-      action: "backup_created",
-      module: "data",
-      recordLabel: "Manuel yedek",
-    });
-    showToast("Yedek alındı (mock — dosya üretilmez).");
+    const stamp = new Date();
+    const name = `yedek-${toLocalDateKey(stamp)}-${String(stamp.getHours()).padStart(2, "0")}${String(stamp.getMinutes()).padStart(2, "0")}.json`;
+    downloadBlob(
+      name,
+      new Blob([JSON.stringify(buildBackupFile(store.getBackupSnapshot()))], { type: "application/json" })
+    );
+    store.recordBackup();
+    store.logAuditEvent({ userName: actorName, action: "backup_created", module: "data", recordLabel: name });
+    showToast("Yedek dosyası indirildi.");
   };
 
-  const handleExport = (label: string) => {
+  const handleFileChosen = async (file: File | undefined) => {
+    if (!file) return;
+    const parsed = parseBackupFile<PersistedState>(await file.text());
+    if ("error" in parsed) {
+      showToast(parsed.error, "error");
+      return;
+    }
+    setPendingRestore({
+      data: parsed.data,
+      label: `${file.name}${parsed.createdAt ? ` (${formatDateTime(parsed.createdAt)})` : ""}`,
+    });
+  };
+
+  const handleRestore = () => {
+    if (!pendingRestore) return;
+    const error = store.restoreBackup(pendingRestore.data);
+    if (error) showToast(error, "error");
+    else showToast(`Yedek geri yüklendi: ${pendingRestore.label}`);
+    setPendingRestore(null);
+  };
+
+  const handleExport = async (kind: ExportKind) => {
+    const ok = await confirm({
+      kind: "export",
+      title: `${EXPORT_LABELS[kind]} dışa aktarılsın mı?`,
+      description: "Dosya kişisel veriler içerir; yalnızca yetkili kişilerle paylaşın.",
+      confirmLabel: "Dışa Aktar",
+    });
+    if (!ok) return;
+    const date = toLocalDateKey(new Date());
+    const nameOf = <T extends { id: string; fullName: string }>(list: T[], id: string) =>
+      list.find((x) => x.id === id)?.fullName ?? "";
+    if (kind === "students") {
+      downloadCsv(
+        `ogrenciler-${date}.csv`,
+        ["Öğrenci No", "Ad Soyad", "Doğum Tarihi", "Durum", "Veli", "Veli Telefonu", "Eğitim Türleri", "Kalan Borç"],
+        store.students.map((s) => {
+          const guardian = store.guardians.find((g) => g.id === s.guardianIds[0]);
+          return [
+            s.studentNumber ?? "",
+            s.fullName,
+            s.birthDate ? formatDateDMY(s.birthDate) : "",
+            getStudentStatusLabel(s.status),
+            guardian?.fullName ?? "",
+            guardian?.phone ?? "",
+            s.educationTypeIds.map((id) => store.educationTypes.find((e) => e.id === id)?.name ?? "").join(", "),
+            getStudentDebt(s.id, store.sessions, store.payments, store.openingBalances),
+          ];
+        })
+      );
+    } else if (kind === "guardians") {
+      downloadCsv(
+        `veliler-${date}.csv`,
+        ["Ad Soyad", "Yakınlık", "Telefon", "E-posta", "Adres", "Öğrenciler"],
+        store.guardians.map((g) => [
+          g.fullName,
+          g.relationship,
+          g.phone,
+          g.email ?? "",
+          g.address ?? "",
+          g.studentIds.map((id) => nameOf(store.students, id)).join(", "),
+        ])
+      );
+    } else if (kind === "teachers") {
+      downloadCsv(
+        `ogretmenler-${date}.csv`,
+        ["Ad Soyad", "Telefon", "E-posta", "Durum", "Hakediş Modeli"],
+        store.teachers.map((t) => [t.fullName, t.phone, t.email ?? "", getTeacherStatusLabel(t.status), getTeacherPaymentModelLabel(t)])
+      );
+    } else if (kind === "sessions") {
+      downloadCsv(
+        `seanslar-${date}.csv`,
+        ["Tarih", "Saat", "Öğrenci", "Öğretmen", "Eğitim Türü", "Süre (dk)", "Durum", "Ücret", "Öğretmen Hakedişi"],
+        [...store.sessions]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((s) => [
+            formatDateDMY(s.date),
+            formatTime(s.date),
+            nameOf(store.students, s.studentId),
+            nameOf(store.teachers, s.teacherId),
+            store.educationTypes.find((e) => e.id === s.educationTypeId)?.name ?? "",
+            s.durationMinutes,
+            getSessionStatusLabel(s.status),
+            s.studentPrice * s.sessionCount,
+            s.teacherEarning * s.sessionCount,
+          ])
+      );
+    } else {
+      downloadCsv(
+        `odemeler-${date}.csv`,
+        ["Makbuz No", "Tarih", "Öğrenci", "Tutar", "Yöntem", "Açıklama"],
+        [...store.payments]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((p) => [
+            p.receiptNumber ?? "",
+            formatDateDMY(p.date),
+            nameOf(store.students, p.studentId),
+            p.amount,
+            getPaymentMethodLabel(p.method),
+            p.notes ?? "",
+          ])
+      );
+    }
     store.logAuditEvent({
       userName: actorName,
       action: "data_exported",
       module: "data",
-      recordLabel: label,
+      recordLabel: `${EXPORT_LABELS[kind]} (CSV)`,
     });
-    showToast(`${label} dışa aktarıldı (mock).`);
-  };
-
-  const handleRestore = () => {
-    store.logAuditEvent({
-      userName: actorName,
-      action: "backup_restored",
-      module: "data",
-      recordLabel: `Son yedek (${dataManagement.lastBackupAt ? formatDateTime(dataManagement.lastBackupAt) : "yok"})`,
-    });
-    showToast("Geri yükleme başlatıldı (mock — bu ortamda gerçek veri değişmez).");
   };
 
   const handleReset = () => {
@@ -181,21 +296,28 @@ function DataManagementContent() {
 
   const toggleAutoBackup = (v: boolean) => {
     store.updateSettingsSection("dataManagement", { ...dataManagement, autoBackupEnabled: v });
+    if (v) setTimeout(() => setAutoBackups(loadAutoBackups<PersistedState>()), 500);
   };
 
   return (
     <div className="space-y-4">
       {toast && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400">
-          {toast}
+        <div
+          className={
+            toast.tone === "success"
+              ? "rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400"
+              : "rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm font-medium text-destructive"
+          }
+        >
+          {toast.text}
         </div>
       )}
 
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-base font-semibold text-foreground">Excel ve Veri Yönetimi</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          İçe aktarım, dışa aktarım, yedekleme ve veri sıfırlama. Yedekleme/geri yükleme/dışa aktarma bu ortamda
-          mock işlemlerdir — İşlem Geçmişi&apos;ne kaydedilir ancak gerçek dosya üretmez.
+          İçe aktarım, dışa aktarım, yedekleme ve veri sıfırlama. Veriler bu tarayıcıda saklandığından düzenli yedek
+          almanız önerilir — yedek dosyası tüm kayıtları ve ayarları içerir.
         </p>
       </div>
 
@@ -213,14 +335,16 @@ function DataManagementContent() {
         <ActionCard
           icon={DownloadCloud}
           title="Dışa Aktarım"
-          description="Mevcut verileri CSV/PDF olarak dışa aktarın (mock — dosya indirilmez, işlem geçmişine kaydedilir)."
+          description="Kayıtları Excel'de açılabilen CSV dosyası olarak indirin. Finansal PDF raporları Raporlar sayfasındadır."
         >
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => handleExport("Öğrenciler (CSV)")}>
-              Öğrenciler (CSV)
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleExport("Finans Raporu (PDF)")}>
-              Finans Raporu (PDF)
+            {(Object.keys(EXPORT_LABELS) as ExportKind[]).map((kind) => (
+              <Button key={kind} size="sm" variant="outline" onClick={() => void handleExport(kind)}>
+                {EXPORT_LABELS[kind]}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" render={<Link href="/app/reports" />}>
+              Raporlar (PDF)
             </Button>
           </div>
         </ActionCard>
@@ -236,16 +360,46 @@ function DataManagementContent() {
         >
           <div className="flex flex-wrap items-center gap-3">
             <Button size="sm" onClick={handleBackup}>
-              Şimdi Yedek Al
+              Yedek Dosyası İndir
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setRestoreOpen(true)}>
-              Geri Yükle
+            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+              Dosyadan Geri Yükle
             </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                void handleFileChosen(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
-            <p className="text-xs text-foreground">Otomatik yedeklemeyi etkinleştir</p>
+            <div>
+              <p className="text-xs text-foreground">Otomatik yedeklemeyi etkinleştir</p>
+              <p className="text-[11px] text-muted-foreground">Bu tarayıcıda günde bir yedek tutulur (son 3 gün).</p>
+            </div>
             <Switch checked={dataManagement.autoBackupEnabled} onCheckedChange={toggleAutoBackup} />
           </div>
+          {autoBackups.length > 0 && (
+            <div className="mt-2 divide-y divide-border/60 rounded-lg border border-border/60">
+              {autoBackups.map((b) => (
+                <div key={b.createdAt} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <span className="text-xs tabular-nums text-muted-foreground">{formatDateTime(b.createdAt)}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setPendingRestore({ data: b.data, label: `Otomatik yedek (${formatDateTime(b.createdAt)})` })}
+                  >
+                    Geri Yükle
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </ActionCard>
 
         <ActionCard
@@ -260,11 +414,15 @@ function DataManagementContent() {
       </div>
 
       <TypedConfirmDialog
-        open={restoreOpen}
-        onOpenChange={setRestoreOpen}
+        open={!!pendingRestore}
+        onOpenChange={(open) => !open && setPendingRestore(null)}
         title="Yedeği Geri Yükle"
-        description="Bu işlem, mevcut verilerin üzerine en son yedeği geri yükler."
-        impact={["Son yedekten sonra yapılan tüm değişiklikler kaybolur", "Bu ortamda gerçek veri değişmez (mock)"]}
+        description={`Mevcut tüm veriler şu yedekle değiştirilecek: ${pendingRestore?.label ?? ""}`}
+        impact={[
+          "Yedekten sonra yapılan tüm değişiklikler kaybolur",
+          "Kullanıcılar, roller ve ayarlar da yedektekiyle değişir",
+          "Öncesinde güncel durumun yedeğini almanız önerilir",
+        ]}
         confirmWord="GERİ YÜKLE"
         confirmLabel="Geri Yükle"
         onConfirm={handleRestore}

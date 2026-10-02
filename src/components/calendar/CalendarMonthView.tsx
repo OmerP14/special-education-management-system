@@ -6,14 +6,17 @@ import {
   isSameDay,
   getMonthDays,
   getSessionsForDate,
-  SESSION_STATUS_PILL_COLORS,
+  getCalendarDayMeta,
+  getEventPillAppearance,
+  getOrderedWeekdays,
+  getWeekdayShortLabel,
+  type CalendarDisplayOptions,
   type CalendarEvent,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const DAY_HEADERS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const MAX_CHIPS = 3;
 
 const DATE_LABEL_FMT = new Intl.DateTimeFormat("tr-TR", {
@@ -30,6 +33,7 @@ function DayCell({
   events,
   onEventClick,
   onDayClick,
+  display,
 }: {
   date: Date;
   isCurrentMonth: boolean;
@@ -37,7 +41,9 @@ function DayCell({
   events: CalendarEvent[];
   onEventClick: (id: string) => void;
   onDayClick: (date: Date) => void;
+  display: CalendarDisplayOptions;
 }) {
+  const meta = getCalendarDayMeta(date, display.calendar);
   const visible = events.slice(0, MAX_CHIPS);
   const overflow = events.length - MAX_CHIPS;
 
@@ -69,11 +75,17 @@ function DayCell({
       className={cn(
         "min-h-[100px] cursor-pointer border-b border-r border-border p-1.5 outline-none transition-colors",
         "hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset",
-        !isCurrentMonth && "bg-muted/20"
+        !isCurrentMonth && "bg-muted/20",
+        isCurrentMonth && (meta.closed || meta.holiday) && "bg-muted/50"
       )}
     >
       {/* Date number */}
-      <div className="mb-1 flex justify-end">
+      <div className="mb-1 flex items-center justify-end gap-1">
+        {meta.holiday && (
+          <span className="truncate text-[9px] font-medium text-muted-foreground" title={meta.holiday}>
+            {meta.holiday}
+          </span>
+        )}
         <span
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-transform",
@@ -90,20 +102,19 @@ function DayCell({
 
       {/* Event chips */}
       <div className="space-y-1">
-        {visible.map((event) => (
+        {visible.map((event) => {
+          const appearance = getEventPillAppearance(event, display.colorSource);
+          return (
           <button
             key={event.id}
             onClick={stopAnd(() => onEventClick(event.id))}
+            style={appearance.style}
             className={cn(
               "flex w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-left text-[10px] font-medium leading-tight",
               "transition-all duration-200 ease-out hover:scale-[1.03] hover:shadow-sm",
-              SESSION_STATUS_PILL_COLORS[event.status]
+              appearance.className
             )}
           >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-white/40"
-              style={{ backgroundColor: event.educationTypeColor }}
-            />
             {event.billingMode === "historical_non_billable" && (
               <History className="h-2.5 w-2.5 shrink-0 opacity-60">
                 <title>Geçmiş kayıt — borca dahil değil</title>
@@ -113,7 +124,8 @@ function DayCell({
               {event.timeStr} {event.studentName}
             </span>
           </button>
-        ))}
+          );
+        })}
         {overflow > 0 && (
           <button
             onClick={stopAnd(openDay)}
@@ -137,6 +149,7 @@ interface CalendarMonthViewProps {
   /** Called when a day number, a day cell's empty area, or its "+N daha"
    *  indicator is clicked — the page switches to Daily view for that date. */
   onDayClick: (date: Date) => void;
+  display: CalendarDisplayOptions;
 }
 
 export function CalendarMonthView({
@@ -145,20 +158,21 @@ export function CalendarMonthView({
   events,
   onEventClick,
   onDayClick,
+  display,
 }: CalendarMonthViewProps) {
   const today = new Date();
-  const days = getMonthDays(year, month);
+  const days = getMonthDays(year, month, display.calendar.weekStartsOn);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Weekday headers */}
       <div className="grid grid-cols-7 border-b border-border bg-muted/40">
-        {DAY_HEADERS.map((d) => (
+        {getOrderedWeekdays(display.calendar.weekStartsOn).map((d) => (
           <div
             key={d}
             className="py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-r border-border last:border-r-0"
           >
-            {d}
+            {getWeekdayShortLabel(d)}
           </div>
         ))}
       </div>
@@ -176,6 +190,7 @@ export function CalendarMonthView({
               events={dayEvents}
               onEventClick={onEventClick}
               onDayClick={onDayClick}
+              display={display}
             />
           );
         })}

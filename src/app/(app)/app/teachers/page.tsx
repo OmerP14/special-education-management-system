@@ -62,7 +62,7 @@ export default function TeachersPage() {
         store.teacherPayments,
         store.teacherEducationTypeAssignments
       ),
-    [store.teachers, store.sessions, store.teacherPayments, store.teacherEducationTypeAssignments]
+    [store.teachers, store.educationTypes, store.sessions, store.teacherPayments, store.teacherEducationTypeAssignments]
   );
 
   const filtered = useMemo(() => {
@@ -190,7 +190,9 @@ export default function TeachersPage() {
         <span
           className={cn(
             "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap",
-            row.configurationStatus === "missing_pricing" || row.configurationStatus === "no_assignment"
+            // Ayarlar → Öğretmen ve Hakediş → Eksik hakediş yapılandırmasında uyar
+            store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig &&
+              (row.configurationStatus === "missing_pricing" || row.configurationStatus === "no_assignment")
               ? "bg-amber-100 text-amber-700"
               : row.configurationStatus === "inactive_teacher"
               ? "bg-muted text-muted-foreground"

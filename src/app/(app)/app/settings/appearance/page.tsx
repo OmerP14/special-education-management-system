@@ -26,6 +26,8 @@ import type {
   CardRadiusPreference,
   SidebarDefaultState,
   LandingPage,
+  DocumentDateFormat,
+  ThemePreference,
 } from "@/types/settings";
 
 function SelectField<T extends string>({
@@ -79,7 +81,7 @@ function DocumentSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   return (
     <SettingsFormSection
       title="Belge Ayarları"
-      description="Makbuz, fatura ve PDF çıktılarında kullanılan şablon bilgileri."
+      description="Tahsilat makbuzu, rapor PDF'leri ve CSV dışa aktarımları bu ayarlarla üretilir. Belge başlığında Kurum Bilgileri (ad, adres, vergi bilgileri) kullanılır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -92,10 +94,24 @@ function DocumentSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: boolea
         <SettingsField label="Makbuz Başlığı">
           <Input value={draft.receiptTitle} onChange={(e) => set("receiptTitle", e.target.value)} />
         </SettingsField>
-        <SettingsField label="Tarih Formatı">
-          <Input value={draft.dateFormat} onChange={(e) => set("dateFormat", e.target.value)} placeholder="DD.MM.YYYY" />
+        <SelectField
+          label="Belge ve Rapor Tarih Formatı"
+          value={draft.dateFormat}
+          onChange={(v: DocumentDateFormat) => set("dateFormat", v)}
+          labels={{ "DD.MM.YYYY": "31.12.2026", "DD/MM/YYYY": "31/12/2026", "YYYY-MM-DD": "2026-12-31" }}
+        />
+        <SettingsField
+          label="Belge Logosu (URL)"
+          className="sm:col-span-2"
+          description="Boş bırakılırsa Kurum Bilgileri'ndeki logo kullanılır. https:// ile başlayan bir görsel adresi girin."
+        >
+          <Input
+            value={draft.documentLogoUrl ?? ""}
+            onChange={(e) => set("documentLogoUrl", e.target.value.trim() || null)}
+            placeholder="https://…/logo.png"
+          />
         </SettingsField>
-        <SettingsField label="Fatura Notu" className="sm:col-span-2">
+        <SettingsField label="Makbuz Notu" className="sm:col-span-2" description="Makbuzun altına yazdırılır.">
           <Input value={draft.invoiceNote} onChange={(e) => set("invoiceNote", e.target.value)} />
         </SettingsField>
         <SettingsField label="PDF Alt Bilgi Metni" className="sm:col-span-2">
@@ -156,7 +172,7 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
   return (
     <SettingsFormSection
       title="Görünüm Ayarları"
-      description="Arayüz yoğunluğu ve varsayılan davranış tercihleri. Bu değerler kaydedilir; sidebar varsayılan durumu ve tablo yoğunluğu gibi bazı alanlar şu an yalnızca tercih olarak saklanır, canlı arayüze henüz bağlı değildir (mock-only)."
+      description="Kurum genelinde uygulamanın görünümü: renkler, tema, yoğunluk ve açılış davranışı. Değişiklikler kaydedildiği anda tüm kullanıcılara uygulanır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -166,7 +182,7 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
       onReset={resetToDefaults}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <SettingsField label="Ana Marka Rengi">
+        <SettingsField label="Ana Marka Rengi" description="Butonlar ve vurgulu öğeler.">
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -177,7 +193,7 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
             <Input value={draft.primaryBrandColor} onChange={(e) => set("primaryBrandColor", e.target.value)} />
           </div>
         </SettingsField>
-        <SettingsField label="Vurgu Rengi">
+        <SettingsField label="Vurgu Rengi" description="Odak halkaları ve grafiklerdeki ciro çubukları.">
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -188,12 +204,18 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
             <Input value={draft.accentColor} onChange={(e) => set("accentColor", e.target.value)} />
           </div>
         </SettingsField>
-        <SettingsField label="Kurum Alt Bilgi Metni" className="sm:col-span-2">
+        <SettingsField label="Kurum Alt Bilgi Metni" className="sm:col-span-2" description="Her sayfanın altında gösterilir.">
           <Input value={draft.institutionFooterText} onChange={(e) => set("institutionFooterText", e.target.value)} />
         </SettingsField>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <SelectField
+          label="Tema"
+          value={draft.theme}
+          onChange={(v: ThemePreference) => set("theme", v)}
+          labels={{ light: "Açık", dark: "Koyu", system: "Sistem ayarını izle" }}
+        />
         <SelectField
           label="Arayüz Yoğunluğu"
           value={draft.density}
@@ -230,13 +252,6 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
         <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
           <p className="text-sm text-foreground">Animasyonları etkinleştir</p>
           <Switch checked={draft.animationsEnabled} onCheckedChange={(v) => set("animationsEnabled", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Karanlık mod (hazır)</p>
-            <p className="text-xs text-muted-foreground">Yalnızca tercih olarak kaydedilir — henüz bir tema anahtarı yoktur.</p>
-          </div>
-          <Switch checked={draft.darkModeReady} onCheckedChange={(v) => set("darkModeReady", v)} />
         </div>
       </div>
     </SettingsFormSection>

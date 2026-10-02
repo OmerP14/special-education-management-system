@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { AlertTriangle, User, CalendarDays } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
@@ -18,11 +18,12 @@ import {
 import { useMockStore } from "@/lib/mock/store";
 import {
   getStudentTotalBilled,
-  getStudentTotalPaid,
+  getStudentNetBalance,
   getStudentGuardian,
   getPaymentMethodLabel,
   formatCurrency,
   formatDate,
+  getCurrencySymbol,
 } from "@/lib/helpers/finance";
 import {
   buildInstallmentRecords,
@@ -30,13 +31,21 @@ import {
   computeInstallmentDueDate,
   getIntervalLabel,
 } from "@/lib/helpers/installments";
+import {
+  fillCollectionTemplate,
+  getDefaultInstallmentInterval,
+  OVERPAYMENT_POLICY_MESSAGES,
+} from "@/lib/helpers/finance-rules";
 import type {
   Payment,
   PaymentMethod,
   InstallmentInterval,
   InstallmentPlan,
 } from "@/types";
+import type { OverpaymentPolicy } from "@/types/settings";
 import { cn } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -150,43 +159,80 @@ export function PaymentFormDrawer({
   initialData,
 }: PaymentFormDrawerProps) {
   const store = useMockStore();
+  const confirm = useConfirm();
   const isEditing = !!initialData;
 
   // Ayarlar → Finans Ayarları drives both the enabled method list below and
   // the default a NEW payment/plan starts on — editing an existing record
   // always keeps whatever method it already has.
-  const { defaultPaymentMethod, enabledPaymentMethods } = store.institutionSettings.finance;
+  const finance = store.institutionSettings.finance;
+  const { defaultPaymentMethod, enabledPaymentMethods } = finance;
   const methodValues = enabledPaymentMethods.length > 0 ? enabledPaymentMethods : ["cash" as PaymentMethod];
+  const studentName = (id: string) => store.students.find((s) => s.id === id)?.fullName ?? "";
+  const today = toLocalDateKey(new Date());
 
-  const [mode, setMode] = useState<PaymentMode>("single");
-  const [single, setSingle] = useState<SingleFormState>(() =>
-    initialData
-      ? buildSingleFromPayment(initialData)
-      : { ...EMPTY_SINGLE, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" }
-  );
-  const [inst, setInst] = useState<InstallmentFormState>({
+  // New payments start with today's date and the "Tahsilat Açıklama Şablonu"
+  // filled in for the preselected student; plans with the default interval.
+  const buildNewSingle = (): SingleFormState => {
+    const studentId = preselectedStudentId ?? "";
+    return {
+      ...EMPTY_SINGLE,
+      date: today,
+      method: defaultPaymentMethod,
+      studentId,
+      notes: studentId ? fillCollectionTemplate(finance.collectionDescriptionTemplate, studentName(studentId), today) : "",
+    };
+  };
+  const buildNewInstallment = (): InstallmentFormState => ({
     ...EMPTY_INSTALLMENT,
+    ...getDefaultInstallmentInterval(finance.defaultInstallmentIntervalDays),
     method: defaultPaymentMethod,
     studentId: preselectedStudentId ?? "",
   });
 
-  useEffect(() => {
+  const [mode, setMode] = useState<PaymentMode>("single");
+  const [single, setSingle] = useState<SingleFormState>(() =>
+    initialData ? buildSingleFromPayment(initialData) : buildNewSingle()
+  );
+  const [inst, setInst] = useState<InstallmentFormState>(buildNewInstallment);
+  const [overpaymentAcknowledged, setOverpaymentAcknowledged] = useState(false);
+
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? initialData?.id ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setMode("single");
-      setSingle(
-        initialData
-          ? buildSingleFromPayment(initialData)
-          : { ...EMPTY_SINGLE, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" }
-      );
-      setInst({ ...EMPTY_INSTALLMENT, method: defaultPaymentMethod, studentId: preselectedStudentId ?? "" });
+      setSingle(initialData ? buildSingleFromPayment(initialData) : buildNewSingle());
+      setInst(buildNewInstallment());
+      setOverpaymentAcknowledged(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }
 
   const setSingleField = <K extends keyof SingleFormState>(
     key: K,
     val: SingleFormState[K]
-  ) => setSingle((prev) => ({ ...prev, [key]: val }));
+  ) => {
+    if (key === "amount") setOverpaymentAcknowledged(false);
+    setSingle((prev) => {
+      const next = { ...prev, [key]: val };
+      // Keep the templated description in step with student/date while the
+      // user hasn't written their own.
+      if (!isEditing && (key === "studentId" || key === "date")) {
+        const previousAuto = prev.studentId
+          ? fillCollectionTemplate(finance.collectionDescriptionTemplate, studentName(prev.studentId), prev.date)
+          : "";
+        if (!prev.notes || prev.notes === previousAuto) {
+          next.notes = next.studentId
+            ? fillCollectionTemplate(finance.collectionDescriptionTemplate, studentName(next.studentId), next.date)
+            : "";
+        }
+      }
+      return next;
+    });
+  };
 
   const setInstField = <K extends keyof InstallmentFormState>(
     key: K,
@@ -204,14 +250,24 @@ export function PaymentFormDrawer({
   const totalBilled = studentId
     ? getStudentTotalBilled(studentId, store.sessions)
     : 0;
+  // When editing, the payment being edited must not reduce the debt it is
+  // being compared against.
+  const otherPayments = initialData ? store.payments.filter((p) => p.id !== initialData.id) : store.payments;
   const totalPaid = studentId
-    ? getStudentTotalPaid(studentId, store.payments)
+    ? otherPayments.filter((p) => p.studentId === studentId).reduce((sum, p) => sum + p.amount, 0)
     : 0;
-  const currentDebt = Math.max(0, totalBilled - totalPaid);
+  // Includes opening balances (devir), so the debt matches the student's account.
+  const currentDebt = studentId
+    ? Math.max(0, getStudentNetBalance(studentId, store.sessions, otherPayments, store.openingBalances))
+    : 0;
   const remainingAfter =
     mode === "single" ? Math.max(0, currentDebt - single.amount) : 0;
   const isOverpayment =
     mode === "single" && single.amount > currentDebt && single.amount > 0;
+  // Ayarlar → Finans → Fazla Ödeme Politikası
+  const overpaymentBlocked = isOverpayment && finance.overpaymentPolicy === "block";
+  const overpaymentNeedsAck = isOverpayment && finance.overpaymentPolicy === "warn" && !overpaymentAcknowledged;
+  const installmentsAllowed = finance.allowInstallments;
 
   // ─── Derived: installment preview ─────────────────────────────────────────
 
@@ -258,9 +314,21 @@ export function PaymentFormDrawer({
     inst.installmentCount >= 2 &&
     !!inst.firstDueDate;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (mode === "single") {
       if (!canSaveSingle) return;
+      if (overpaymentBlocked || overpaymentNeedsAck) return;
+      if (
+        isEditing &&
+        !(await confirm({
+          kind: "financial",
+          title: "Ödeme kaydı değiştirilsin mi?",
+          description: "Kayıtlı bir ödemeyi değiştirmek öğrencinin borç/bakiye hesabını etkiler.",
+          confirmLabel: "Değişiklikleri Kaydet",
+        }))
+      ) {
+        return;
+      }
       const tenantId = initialData?.tenantId ?? "tenant-1";
       const payment: Payment = {
         id: initialData?.id ?? `payment-${Date.now()}`,
@@ -279,7 +347,7 @@ export function PaymentFormDrawer({
         store.addPayment(payment);
       }
     } else {
-      if (!canSaveInstallment) return;
+      if (!canSaveInstallment || !installmentsAllowed) return;
       const planId = `iplan-${Date.now()}`;
       const plan: InstallmentPlan = {
         id: planId,
@@ -308,8 +376,6 @@ export function PaymentFormDrawer({
     onOpenChange(false);
   };
 
-  const canSave = mode === "single" ? canSaveSingle : canSaveInstallment;
-
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -326,10 +392,11 @@ export function PaymentFormDrawer({
             ? "Ödeme Kaydet"
             : "Taksit Planı Oluştur"
       }
+      saveDisabled={mode === "single" && (overpaymentBlocked || overpaymentNeedsAck)}
     >
       <div className="space-y-5">
         {/* Mode toggle — hidden when editing existing payment */}
-        {!isEditing && (
+        {!isEditing && installmentsAllowed && (
           <div className="flex rounded-lg border border-border p-0.5 bg-muted/30">
             {(["single", "installment"] as PaymentMode[]).map((m) => (
               <button
@@ -360,6 +427,9 @@ export function PaymentFormDrawer({
             currentDebt={currentDebt}
             remainingAfter={remainingAfter}
             isOverpayment={isOverpayment}
+            overpaymentPolicy={finance.overpaymentPolicy}
+            overpaymentAcknowledged={overpaymentAcknowledged}
+            onOverpaymentAcknowledgedChange={setOverpaymentAcknowledged}
             onClose={() => onOpenChange(false)}
             isEditing={isEditing}
           />
@@ -392,6 +462,9 @@ function SinglePaymentForm({
   currentDebt,
   remainingAfter,
   isOverpayment,
+  overpaymentPolicy,
+  overpaymentAcknowledged,
+  onOverpaymentAcknowledgedChange,
   onClose,
   isEditing,
 }: {
@@ -405,6 +478,9 @@ function SinglePaymentForm({
   currentDebt: number;
   remainingAfter: number;
   isOverpayment: boolean;
+  overpaymentPolicy: OverpaymentPolicy;
+  overpaymentAcknowledged: boolean;
+  onOverpaymentAcknowledgedChange: (v: boolean) => void;
   onClose: () => void;
   isEditing: boolean;
 }) {
@@ -450,7 +526,7 @@ function SinglePaymentForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="payment-amount">Tutar (₺)</Label>
+        <Label htmlFor="payment-amount">Tutar ({getCurrencySymbol()})</Label>
         <NumericInput
           id="payment-amount"
           min={0}
@@ -528,15 +604,40 @@ function SinglePaymentForm({
               )}
             </div>
             {isOverpayment && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-                <p className="text-xs text-amber-700">
-                  Girilen tutar mevcut borçtan{" "}
-                  <span className="font-semibold">
-                    {formatCurrency(form.amount - currentDebt)}
-                  </span>{" "}
-                  fazla.
-                </p>
+              <div
+                className={cn(
+                  "space-y-2 rounded-lg border px-3 py-2.5",
+                  overpaymentPolicy === "block"
+                    ? "border-destructive/40 bg-destructive/5"
+                    : "border-amber-200 bg-amber-50 dark:bg-amber-950/20"
+                )}
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle
+                    className={cn(
+                      "h-3.5 w-3.5 mt-0.5 shrink-0",
+                      overpaymentPolicy === "block" ? "text-destructive" : "text-amber-600"
+                    )}
+                  />
+                  <p className={cn("text-xs", overpaymentPolicy === "block" ? "text-destructive" : "text-amber-700 dark:text-amber-400")}>
+                    Girilen tutar mevcut borçtan{" "}
+                    <span className="font-semibold">{formatCurrency(form.amount - currentDebt)}</span> fazla.{" "}
+                    {OVERPAYMENT_POLICY_MESSAGES[overpaymentPolicy]}
+                  </p>
+                </div>
+                {overpaymentPolicy === "warn" && (
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={overpaymentAcknowledged}
+                      onChange={(e) => onOverpaymentAcknowledgedChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
+                    />
+                    <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Fazla ödemeyi onaylıyorum
+                    </span>
+                  </label>
+                )}
               </div>
             )}
           </div>
@@ -606,7 +707,7 @@ function InstallmentPlanForm({
 
       {/* Toplam tutar */}
       <div className="space-y-1.5">
-        <Label htmlFor="inst-total">Toplam Taksit Tutarı (₺)</Label>
+        <Label htmlFor="inst-total">Toplam Taksit Tutarı ({getCurrencySymbol()})</Label>
         <NumericInput
           id="inst-total"
           min={0}

@@ -65,3 +65,36 @@ export function WeeklyPlanConflictWarning({
     </div>
   );
 }
+
+/** Dates a plan skips because they fall on a holiday (Ayarlar → Takvim → Resmi Tatiller). */
+export function HolidaySkipNotice({ skips }: { skips: { date: string; label: string }[] }) {
+  if (skips.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 space-y-1">
+      <p className="text-xs font-medium text-foreground">
+        {skips.length} seans resmi tatile denk geldiği için oluşturulmayacak.
+      </p>
+      {skips.slice(0, 6).map((s) => (
+        <p key={s.date} className="text-[11px] text-muted-foreground tabular-nums">
+          {formatDate(s.date)} · {s.label}
+        </p>
+      ))}
+      {skips.length > 6 && <p className="text-[11px] text-muted-foreground">…ve {skips.length - 6} tarih daha</p>}
+    </div>
+  );
+}
+
+/** Non-blocking notes about weekly slots outside the institution's working days/hours. */
+export function SlotScheduleNotice({ issues }: { issues: string[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
+      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+      <div className="space-y-0.5">
+        {issues.map((issue) => (
+          <p key={issue} className="text-xs text-amber-700 dark:text-amber-400">{issue}</p>
+        ))}
+      </div>
+    </div>
+  );
+}

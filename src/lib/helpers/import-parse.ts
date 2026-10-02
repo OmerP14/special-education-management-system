@@ -255,7 +255,7 @@ export function parseCellAsTimeString(cell: RawCell): string | null {
 export function parseCellAsNumber(cell: RawCell): number | null {
   if (cell === null || cell === undefined || cell === "") return null;
   if (typeof cell === "number") return cell;
-  let s = String(cell).trim().replace(/[₺\s]/g, "");
+  let s = String(cell).trim().replace(/[₺$€£\s]/g, "");
   if (s === "") return null;
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");

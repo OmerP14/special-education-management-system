@@ -25,7 +25,10 @@ import {
   buildMonthlyTeacherEarningSummary,
   formatCurrency,
   formatDate,
+  getEarningPeriod,
+  getEarningPeriodLabel,
 } from "@/lib/helpers/finance";
+import { PendingEarningApprovalsCard } from "@/components/teachers/PendingEarningApprovalsCard";
 import type {
   TeacherEarningListItem,
   MonthlyTeacherEarningSummary,
@@ -212,11 +215,10 @@ export default function TeacherEarningsPage() {
   const [monthFilter, setMonthFilter] = useState("all");
   const [payTeacherId, setPayTeacherId] = useState<string | null>(null);
 
-  // Current month — fixed reference for KPI cards and monthly summary
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const thisMonthLabel = monthLabel(monthKey(now));
+  // Current hakediş dönemi (Ayarlar → Öğretmen ve Hakediş → Hakediş Dönemi
+  // Başlangıç Günü) — fixed reference for KPI cards and monthly summary.
+  const { year: currentYear, month: currentMonth } = getEarningPeriod(new Date());
+  const thisMonthLabel = getEarningPeriodLabel(currentYear, currentMonth);
 
   // Build enriched list items from store
   const allItems = useMemo(
@@ -229,7 +231,7 @@ export default function TeacherEarningsPage() {
         store.educationTypes,
         store.teacherEducationTypeAssignments
       ),
-    [store.teacherEarnings, store.sessions, store.teachers, store.students, store.teacherEducationTypeAssignments]
+    [store.teacherEarnings, store.sessions, store.teachers, store.students, store.educationTypes, store.teacherEducationTypeAssignments]
   );
 
   // KPI stats — always current month for "Bu Ay", all-time for paid/pending
@@ -360,6 +362,8 @@ export default function TeacherEarningsPage() {
           variant="default"
         />
       </div>
+
+      <PendingEarningApprovalsCard />
 
       {/* Teacher overview card */}
       {overviewItems.length > 0 && (

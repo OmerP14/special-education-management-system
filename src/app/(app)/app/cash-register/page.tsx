@@ -14,6 +14,9 @@ import {
   Trash2,
   Search,
   X,
+  Lock,
+  LockOpen,
+  AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -24,24 +27,24 @@ import { useMockStore } from "@/lib/mock/store";
 import {
   buildCashMovementRows,
   buildDailyCashSummary,
-  getCashMovementTypeLabel,
-  getCashCategoryLabel,
-  calculateCashBalance,
+  isCashDayLocked,
 } from "@/lib/helpers/cash";
 import { formatCurrency, formatDate } from "@/lib/helpers/finance";
-import type { CashMovement, CashMovementType, CashCategory, CashMovementRow } from "@/types";
+import type { CashMovement, CashMovementType, CashMovementRow } from "@/types";
 import { cn } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function dateToday(): string {
-  return new Date().toISOString().split("T")[0]!;
+  return toLocalDateKey(new Date());
 }
 
 function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr);
+  const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + n);
-  return d.toISOString().split("T")[0]!;
+  return toLocalDateKey(d);
 }
 
 function longDateLabel(dateStr: string): string {
@@ -50,7 +53,7 @@ function longDateLabel(dateStr: string): string {
     month: "long",
     year: "numeric",
     weekday: "long",
-  }).format(new Date(dateStr));
+  }).format(new Date(`${dateStr}T00:00:00`));
 }
 
 // ─── Type badge ────────────────────────────────────────────────────────────────
@@ -106,6 +109,7 @@ const TYPE_FILTERS: { value: CashMovementType | "all"; label: string }[] = [
 
 export default function CashRegisterPage() {
   const store = useMockStore();
+  const confirm = useConfirm();
   const [selectedDate, setSelectedDate] = useState(dateToday);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingMovement, setEditingMovement] = useState<CashMovement | null>(null);
@@ -154,7 +158,7 @@ export default function CashRegisterPage() {
   }, [dayRows, search, typeFilter]);
 
   const handleEdit = (row: CashMovementRow) => {
-    if (!row.isEditable) return;
+    if (!row.isEditable || dayLocked) return;
     const movement = store.cashMovements.find((m) => m.id === row.id);
     if (movement) {
       setEditingMovement(movement);
@@ -162,10 +166,22 @@ export default function CashRegisterPage() {
     }
   };
 
-  const handleDelete = (row: CashMovementRow) => {
-    if (!row.isEditable) return;
-    store.deleteCashMovement(row.id);
+  const handleDelete = async (row: CashMovementRow) => {
+    if (!row.isEditable || dayLocked) return;
+    const ok = await confirm({
+      kind: "financial",
+      title: "Kasa hareketi silinsin mi?",
+      description: `${row.categoryLabel} · ${formatCurrency(row.amount)}`,
+      confirmLabel: "Sil",
+      destructive: true,
+    });
+    if (ok) store.deleteCashMovement(row.id);
   };
+
+  // Ayarlar → Finans → Kasa Kapanış Davranışı / Negatif kasa uyarısı
+  const { cashClosingBehavior, negativeCashWarning } = store.institutionSettings.finance;
+  const dayLocked = isCashDayLocked(selectedDate, cashClosingBehavior, store.closedCashDays, dateToday());
+  const canCloseManually = cashClosingBehavior === "manual" && selectedDate <= dateToday();
 
   const handleDrawerClose = (open: boolean) => {
     setDrawerOpen(open);
@@ -234,6 +250,50 @@ export default function CashRegisterPage() {
             className="ml-auto h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
+
+        {/* Day closing + negative balance */}
+        {(dayLocked || canCloseManually || (negativeCashWarning && dailySummary.closingBalance < 0)) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {dayLocked && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                <Lock className="h-3 w-3" />
+                {cashClosingBehavior === "auto_lock"
+                  ? "Geçmiş gün — kasa otomatik kilitlendi"
+                  : "Kasa kapatıldı — bu günün hareketleri değiştirilemez"}
+              </span>
+            )}
+            {canCloseManually &&
+              (dayLocked ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    const ok = await confirm({
+                      kind: "financial",
+                      title: "Kasa kapanışı geri alınsın mı?",
+                      description: "Bu günün hareketleri yeniden düzenlenebilir hale gelir.",
+                      confirmLabel: "Geri Al",
+                    });
+                    if (ok) store.reopenCashDay(selectedDate);
+                  }}
+                >
+                  <LockOpen className="h-3.5 w-3.5 mr-1" />
+                  Kapanışı Geri Al
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => store.closeCashDay(selectedDate)}>
+                  <Lock className="h-3.5 w-3.5 mr-1" />
+                  Günü Kapat
+                </Button>
+              ))}
+            {negativeCashWarning && dailySummary.closingBalance < 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+                <AlertTriangle className="h-3 w-3" />
+                Kasa bakiyesi negatif: {formatCurrency(dailySummary.closingBalance)}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* KPI stat cards */}
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -407,7 +467,7 @@ export default function CashRegisterPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {row.isEditable ? (
+                        {row.isEditable && !dayLocked ? (
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => handleEdit(row)}
@@ -426,7 +486,7 @@ export default function CashRegisterPage() {
                           </div>
                         ) : (
                           <span className="block text-right text-[11px] text-muted-foreground/50">
-                            Otomatik
+                            {row.isEditable ? "Kilitli" : "Otomatik"}
                           </span>
                         )}
                       </td>

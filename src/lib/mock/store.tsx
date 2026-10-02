@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Student,
   Guardian,
@@ -31,8 +31,16 @@ import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { mockAppUsers } from "@/lib/mock/app-users";
 import { mockCredentials } from "@/lib/mock/credentials";
-import type { InstitutionSettings, InstitutionSettingsKey, AuditLogEntry, AppUser } from "@/types/settings";
-import { DEFAULT_INSTITUTION_SETTINGS, getSettingsDefaults } from "@/lib/settings/defaults";
+import type {
+  InstitutionSettings,
+  InstitutionSettingsKey,
+  AuditLogEntry,
+  AppUser,
+  TeacherEarningsSettings,
+  StudentSettings,
+} from "@/types/settings";
+import { DEFAULT_INSTITUTION_SETTINGS, getSettingsDefaults, normalizeInstitutionSettings } from "@/lib/settings/defaults";
+import { getActiveSettings, setActiveSettings } from "@/lib/settings/runtime";
 import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
 import type { Role, Credential, AuthSession, Invitation, PasswordResetToken } from "@/types/auth";
 import { SYSTEM_ROLES, migrateRemovedRoleId } from "@/lib/auth/roles";
@@ -41,12 +49,30 @@ import { loadPersistedStore, savePersistedStore, clearPersistedStore } from "@/l
 import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
-  AUTO_COMPLETE_GRACE_MINUTES,
-  EARNING_STATUSES,
-  calculateSessionTeacherEarning,
+  getSessionEarningAmount,
+  isEarningSession,
+  withEarningFactor,
   getTeacherEarningTotals,
+  formatCurrency,
 } from "@/lib/helpers/finance";
 import { buildTeacherMergePreview } from "@/lib/helpers/teacher-merge";
+import { assignStudentNumber, backfillStudentNumbers } from "@/lib/helpers/student-rules";
+import {
+  buildPaymentNotification,
+  buildSessionNotification,
+  collectTimedNotifications,
+  isNotificationEnabled,
+  mergeNotifications,
+  normalizeNotifications,
+  type AppNotification,
+} from "@/lib/helpers/notifications";
+import {
+  assignReceiptNumber,
+  canExceedPendingEarning,
+  getAllowedTeacherPaymentTypes,
+} from "@/lib/helpers/finance-rules";
+import { isCashDayLocked } from "@/lib/helpers/cash";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/education-types";
 
 // Upserts the TeacherEarning ledger row for a single session, keyed by sessionId so
@@ -55,12 +81,15 @@ import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/edu
 // teachers whose pay is tracked monthly, not per session) have their row removed instead.
 function upsertEarningForSession(
   prev: TeacherEarning[],
-  session: Session
+  session: Session,
+  policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
 ): TeacherEarning[] {
   const withoutThisSession = prev.filter((e) => e.sessionId !== session.id);
-  const amount = calculateSessionTeacherEarning(session);
+  // Status share (telafi/iptal/gelmedi), approval and rounding all come from
+  // Ayarlar → Öğretmen ve Hakediş — see getSessionEarningFactor.
+  const amount = getSessionEarningAmount(session, policy);
 
-  if (!EARNING_STATUSES.includes(session.status) || amount <= 0) {
+  if (!isEarningSession(session, policy) || amount <= 0) {
     return withoutThisSession;
   }
 
@@ -108,16 +137,7 @@ function makeAuditEntry(entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurred
 
 // ─── Notification types ────────────────────────────────────────────────────────
 
-export interface AppNotification {
-  id: string;
-  type: "session_auto_completed";
-  sessionId: string;
-  studentId: string;
-  teacherId: string;
-  sessionDate: string;
-  createdAt: string;
-  readAt?: string;
-}
+export type { AppNotification };
 
 // ─── Store shape ───────────────────────────────────────────────────────────────
 
@@ -179,11 +199,15 @@ interface MockStore {
   deleteEducationType: (id: string) => void;
   addSession: (s: Session) => void;
   updateSession: (s: Session) => void;
+  /** Approves the earnings of these sessions ("Hakediş Oluşturma Anı:
+   *  Yönetici onayladığında"). */
+  approveSessionEarnings: (ids: string[]) => void;
   deleteSessions: (ids: string[]) => void;
   addPayment: (p: Payment) => void;
   updatePayment: (p: Payment) => void;
   deletePayments: (ids: string[]) => void;
-  /** Records a payment to a teacher. Silently no-ops if it would exceed pending earnings. */
+  /** Records a payment to a teacher. Silently no-ops for a type or an amount over
+   *  pending earnings that Ayarlar → Öğretmen ve Hakediş does not allow. */
   addTeacherPayment: (p: TeacherPayment) => void;
   deleteTeacherPayments: (ids: string[]) => void;
   /** Fully replaces the assignment set for one teacher in a single write — this
@@ -201,6 +225,10 @@ interface MockStore {
   addCashMovement: (m: CashMovement) => void;
   updateCashMovement: (m: CashMovement) => void;
   deleteCashMovement: (id: string) => void;
+  /** Days closed with "Günü Kapat" (manual closing mode) — see isCashDayLocked. */
+  closedCashDays: string[];
+  closeCashDay: (date: string) => void;
+  reopenCashDay: (date: string) => void;
   addOpeningBalance: (b: OpeningBalance) => void;
   deleteOpeningBalances: (ids: string[]) => void;
   addImportBatch: (batch: ImportBatch) => void;
@@ -224,8 +252,16 @@ interface MockStore {
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   deleteWeeklySessionPlan: (id: string) => void;
   resetToDemo: () => void;
+  /** Everything this app stores — what a backup file contains. */
+  getBackupSnapshot: () => PersistedState;
+  /** Replaces all data with a backup's contents. Returns an error message
+   *  when the backup is missing required data. */
+  restoreBackup: (data: PersistedState) => string | null;
+  /** Stamps Ayarlar → Veri Yönetimi's last backup time/count. */
+  recordBackup: () => void;
   notifications: AppNotification[];
-  markAllNotificationsRead: () => void;
+  /** Marks the given notifications read (the ones the current user can see). */
+  markNotificationsRead: (ids: string[]) => void;
 
   // ─── Institution settings (see src/types/settings.ts) ───────────────────────
   institutionSettings: InstitutionSettings;
@@ -311,7 +347,7 @@ interface MockStore {
 
 /** Everything persisted to localStorage — see lib/mock/persistence.ts. One
  *  shape, not per-field bespoke persistence code. */
-interface PersistedState {
+export interface PersistedState {
   students: Student[];
   guardians: Guardian[];
   teachers: Teacher[];
@@ -323,6 +359,7 @@ interface PersistedState {
   teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
   installmentPlans: InstallmentPlan[];
   cashMovements: CashMovement[];
+  closedCashDays: string[];
   openingBalances: OpeningBalance[];
   importBatches: ImportBatch[];
   teacherMergeHistory: TeacherMergeHistory[];
@@ -350,20 +387,27 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // (nothing persisted yet, or a stale schema version) falls back to the
   // existing seed data exactly as before this phase.
   const [persisted] = useState(() => loadPersistedStore<PersistedState>());
+  const [initialSettings] = useState(() => normalizeInstitutionSettings(persisted?.institutionSettings));
 
-  const [students, setStudents] = useState<Student[]>(() => persisted?.students ?? mockStudents);
+  const [students, setStudents] = useState<Student[]>(() =>
+    backfillStudentNumbers(persisted?.students ?? mockStudents, initialSettings.students)
+  );
   const studentsRef = useRef(students);
-  studentsRef.current = students;
   const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? mockGuardians);
   const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? mockTeachers);
   const [educationTypes, setEducationTypes] = useState<EducationType[]>(
     () => persisted?.educationTypes ?? mockEducationTypes
   );
   const educationTypesRef = useRef(educationTypes);
-  educationTypesRef.current = educationTypes;
-  const [sessions, setSessions] = useState<Session[]>(() => persisted?.sessions ?? mockSessions);
+  // Sessions saved before earning factors existed get one from the current
+  // policy — with the default policy that reproduces the old completed/makeup
+  // rule exactly.
+  const [sessions, setSessions] = useState<Session[]>(() =>
+    (persisted?.sessions ?? mockSessions).map((s) =>
+      s.earningFactor === undefined ? withEarningFactor(s, initialSettings.teacherEarnings) : s
+    )
+  );
   const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
   const [payments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? mockPayments);
   const [teacherEarnings, setTeacherEarnings] = useState<TeacherEarning[]>(
     () => persisted?.teacherEarnings ?? mockTeacherEarnings
@@ -374,9 +418,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // Refs so addTeacherPayment always validates against the latest pending balance,
   // even when called from a memoised handler holding a stale closure.
   const teachersRef = useRef(teachers);
-  teachersRef.current = teachers;
   const teacherPaymentsRef = useRef(teacherPayments);
-  teacherPaymentsRef.current = teacherPayments;
   const [teacherEducationTypeAssignments, setTeacherEducationTypeAssignments] = useState<TeacherEducationTypeAssignment[]>(
     () => persisted?.teacherEducationTypeAssignments ?? mockTeacherEducationTypeAssignments
   );
@@ -384,19 +426,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // consistent, current snapshot across every array they touch at once — same
   // reasoning as teachersRef/teacherPaymentsRef above.
   const teacherEarningsRef = useRef(teacherEarnings);
-  teacherEarningsRef.current = teacherEarnings;
   const teacherEducationTypeAssignmentsRef = useRef(teacherEducationTypeAssignments);
-  teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
   const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
     () => persisted?.installmentPlans ?? mockInstallmentPlans
   );
   // Always-current ref so markInstallmentPaid / cancelInstallment never read
   // a stale closure snapshot when called from memoised event handlers.
   const installmentPlansRef = useRef(installmentPlans);
-  installmentPlansRef.current = installmentPlans;
   const [cashMovements, setCashMovements] = useState<CashMovement[]>(
     () => persisted?.cashMovements ?? mockCashMovements
   );
+  const cashMovementsRef = useRef(cashMovements);
+  const [closedCashDays, setClosedCashDays] = useState<string[]>(() => persisted?.closedCashDays ?? []);
+  const closedCashDaysRef = useRef(closedCashDays);
   const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>(
     () => persisted?.openingBalances ?? []
   );
@@ -405,90 +447,132 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     () => persisted?.weeklySessionPlans ?? mockWeeklySessionPlans
   );
   const weeklySessionPlansRef = useRef(weeklySessionPlans);
-  weeklySessionPlansRef.current = weeklySessionPlans;
   const [teacherMergeHistory, setTeacherMergeHistory] = useState<TeacherMergeHistory[]>(
     () => persisted?.teacherMergeHistory ?? []
   );
   const teacherMergeHistoryRef = useRef(teacherMergeHistory);
-  teacherMergeHistoryRef.current = teacherMergeHistory;
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => persisted?.notifications ?? []);
-  const [institutionSettings, setInstitutionSettings] = useState<InstitutionSettings>(
-    () => persisted?.institutionSettings ?? structuredClone(DEFAULT_INSTITUTION_SETTINGS)
+  const [notifications, setNotifications] = useState<AppNotification[]>(() =>
+    normalizeNotifications(persisted?.notifications)
   );
+  /** Adds in-app notifications for the events enabled in Ayarlar → Bildirimler. */
+  const notify = useCallback((items: AppNotification[]) => {
+    const settings = getActiveSettings().notifications;
+    const enabled = items.filter((n) => isNotificationEnabled(settings, n.event));
+    if (enabled.length > 0) setNotifications((prev) => mergeNotifications(prev, enabled));
+  }, []);
+
+  const [institutionSettings, setInstitutionSettings] = useState<InstitutionSettings>(
+    () => initialSettings
+  );
+  // Published during render (not in an effect) so every descendant rendering
+  // in this same pass already formats/calculates with the new values.
+  setActiveSettings(institutionSettings);
   const [appUsers, setAppUsers] = useState<AppUser[]>(() => persisted?.appUsers ?? [...mockAppUsers]);
   const appUsersRef = useRef(appUsers);
-  appUsersRef.current = appUsers;
-  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
+  const [auditLog, setAuditLogState] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
+  // Every append goes through a functional update; with Ayarlar → Güvenlik →
+  // "İşlem geçmişi kaydını etkinleştir" off those are dropped. Plain array
+  // writes (reset to demo) always apply.
+  const setAuditLog = useCallback<typeof setAuditLogState>((update) => {
+    if (typeof update === "function" && !getActiveSettings().security.auditLoggingEnabled) return;
+    setAuditLogState(update);
+  }, []);
 
   // ─── Roles / credentials / auth session / invitations / password resets ──
   const [roles, setRoles] = useState<Role[]>(() => persisted?.roles ?? SYSTEM_ROLES);
   const rolesRef = useRef(roles);
-  rolesRef.current = roles;
   const [credentials, setCredentials] = useState<Credential[]>(() => persisted?.credentials ?? mockCredentials);
   const [authSession, setAuthSessionState] = useState<AuthSession | null>(() => persisted?.authSession ?? null);
   const [invitations, setInvitations] = useState<Invitation[]>(() => persisted?.invitations ?? []);
   const invitationsRef = useRef(invitations);
-  invitationsRef.current = invitations;
   const [passwordResets, setPasswordResets] = useState<PasswordResetToken[]>(() => persisted?.passwordResets ?? []);
   // Not persisted (ephemeral per-tab) — kept fresh by AuthProvider via
   // setActorName. See FALLBACK_ACTOR_NAME / the MockStore interface comment.
   const [actorName, setActorName] = useState<string | null>(null);
   const actorNameRef = useRef(actorName);
-  actorNameRef.current = actorName;
 
-  const AUTO_COMPLETE_THRESHOLD_MS =
-    (DEFAULT_SESSION_DURATION_MINUTES + AUTO_COMPLETE_GRACE_MINUTES) * 60_000;
+  // Keep the *Ref mirrors current for mutators/effects that read state at
+  // call time. Synced in a layout effect (not during render) so it is done
+  // before any event handler or passive effect can run.
+  useLayoutEffect(() => {
+    studentsRef.current = students;
+    educationTypesRef.current = educationTypes;
+    sessionsRef.current = sessions;
+    teachersRef.current = teachers;
+    teacherPaymentsRef.current = teacherPayments;
+    teacherEarningsRef.current = teacherEarnings;
+    teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
+    installmentPlansRef.current = installmentPlans;
+    cashMovementsRef.current = cashMovements;
+    closedCashDaysRef.current = closedCashDays;
+    weeklySessionPlansRef.current = weeklySessionPlans;
+    teacherMergeHistoryRef.current = teacherMergeHistory;
+    appUsersRef.current = appUsers;
+    rolesRef.current = roles;
+    invitationsRef.current = invitations;
+    actorNameRef.current = actorName;
+  });
 
   useEffect(() => {
     function autoCompletePastPlanned() {
-      const now = new Date();
+      // Ayarlar → Seans → Seansları Otomatik Tamamla / Gecikme — a planned
+      // session flips to completed once its own end time plus the delay passes.
+      const { autoCompleteEnabled, autoCompleteDelayMinutes } = getActiveSettings().sessions;
+      if (!autoCompleteEnabled) return;
+      const now = Date.now();
 
       // Use the ref so the closure always sees the latest sessions.
       const toComplete = sessionsRef.current.filter((s) => {
         if (s.status !== "planned") return false;
-        const start = new Date(s.date);
-        return now.getTime() - start.getTime() >= AUTO_COMPLETE_THRESHOLD_MS;
+        const durationMs = (s.durationMinutes || DEFAULT_SESSION_DURATION_MINUTES) * 60_000;
+        return now >= new Date(s.date).getTime() + durationMs + autoCompleteDelayMinutes * 60_000;
       });
 
       if (toComplete.length === 0) return;
 
-      const idsToComplete = new Set(toComplete.map((s) => s.id));
-
-      setSessions((prev) =>
-        prev.map((s) =>
-          idsToComplete.has(s.id) ? { ...s, status: "completed" as const } : s
-        )
+      const policy = getActiveSettings().teacherEarnings;
+      const completed = new Map(
+        toComplete.map((s) => [s.id, withEarningFactor({ ...s, status: "completed" as const }, policy)])
       );
+      setSessions((prev) => prev.map((s) => completed.get(s.id) ?? s));
 
       setTeacherEarnings((prev) =>
-        toComplete.reduce(
-          (acc, s) => upsertEarningForSession(acc, { ...s, status: "completed" as const }),
-          prev
-        )
+        [...completed.values()].reduce((acc, s) => upsertEarningForSession(acc, s, policy), prev)
       );
 
-      setNotifications((prev) => {
-        const existingIds = new Set(prev.map((n) => n.id));
-        const fresh = toComplete
-          .map((s) => ({
-            id: `notif-auto-${s.id}`,
-            type: "session_auto_completed" as const,
-            sessionId: s.id,
-            studentId: s.studentId,
-            teacherId: s.teacherId,
-            sessionDate: s.date,
-            createdAt: new Date().toISOString(),
-          }))
-          .filter((n) => !existingIds.has(n.id));
-        return fresh.length > 0 ? [...prev, ...fresh] : prev;
-      });
+      notify([
+        ...[...completed.values()].map((cs) =>
+          buildSessionNotification("session_auto_completed", cs, studentsRef.current, teachersRef.current)
+        ),
+        ...[...completed.values()]
+          .filter((cs) => isEarningSession(cs, policy))
+          .map((cs) =>
+            buildSessionNotification("teacher_earning_created", cs, studentsRef.current, teachersRef.current)
+          ),
+      ]);
+    }
+
+    // Reminders (upcoming sessions, installment due dates, overdue installments).
+    function collectReminders() {
+      notify(
+        collectTimedNotifications({
+          settings: getActiveSettings().notifications,
+          sessions: sessionsRef.current,
+          installmentPlans: installmentPlansRef.current,
+          students: studentsRef.current,
+          teachers: teachersRef.current,
+        })
+      );
     }
 
     autoCompletePastPlanned();
-    const timer = setInterval(autoCompletePastPlanned, 60_000);
+    collectReminders();
+    const timer = setInterval(() => {
+      autoCompletePastPlanned();
+      collectReminders();
+    }, 60_000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [notify]);
 
   // Phase 3 role simplification migration — a snapshot persisted from before
   // Muhasebe/Danışma/Görüntüleyici were removed can still have an AppUser
@@ -518,7 +602,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       ),
       ...prev,
     ]);
-  }, []);
+  }, [setAuditLog]);
 
   // Full-store persistence — one write path for every domain instead of
   // per-field bespoke code, mirrored by the lazy `useState` initializers
@@ -543,6 +627,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherEducationTypeAssignments,
       installmentPlans,
       cashMovements,
+      closedCashDays,
       openingBalances,
       importBatches,
       teacherMergeHistory,
@@ -569,6 +654,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherEducationTypeAssignments,
     installmentPlans,
     cashMovements,
+    closedCashDays,
     openingBalances,
     importBatches,
     teacherMergeHistory,
@@ -583,6 +669,35 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     invitations,
     passwordResets,
   ]);
+
+  /** Re-derives earnings after Ayarlar → Öğretmen ve Hakediş is saved. Past
+   *  sessions get the new status shares only with "Geçmişe dönük yeniden
+   *  hesaplamaya izin ver"; approval mode and rounding always re-apply. */
+  const applyEarningPolicy = useCallback((policy: TeacherEarningsSettings) => {
+    const current = sessionsRef.current;
+    const next = policy.allowHistoricalRecalculation
+      ? current.map((s) => (s.status === "planned" ? s : withEarningFactor(s, policy)))
+      : current;
+    if (next !== current) setSessions(next);
+    setTeacherEarnings((prev) => next.reduce((acc, s) => upsertEarningForSession(acc, s, policy), prev));
+  }, []);
+
+  const isCashDayLockedNow = useCallback((date: string): boolean => {
+    const { cashClosingBehavior } = getActiveSettings().finance;
+    return isCashDayLocked(date, cashClosingBehavior, closedCashDaysRef.current, toLocalDateKey(new Date()));
+  }, []);
+
+  /** Audit entry under the current actor — skipped when Ayarlar → Güvenlik →
+   *  İşlem geçmişi kaydı is off. */
+  const logAudit = useCallback(
+    (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt" | "userName"> & { userName?: string }) => {
+      setAuditLog((prev) => [
+        makeAuditEntry({ ...entry, userName: entry.userName ?? actorNameRef.current ?? FALLBACK_ACTOR_NAME }),
+        ...prev,
+      ]);
+    },
+    [setAuditLog]
+  );
 
   // Memoized so this object keeps a stable reference across renders that
   // don't touch any of the data below — e.g. toggling the sidebar re-renders
@@ -606,16 +721,23 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherEducationTypeAssignments,
     installmentPlans,
     cashMovements,
+    closedCashDays,
     openingBalances,
     importBatches,
     teacherMergeHistory,
 
-    addStudent: (s) => setStudents((prev) => [...prev, s]),
+    addStudent: (s) =>
+      setStudents((prev) => [...prev, assignStudentNumber(s, prev, getActiveSettings().students)]),
     updateStudent: (s) =>
       setStudents((prev) =>
         prev.map((x) =>
           x.id === s.id
-            ? { ...s, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            ? {
+                ...s,
+                importBatchId: x.importBatchId,
+                studentSequence: s.studentNumber === x.studentNumber ? x.studentSequence : undefined,
+                updatedAt: new Date().toISOString(),
+              }
             : x
         )
       ),
@@ -911,11 +1033,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
     },
 
-    addSession: (s) => {
+    addSession: (raw) => {
+      const s = withEarningFactor(raw, getActiveSettings().teacherEarnings);
       setSessions((prev) => [...prev, s]);
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
     },
-    updateSession: (s) => {
+    updateSession: (raw) => {
+      // The earning share is fixed when the status is set; editing anything
+      // else (price, notes, time) keeps it — and keeps any approval.
+      const previous = sessionsRef.current.find((x) => x.id === raw.id);
+      const statusUnchanged = previous?.status === raw.status && previous.earningFactor !== undefined;
+      const s: Session = statusUnchanged
+        ? { ...raw, earningFactor: previous!.earningFactor, earningApprovedAt: previous!.earningApprovedAt }
+        : { ...withEarningFactor(raw, getActiveSettings().teacherEarnings), earningApprovedAt: undefined };
       setSessions((prev) =>
         prev.map((x) =>
           x.id === s.id
@@ -924,6 +1054,14 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         )
       );
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
+      if (previous && previous.status !== s.status) {
+        const people = [studentsRef.current, teachersRef.current] as const;
+        if (s.status === "cancelled") notify([buildSessionNotification("session_cancelled", s, ...people)]);
+        if (s.status === "no_show") notify([buildSessionNotification("student_no_show", s, ...people)]);
+        if (!isEarningSession(previous) && isEarningSession(s)) {
+          notify([buildSessionNotification("teacher_earning_created", s, ...people)]);
+        }
+      }
       setAuditLog((prev) => [
         makeAuditEntry({
           userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
@@ -934,6 +1072,23 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         ...prev,
       ]);
     },
+    approveSessionEarnings: (ids) => {
+      const idSet = new Set(ids);
+      const now = new Date().toISOString();
+      const approved = sessionsRef.current
+        .filter((s) => idSet.has(s.id) && !s.earningApprovedAt)
+        .map((s) => ({ ...s, earningApprovedAt: now }));
+      if (approved.length === 0) return;
+      const byId = new Map(approved.map((s) => [s.id, s]));
+      setSessions((prev) => prev.map((s) => byId.get(s.id) ?? s));
+      setTeacherEarnings((prev) => approved.reduce((acc, s) => upsertEarningForSession(acc, s), prev));
+      notify(
+        approved.map((s) =>
+          buildSessionNotification("teacher_earning_created", s, studentsRef.current, teachersRef.current)
+        )
+      );
+      logAudit({ action: "earnings_approved", module: "teacher_earnings", recordLabel: `${approved.length} seans` });
+    },
     deleteSessions: (ids) => {
       const idSet = new Set(ids);
       setSessions((prev) => prev.filter((x) => !idSet.has(x.id)));
@@ -941,13 +1096,14 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addPayment: (p) => {
-      setPayments((prev) => [...prev, p]);
+      setPayments((prev) => [...prev, assignReceiptNumber(p, prev, getActiveSettings().finance)]);
+      notify([buildPaymentNotification(p, studentsRef.current)]);
       setAuditLog((prev) => [
         makeAuditEntry({
           userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
           action: "payment_created",
           module: "payments",
-          recordLabel: `${p.amount} ₺ — ${p.date}`,
+          recordLabel: `${formatCurrency(p.amount)} — ${p.date}`,
         }),
         ...prev,
       ]);
@@ -956,7 +1112,17 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setPayments((prev) =>
         prev.map((x) =>
           x.id === p.id
-            ? { ...p, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
+            ? {
+                ...p,
+                importBatchId: x.importBatchId,
+                // A receipt number, once issued, belongs to the payment for good.
+                receiptNumber: x.receiptNumber,
+                receiptSequence: x.receiptSequence,
+                installmentPlanId: x.installmentPlanId,
+                installmentNumber: x.installmentNumber,
+                paymentSource: x.paymentSource ?? p.paymentSource,
+                updatedAt: new Date().toISOString(),
+              }
             : x
         )
       ),
@@ -970,13 +1136,26 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       // Read from refs so this is correct even from a stale memoised handler.
       const teacher = teachersRef.current.find((t) => t.id === p.teacherId);
       if (!teacher || p.amount <= 0) return;
+      const policy = getActiveSettings().teacherEarnings;
+      if (!getAllowedTeacherPaymentTypes([p.paymentType], policy).length) return;
       const { pendingEarning } = getTeacherEarningTotals(
         teacher,
         sessionsRef.current,
         teacherPaymentsRef.current
       );
-      if (p.amount > pendingEarning) return;
+      if (p.amount > pendingEarning && !canExceedPendingEarning(p.paymentType, policy)) return;
       setTeacherPayments((prev) => [...prev, p]);
+      notify([
+        {
+          id: `notif-teacher_payment_made-${p.id}`,
+          event: "teacher_payment_made",
+          title: "Öğretmene ödeme yapıldı",
+          message: `${teacher.fullName} · ${formatCurrency(p.amount)} · ${p.date}`,
+          href: `/app/teachers/${teacher.id}`,
+          teacherId: teacher.id,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
     },
     deleteTeacherPayments: (ids) => {
       const idSet = new Set(ids);
@@ -1013,7 +1192,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setInstallmentPlans((prev) => prev.map((x) => (x.id === plan.id ? plan : x))),
 
     markInstallmentPaid: (planId, installmentId) => {
-      const today = new Date().toISOString().split("T")[0]!;
+      const today = toLocalDateKey(new Date());
 
       // Read from the ref so we always get the latest value even when this
       // function was captured in a memoised handler from an earlier render.
@@ -1048,17 +1227,39 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
             p.installmentNumber === record.installmentNumber
         );
         if (alreadyExists) return prev;
-        return [...prev, buildInstallmentPayment(plan, record, today)];
+        return [...prev, assignReceiptNumber(buildInstallmentPayment(plan, record, today), prev, getActiveSettings().finance)];
       });
+      notify([buildPaymentNotification(buildInstallmentPayment(plan, record, today), studentsRef.current)]);
     },
 
-    addCashMovement: (m) => setCashMovements((prev) => [...prev, m]),
+    // Backstop for Ayarlar → Finans → Kasa Kapanış Davranışı: the UI already
+    // hides these actions on a locked day; this keeps a closed day closed even
+    // from a stale handler.
+    addCashMovement: (m) => {
+      if (isCashDayLockedNow(m.date)) return;
+      setCashMovements((prev) => [...prev, m]);
+    },
 
-    updateCashMovement: (m) =>
-      setCashMovements((prev) => prev.map((x) => (x.id === m.id ? m : x))),
+    updateCashMovement: (m) => {
+      const previous = cashMovementsRef.current.find((x) => x.id === m.id);
+      if (isCashDayLockedNow(m.date) || (previous && isCashDayLockedNow(previous.date))) return;
+      setCashMovements((prev) => prev.map((x) => (x.id === m.id ? m : x)));
+    },
 
-    deleteCashMovement: (id) =>
-      setCashMovements((prev) => prev.filter((x) => x.id !== id)),
+    deleteCashMovement: (id) => {
+      const previous = cashMovementsRef.current.find((x) => x.id === id);
+      if (previous && isCashDayLockedNow(previous.date)) return;
+      setCashMovements((prev) => prev.filter((x) => x.id !== id));
+    },
+
+    closeCashDay: (date) => {
+      setClosedCashDays((prev) => (prev.includes(date) ? prev : [...prev, date].sort()));
+      logAudit({ action: "cash_day_closed", module: "payments", recordLabel: date });
+    },
+    reopenCashDay: (date) => {
+      setClosedCashDays((prev) => prev.filter((d) => d !== date));
+      logAudit({ action: "cash_day_reopened", module: "payments", recordLabel: date });
+    },
 
     addOpeningBalance: (b) => setOpeningBalances((prev) => [...prev, b]),
     deleteOpeningBalances: (ids) => {
@@ -1113,6 +1314,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     institutionSettings,
     updateSettingsSection: (key, value, updatedBy) => {
       const who = updatedBy ?? (actorNameRef.current ?? FALLBACK_ACTOR_NAME);
+      if (key === "teacherEarnings") applyEarningPolicy(value as TeacherEarningsSettings);
+      // Turning auto-numbering on numbers every student that has none yet.
+      if (key === "students") setStudents((prev) => backfillStudentNumbers(prev, value as StudentSettings));
       setInstitutionSettings((prev) => ({
         ...prev,
         [key]: value,
@@ -1136,6 +1340,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       ]);
     },
     resetSettingsSection: (key) => {
+      if (key === "teacherEarnings") applyEarningPolicy(getSettingsDefaults("teacherEarnings"));
       setInstitutionSettings((prev) => ({
         ...prev,
         [key]: getSettingsDefaults(key),
@@ -1166,6 +1371,17 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
       if (exists) return;
       setAppUsers((prev) => [...prev, user]);
+      notify([
+        {
+          id: `notif-user_invited-${user.id}`,
+          event: "user_invited",
+          title: "Kullanıcı davet edildi",
+          message: `${user.name} <${user.email}>`,
+          href: "/app/settings/users",
+          staffOnly: true,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
       // Mock email delivery: a single-use, 7-day token is created right
       // alongside the user — the Davetler tab is where an admin copies the
       // link, nothing is actually sent. See types/auth.ts's Invitation.
@@ -1382,6 +1598,88 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     auditLog,
     logAuditEvent: (entry) => setAuditLog((prev) => [makeAuditEntry(entry), ...prev]),
 
+    getBackupSnapshot: () => ({
+      students,
+      guardians,
+      teachers,
+      educationTypes,
+      sessions,
+      payments,
+      teacherEarnings,
+      teacherPayments,
+      teacherEducationTypeAssignments,
+      installmentPlans,
+      cashMovements,
+      closedCashDays,
+      openingBalances,
+      importBatches,
+      teacherMergeHistory,
+      weeklySessionPlans,
+      notifications,
+      institutionSettings,
+      appUsers,
+      auditLog,
+      roles,
+      credentials,
+      authSession,
+      invitations,
+      passwordResets,
+    }),
+
+    restoreBackup: (d) => {
+      const arrays: (keyof PersistedState)[] = [
+        "students", "guardians", "teachers", "educationTypes", "sessions", "payments",
+        "teacherPayments", "teacherEducationTypeAssignments", "appUsers", "roles", "credentials",
+      ];
+      const missing = arrays.filter((k) => !Array.isArray(d[k]));
+      if (missing.length > 0) return `Yedekte eksik veri var: ${missing.join(", ")}`;
+      const settings = normalizeInstitutionSettings(d.institutionSettings);
+      setStudents(backfillStudentNumbers(d.students, settings.students));
+      setGuardians(d.guardians);
+      setTeachers(d.teachers);
+      setEducationTypes(d.educationTypes);
+      setSessions(d.sessions.map((s) => (s.earningFactor === undefined ? withEarningFactor(s, settings.teacherEarnings) : s)));
+      setPayments(d.payments);
+      setTeacherEarnings(d.teacherEarnings ?? []);
+      setTeacherPayments(d.teacherPayments);
+      setTeacherEducationTypeAssignments(d.teacherEducationTypeAssignments);
+      setInstallmentPlans(d.installmentPlans ?? []);
+      setCashMovements(d.cashMovements ?? []);
+      setClosedCashDays(d.closedCashDays ?? []);
+      setOpeningBalances(d.openingBalances ?? []);
+      setImportBatches(d.importBatches ?? []);
+      setTeacherMergeHistory(d.teacherMergeHistory ?? []);
+      setWeeklySessionPlans(d.weeklySessionPlans ?? []);
+      setNotifications(normalizeNotifications(d.notifications));
+      setInstitutionSettings(settings);
+      setAppUsers(d.appUsers);
+      setRoles(d.roles);
+      setCredentials(d.credentials);
+      setInvitations(d.invitations ?? []);
+      setPasswordResets(d.passwordResets ?? []);
+      // The restored audit log is kept, plus a record of the restore itself.
+      setAuditLogState([
+        makeAuditEntry({
+          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
+          action: "backup_restored",
+          module: "data",
+          recordLabel: "Yedek dosyası",
+        }),
+        ...(d.auditLog ?? []),
+      ]);
+      return null;
+    },
+
+    recordBackup: () =>
+      setInstitutionSettings((prev) => ({
+        ...prev,
+        dataManagement: {
+          ...prev.dataManagement,
+          lastBackupAt: new Date().toISOString(),
+          backupCount: prev.dataManagement.backupCount + 1,
+        },
+      })),
+
     resetToDemo: () => {
       clearPersistedStore();
       setStudents([...DEMO_STUDENTS]);
@@ -1395,6 +1693,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherEducationTypeAssignments([...mockTeacherEducationTypeAssignments]);
       setInstallmentPlans([]);
       setCashMovements([]);
+      setClosedCashDays([]);
       setWeeklySessionPlans([]);
       setNotifications([]);
       setOpeningBalances([]);
@@ -1411,10 +1710,12 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     notifications,
-    markAllNotificationsRead: () =>
+    markNotificationsRead: (ids) => {
+      const idSet = new Set(ids);
       setNotifications((prev) =>
-        prev.map((n) => (n.readAt ? n : { ...n, readAt: new Date().toISOString() }))
-      ),
+        prev.map((n) => (n.readAt || !idSet.has(n.id) ? n : { ...n, readAt: new Date().toISOString() }))
+      );
+    },
 
     cancelInstallment: (planId, installmentId) => {
       // Guard: never cancel a paid installment (payment already created).
@@ -1453,6 +1754,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherEducationTypeAssignments,
       installmentPlans,
       cashMovements,
+      closedCashDays,
       openingBalances,
       importBatches,
       teacherMergeHistory,
@@ -1466,6 +1768,11 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       authSession,
       invitations,
       passwordResets,
+      setAuditLog,
+      logAudit,
+      isCashDayLockedNow,
+      applyEarningPolicy,
+      notify,
     ]
   );
 

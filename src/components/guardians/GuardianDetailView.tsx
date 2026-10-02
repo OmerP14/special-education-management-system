@@ -42,6 +42,7 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
+import { getGuardianContactLink } from "@/lib/helpers/student-rules";
 import { useUserScope } from "@/lib/auth/use-scope";
 import { canAccessGuardian } from "@/lib/auth/scope";
 import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
@@ -553,6 +554,7 @@ function GuardianDetailViewContent({
 
   // ── Computed values ────────────────────────────────────────────────────────
   const guardianStudentIds = detail?.students.map((s) => s.id) ?? [];
+  const guardianStudentKey = guardianStudentIds.join(",");
 
   const installmentSummary = buildGuardianInstallmentSummary(
     guardianStudentIds,
@@ -574,7 +576,7 @@ function GuardianDetailViewContent({
     }
     return nearest;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.installmentPlans, guardianStudentIds.join(",")]);
+  }, [store.installmentPlans, guardianStudentKey]);
 
   const guardianAccount = buildGuardianCurrentAccountSummary(
     guardianStudentIds,
@@ -719,7 +721,21 @@ function GuardianDetailViewContent({
 
     return events.sort((a, b) => b.date.localeCompare(a.date));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail, rawGuardian, store.teachers, store.installmentPlans, notes, guardianStudentIds.join(",")]);
+  }, [detail, rawGuardian, store.teachers, store.installmentPlans, notes, guardianStudentKey]);
+
+  // ── Activity grouping ──────────────────────────────────────────────────────
+  const activityByMonth = useMemo(() => {
+    const map = new Map<string, ActivityEvent[]>();
+    for (const ev of activityEvents) {
+      const key = new Intl.DateTimeFormat("tr-TR", {
+        month: "long",
+        year: "numeric",
+      }).format(new Date(ev.date));
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(ev);
+    }
+    return Array.from(map.entries());
+  }, [activityEvents]);
 
   // ── Early return ───────────────────────────────────────────────────────────
   if (!detail) {
@@ -749,19 +765,6 @@ function GuardianDetailViewContent({
     .join("")
     .toUpperCase();
 
-  // ── Activity grouping ──────────────────────────────────────────────────────
-  const activityByMonth = useMemo(() => {
-    const map = new Map<string, ActivityEvent[]>();
-    for (const ev of activityEvents) {
-      const key = new Intl.DateTimeFormat("tr-TR", {
-        month: "long",
-        year: "numeric",
-      }).format(new Date(ev.date));
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(ev);
-    }
-    return Array.from(map.entries());
-  }, [activityEvents]);
 
   // ── Preselected student for payment/session drawers ────────────────────────
   const singleStudentId = detail.students.length === 1 ? detail.students[0].id : undefined;
@@ -1379,6 +1382,23 @@ function GuardianDetailViewContent({
                         <span className="truncate max-w-[220px]">{rawGuardian.address}</span>
                       </span>
                     )}
+                    {(() => {
+                      // Ayarlar → Öğrenci ve Veli → Veli İletişim Tercihi
+                      const contact = getGuardianContactLink(
+                        detail,
+                        store.institutionSettings.students.guardianContactPreference
+                      );
+                      return contact ? (
+                        <a
+                          href={contact.href}
+                          target={contact.href.startsWith("http") ? "_blank" : undefined}
+                          rel="noreferrer"
+                          className="inline-flex items-center rounded-md border border-border px-2.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          {contact.label}
+                        </a>
+                      ) : null;
+                    })()}
                   </div>
                   {detail.students.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">

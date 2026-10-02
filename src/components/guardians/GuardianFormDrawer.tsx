@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useMockStore } from "@/lib/mock/store";
+import { cn } from "@/lib/utils";
+import { getStudentIdsWithOtherGuardian } from "@/lib/helpers/student-rules";
+import { getStudentStatusLabel } from "@/lib/helpers/finance";
 import type { Guardian } from "@/types";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
@@ -72,12 +75,16 @@ export function GuardianFormDrawer({
     initialData ? buildFromGuardian(initialData) : buildEmpty()
   );
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? initialData?.id ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setForm(initialData ? buildFromGuardian(initialData) : buildEmpty());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -90,6 +97,8 @@ export function GuardianFormDrawer({
         : [...prev.studentIds, id],
     }));
   };
+
+  const studentsWithOtherGuardian = getStudentIdsWithOtherGuardian(store.guardians, initialData?.id);
 
   const handleSave = () => {
     if (!form.fullName.trim() || !form.phone.trim()) return;
@@ -120,13 +129,22 @@ export function GuardianFormDrawer({
       store.addGuardian(guardian);
     }
 
-    // Sync selected students' guardianIds
+    // Sync students' guardianIds both ways: newly linked students gain this
+    // guardian, unlinked ones lose it.
     form.studentIds.forEach((sid) => {
       const student = store.students.find((s) => s.id === sid);
       if (student && !student.guardianIds.includes(id)) {
         store.updateStudent({ ...student, guardianIds: [...student.guardianIds, id] });
       }
     });
+    (initialData?.studentIds ?? [])
+      .filter((sid) => !form.studentIds.includes(sid))
+      .forEach((sid) => {
+        const student = store.students.find((s) => s.id === sid);
+        if (student?.guardianIds.includes(id)) {
+          store.updateStudent({ ...student, guardianIds: student.guardianIds.filter((g) => g !== id) });
+        }
+      });
 
     onOpenChange(false);
   };
@@ -225,23 +243,36 @@ export function GuardianFormDrawer({
           <div className="space-y-2">
             <Label>Bağlı Öğrenciler</Label>
             <div className="space-y-2">
-              {store.students.map((s) => (
+              {store.students.map((s) => {
+                // Ayarlar → Öğrenci ve Veli → Birden fazla veliye izin ver
+                const takenElsewhere =
+                  !store.institutionSettings.students.allowMultipleGuardians &&
+                  studentsWithOtherGuardian.has(s.id) &&
+                  !form.studentIds.includes(s.id);
+                return (
                 <label
                   key={s.id}
-                  className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 transition-colors",
+                    takenElsewhere ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-muted/50"
+                  )}
                 >
                   <input
                     type="checkbox"
                     className="rounded"
                     checked={form.studentIds.includes(s.id)}
+                    disabled={takenElsewhere}
                     onChange={() => toggleStudent(s.id)}
                   />
                   <div>
                     <p className="text-sm font-medium">{s.fullName}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{s.status}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {takenElsewhere ? "Başka bir veliye bağlı" : getStudentStatusLabel(s.status)}
+                    </p>
                   </div>
                 </label>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

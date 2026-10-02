@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { RolePermissionEditor } from "@/components/settings/users/RolePermissionEditor";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types/auth";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 interface RoleFormState {
   name: string;
@@ -146,6 +147,7 @@ function RoleFormDrawer({
 
 export function RollerTab() {
   const store = useMockStore();
+  const confirm = useConfirm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [cloneSource, setCloneSource] = useState<Role | null>(null);
@@ -243,7 +245,15 @@ export function RollerTab() {
                           ? "Bu role atanmış kullanıcılar olduğu için devre dışı bırakılamaz"
                           : undefined
                     }
-                    onClick={() => store.deactivateRole(role.id)}
+                    onClick={async () => {
+                      const ok = await confirm({
+                        kind: "sensitive",
+                        title: `"${role.name}" rolü devre dışı bırakılsın mı?`,
+                        confirmLabel: "Devre Dışı Bırak",
+                        destructive: true,
+                      });
+                      if (ok) store.deactivateRole(role.id);
+                    }}
                     className="gap-1 text-destructive hover:text-destructive/80"
                   >
                     {role.isActive ? <Ban className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}

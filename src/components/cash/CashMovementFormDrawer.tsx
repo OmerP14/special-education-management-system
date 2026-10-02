@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -13,10 +13,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useMockStore } from "@/lib/mock/store";
-import { formatCurrency, getPaymentMethodLabel } from "@/lib/helpers/finance";
-import { getCashCategoryLabel } from "@/lib/helpers/cash";
+import {
+  formatCurrency,
+  getPaymentMethodLabel,
+  getCurrencySymbol,
+} from "@/lib/helpers/finance";
+import { getCashCategoryLabel, isCashDayLocked, buildDailyCashSummary } from "@/lib/helpers/cash";
+import { AlertTriangle } from "lucide-react";
 import type { CashMovement, CashMovementType, CashCategory, PaymentMethod } from "@/types";
 import { cn } from "@/lib/utils";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -48,7 +55,7 @@ interface FormState {
 }
 
 function today(): string {
-  return new Date().toISOString().split("T")[0]!;
+  return toLocalDateKey(new Date());
 }
 
 const EMPTY_FORM: FormState = {
@@ -91,6 +98,7 @@ export function CashMovementFormDrawer({
   initialData,
 }: CashMovementFormDrawerProps) {
   const store = useMockStore();
+  const confirm = useConfirm();
   const isEditing = !!initialData;
 
   const { defaultPaymentMethod, enabledPaymentMethods } = store.institutionSettings.finance;
@@ -102,7 +110,12 @@ export function CashMovementFormDrawer({
       : { ...EMPTY_FORM, method: defaultPaymentMethod, date: initialDate ?? today() }
   );
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? initialData?.id ?? "" : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
       setForm(
         initialData
@@ -110,8 +123,7 @@ export function CashMovementFormDrawer({
           : { ...EMPTY_FORM, method: defaultPaymentMethod, date: initialDate ?? today() }
       );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -127,10 +139,35 @@ export function CashMovementFormDrawer({
     }));
   };
 
-  const canSave = !!form.date && form.amount > 0;
+  // Ayarlar → Finans: a closed/locked day takes no new or edited movements,
+  // and an expense that would push the day's balance below zero is flagged.
+  const { cashClosingBehavior, negativeCashWarning } = store.institutionSettings.finance;
+  const locked = (date: string) =>
+    !!date && isCashDayLocked(date, cashClosingBehavior, store.closedCashDays, today());
+  const dateLocked = locked(form.date) || (!!initialData && locked(initialData.date));
+  const closingBalance = form.date
+    ? buildDailyCashSummary(store.cashMovements, store.payments, form.date, store.teacherPayments).closingBalance
+    : 0;
+  const previousEffect = initialData && initialData.date === form.date
+    ? (initialData.type === "income" ? initialData.amount : -initialData.amount)
+    : 0;
+  const balanceAfter = closingBalance - previousEffect + (form.type === "income" ? form.amount : -form.amount);
+  const showNegativeWarning = negativeCashWarning && form.type === "expense" && form.amount > 0 && balanceAfter < 0;
 
-  const handleSave = () => {
+  const canSave = !!form.date && form.amount > 0 && !dateLocked;
+
+  const handleSave = async () => {
     if (!canSave) return;
+    if (
+      isEditing &&
+      !(await confirm({
+        kind: "financial",
+        title: "Kasa hareketi değiştirilsin mi?",
+        confirmLabel: "Değişiklikleri Kaydet",
+      }))
+    ) {
+      return;
+    }
     const id = initialData?.id ?? `cm-${Date.now()}`;
     const movement: CashMovement = {
       id,
@@ -163,8 +200,25 @@ export function CashMovementFormDrawer({
       description="Kasaya giriş veya çıkış işlemi ekleyin."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Hareketi Kaydet"}
+      saveDisabled={!canSave}
     >
       <div className="space-y-5">
+        {dateLocked && (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" />
+            <p className="text-xs text-destructive">
+              Bu tarihin kasası kapatılmış. Kapalı bir güne hareket eklenemez veya düzenlenemez.
+            </p>
+          </div>
+        )}
+        {showNegativeWarning && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:bg-amber-950/20">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Bu gider sonrası kasa bakiyesi negatife düşecek ({formatCurrency(balanceAfter)}).
+            </p>
+          </div>
+        )}
         {/* Type toggle */}
         <div className="space-y-1.5">
           <Label>İşlem Türü</Label>
@@ -250,7 +304,7 @@ export function CashMovementFormDrawer({
 
         {/* Amount */}
         <div className="space-y-1.5">
-          <Label htmlFor="cm-amount">Tutar (₺)</Label>
+          <Label htmlFor="cm-amount">Tutar ({getCurrencySymbol()})</Label>
           <NumericInput
             id="cm-amount"
             min={0}

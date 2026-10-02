@@ -29,9 +29,11 @@ export function useSettingsSection<K extends InstitutionSettingsKey>(key: K) {
   // Only re-syncs when THIS section's saved value changes (save/reset) — no
   // other store action touches institutionSettings[key], so an in-progress
   // edit is never silently clobbered by an unrelated update elsewhere.
-  useEffect(() => {
+  const [prevSaved, setPrevSaved] = useState(saved);
+  if (saved !== prevSaved) {
+    setPrevSaved(saved);
     setDraft(saved);
-  }, [saved]);
+  }
 
   const isDirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved]);
 

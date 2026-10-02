@@ -117,6 +117,17 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Ayarlar → Belge ve Görünüm → Animasyonları etkinleştir (off). */
+html[data-animations="off"] *,
+html[data-animations="off"] *::before,
+html[data-animations="off"] *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

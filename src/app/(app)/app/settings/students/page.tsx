@@ -98,7 +98,7 @@ function StudentSettingsContent() {
   return (
     <SettingsFormSection
       title="Öğrenci ve Veli Ayarları"
-      description="Yeni öğrenci/veli kaydı sırasında uygulanacak kurallar ve zorunlu alanlar."
+      description="Öğrenci formunda uygulanan zorunlu alanlar ve numaralandırma, öğrenci listesi ve veli ekranlarındaki davranış."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -111,11 +111,11 @@ function StudentSettingsContent() {
       <div className="grid gap-4 sm:grid-cols-2">
         <ToggleRow
           label="Öğrenci numarasını otomatik oluştur"
-          description="Kapalı olduğunda öğrenci numarası manuel girilir."
+          description="Açıkken her yeni öğrenciye (ve numarası olmayanlara) sıradaki numara verilir; kapalıyken formda elle girilir."
           checked={draft.autoGenerateStudentNumber}
           onCheckedChange={(v) => set("autoGenerateStudentNumber", v)}
         />
-        <SettingsField label="Öğrenci Numara Formatı" description="{0000} sıra numarası olarak yerine geçer.">
+        <SettingsField label="Öğrenci Numara Formatı" description="{0000} sıra numarası, {YYYY} yıl olarak yerine geçer.">
           <Input
             value={draft.studentNumberFormat}
             onChange={(e) => set("studentNumberFormat", e.target.value)}
@@ -156,12 +156,13 @@ function StudentSettingsContent() {
         />
         <ToggleRow
           label="Birden fazla veliye izin ver"
+          description="Kapalıyken bir öğrenci yalnızca bir veliye bağlanabilir."
           checked={draft.allowMultipleGuardians}
           onCheckedChange={(v) => set("allowMultipleGuardians", v)}
         />
         <ToggleRow
           label="Borç uyarısı göster"
-          description="Öğrenci detayında bekleyen borç varsa uyarı gösterir."
+          description="Borcu Finans → Borç Uyarı Eşiği'ni aşan öğrenciler listede ve detayda işaretlenir."
           checked={draft.debtWarningEnabled}
           onCheckedChange={(v) => set("debtWarningEnabled", v)}
         />

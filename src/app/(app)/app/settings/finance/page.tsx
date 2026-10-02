@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { getPaymentMethodLabel } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
-import type { FinanceSettings, OverpaymentPolicy, CashClosingBehavior } from "@/types/settings";
+import type { FinanceSettings, OverpaymentPolicy, CashClosingBehavior, CurrencyCode } from "@/types/settings";
 import type { PaymentMethod } from "@/types";
 
 const ALL_METHODS: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
@@ -27,8 +27,15 @@ const OVERPAYMENT_LABELS: Record<OverpaymentPolicy, string> = {
   warn: "Uyar, yine de kaydetmeye izin ver",
 };
 
+const CURRENCY_LABELS: Record<CurrencyCode, string> = {
+  TRY: "Türk Lirası (₺)",
+  USD: "ABD Doları ($)",
+  EUR: "Euro (€)",
+  GBP: "İngiliz Sterlini (£)",
+};
+
 const CASH_CLOSING_LABELS: Record<CashClosingBehavior, string> = {
-  manual: "Manuel kapanış",
+  manual: "Manuel kapanış (Günlük Kasa'da 'Günü Kapat')",
   auto_lock: "Gün sonunda otomatik kilitle",
 };
 
@@ -81,7 +88,7 @@ function FinanceSettingsContent() {
   return (
     <SettingsFormSection
       title="Finans Ayarları"
-      description="Para birimi, ödeme yöntemleri ve kasa kurallarını yönetin. Bu ayarlar ödeme ve kasa formlarındaki varsayılanları belirler; mevcut Ciro/Tahsilat hesaplama mantığını değiştirmez."
+      description="Para birimi, ödeme yöntemleri, taksit, makbuz ve kasa kuralları. Tutarlar tüm ekranlarda bu para birimiyle gösterilir; ödeme ve kasa formları bu kurallara göre çalışır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -92,16 +99,22 @@ function FinanceSettingsContent() {
     >
       {/* Currency */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <SettingsField label="Para Birimi">
-          <Input value={draft.currency} onChange={(e) => set("currency", e.target.value)} placeholder="TRY" />
-        </SettingsField>
+        <SelectField
+          label="Para Birimi"
+          value={draft.currency}
+          onChange={(v) => set("currency", v)}
+          labels={CURRENCY_LABELS}
+        />
         <SelectField
           label="Sembol Konumu"
           value={draft.currencySymbolPosition}
           onChange={(v) => set("currencySymbolPosition", v)}
-          labels={{ before: "Tutardan önce (₺100)", after: "Tutardan sonra (100₺)" }}
+          labels={{ before: "Tutardan önce (₺100)", after: "Tutardan sonra (100 ₺)" }}
         />
-        <SettingsField label="Öğrenci Borç Uyarı Eşiği (₺)">
+        <SettingsField
+          label="Öğrenci Borç Uyarı Eşiği"
+          description="Bu tutarı aşan borçlar öğrenci listesinde ve detayında işaretlenir (Öğrenci ve Veli → Borç uyarısı açıkken)."
+        >
           <NumericInput
             min={0}
             value={draft.studentDebtWarningThreshold}
@@ -164,14 +177,14 @@ function FinanceSettingsContent() {
           <Switch checked={draft.allowInstallments} onCheckedChange={(v) => set("allowInstallments", v)} />
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <SettingsField label="Varsayılan Taksit Aralığı (gün)">
+          <SettingsField label="Varsayılan Taksit Aralığı (gün)" description="30 = aylık, 7 = haftalık, diğer = özel aralık.">
             <NumericInput
               min={1}
               value={draft.defaultInstallmentIntervalDays}
               onValueChange={(v) => set("defaultInstallmentIntervalDays", v ?? 0)}
             />
           </SettingsField>
-          <SettingsField label="Gecikme Toleransı (gün)">
+          <SettingsField label="Gecikme Toleransı (gün)" description="Vade bu kadar gün geçince taksit 'gecikti' sayılır.">
             <NumericInput
               min={0}
               value={draft.latePaymentToleranceDays}
@@ -196,19 +209,22 @@ function FinanceSettingsContent() {
 
       {/* Receipts */}
       <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <SettingsField label="Başlangıç Ödeme Numarası">
+        <SettingsField label="Başlangıç Ödeme Numarası" description="İlk makbuzun sıra numarası.">
           <NumericInput
             min={1}
             value={draft.paymentNumberStart}
             onValueChange={(v) => set("paymentNumberStart", v ?? 0)}
           />
         </SettingsField>
-        <SettingsField label="Makbuz Numara Formatı" description="{YYYY} yıl, {0000} sıra numarası olarak yerine geçer.">
+        <SettingsField
+          label="Makbuz Numara Formatı"
+          description="Her yeni ödemeye verilir. {YYYY} yıl, {0000} sıra numarası olarak yerine geçer."
+        >
           <Input value={draft.receiptNumberFormat} onChange={(e) => set("receiptNumberFormat", e.target.value)} />
         </SettingsField>
         <SettingsField
           label="Tahsilat Açıklama Şablonu"
-          description="{ogrenciAdi} ve {ay} otomatik doldurulur."
+          description="Yeni ödemenin açıklamasına yazılır; {ogrenciAdi} ve {ay} otomatik doldurulur."
         >
           <Input
             value={draft.collectionDescriptionTemplate}
@@ -232,25 +248,9 @@ function FinanceSettingsContent() {
             <p className="text-sm text-foreground">Negatif kasa bakiyesinde uyar</p>
             <Switch checked={draft.negativeCashWarning} onCheckedChange={(v) => set("negativeCashWarning", v)} />
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-            <p className="text-sm text-foreground">Genel dashboard&apos;da finans göster</p>
-            <Switch
-              checked={draft.showFinanceOnGeneralDashboard}
-              onCheckedChange={(v) => set("showFinanceOnGeneralDashboard", v)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3 sm:col-span-2">
-            <div>
-              <p className="text-sm font-medium text-foreground">Finansı yalnızca yetkili rollere göster</p>
-              <p className="text-xs text-muted-foreground">
-                Şu an yalnızca bir tercih olarak kaydedilir — gerçek rol/izin motoru devreye girdiğinde uygulanacaktır.
-              </p>
-            </div>
-            <Switch
-              checked={draft.restrictFinanceToAuthorized}
-              onCheckedChange={(v) => set("restrictFinanceToAuthorized", v)}
-            />
-          </div>
+          <p className="self-center text-xs text-muted-foreground">
+            Finans ekranlarını kimin göreceği Kullanıcılar ve Roller → Yetki Matrisi&apos;nden yönetilir.
+          </p>
         </div>
       </div>
     </SettingsFormSection>

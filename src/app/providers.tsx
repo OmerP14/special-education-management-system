@@ -3,6 +3,9 @@
 import type { ReactNode } from "react";
 import { MockDataProvider } from "@/lib/mock/store";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
+import { AppearanceSync } from "@/components/layout/AppearanceSync";
+import { ConfirmProvider } from "@/components/shared/ConfirmProvider";
+import { AutoBackupRunner } from "@/components/layout/AutoBackupRunner";
 
 // Wraps the WHOLE app (mounted from the root layout), not just /app/* — both
 // /login and every /app/* route need the same store (LocalAuthService reads
@@ -12,7 +15,11 @@ import { AuthProvider } from "@/lib/auth/AuthProvider";
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <MockDataProvider>
-      <AuthProvider>{children}</AuthProvider>
+      <AppearanceSync />
+      <AutoBackupRunner />
+      <AuthProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </AuthProvider>
     </MockDataProvider>
   );
 }

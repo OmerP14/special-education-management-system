@@ -15,6 +15,9 @@ import {
   Check,
   BookOpen,
   Pencil,
+  Hash,
+  HeartPulse,
+  ShieldCheck,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -30,6 +33,7 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
+import { getGuardianContactLink } from "@/lib/helpers/student-rules";
 import { useUserScope } from "@/lib/auth/use-scope";
 import { canAccessStudent } from "@/lib/auth/scope";
 import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
@@ -37,7 +41,6 @@ import {
   buildStudentDetail,
   formatCurrency,
   formatDate,
-  formatDateTime,
   formatTime,
   getPaymentMethodLabel,
   getStudentPlannedSummary,
@@ -51,6 +54,7 @@ import { buildStudentCurrentAccount } from "@/lib/helpers/current-account";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type { Session, Payment, PaymentMethod, InstallmentPlan, EducationType } from "@/types";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Column builders ───────────────────────────────────────────────────────────
 
@@ -338,6 +342,7 @@ function StudentDetailViewContent({
   studentId,
   store,
 }: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
+  const confirm = useConfirm();
   const [editOpen, setEditOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(
@@ -415,10 +420,43 @@ function StudentDetailViewContent({
         </CardHeader>
         <CardContent className="pt-0 divide-y divide-border/60">
           <InfoRow icon={User} label="Ad Soyad" value={detail.fullName} />
+          {detail.studentNumber && <InfoRow icon={Hash} label="Öğrenci No" value={detail.studentNumber} />}
           <InfoRow
             icon={CalendarDays}
             label="Doğum Tarihi"
             value={formatDate(detail.birthDate)}
+          />
+          {detail.healthInfo && (
+            <InfoRow icon={HeartPulse} label="Sağlık Bilgisi" value={<span className="whitespace-pre-line">{detail.healthInfo}</span>} />
+          )}
+          {(detail.emergencyContactName || detail.emergencyContactPhone) && (
+            <InfoRow
+              icon={Phone}
+              label="Acil Durum Kişisi"
+              value={
+                <>
+                  {detail.emergencyContactName}
+                  {detail.emergencyContactPhone && (
+                    <a href={`tel:${detail.emergencyContactPhone.replace(/\D/g, "")}`} className="ml-2 text-primary hover:underline">
+                      {detail.emergencyContactPhone}
+                    </a>
+                  )}
+                </>
+              }
+            />
+          )}
+          <InfoRow
+            icon={ShieldCheck}
+            label="KVKK Onayı"
+            value={
+              detail.kvkkConsent ? (
+                <span className="text-emerald-600">Alındı{detail.kvkkConsentDate ? ` · ${formatDate(detail.kvkkConsentDate)}` : ""}</span>
+              ) : (
+                <span className={store.institutionSettings.students.requireKvkkConsent ? "text-destructive" : "text-muted-foreground"}>
+                  Alınmadı
+                </span>
+              )
+            }
           />
           <InfoRow
             icon={GraduationCap}
@@ -513,6 +551,22 @@ function StudentDetailViewContent({
                     }
                   />
                 )}
+                {(() => {
+                  // Ayarlar → Öğrenci ve Veli → Veli İletişim Tercihi
+                  const contact = getGuardianContactLink(guardian, store.institutionSettings.students.guardianContactPreference);
+                  return contact ? (
+                    <div className="pb-2 pl-10">
+                      <a
+                        href={contact.href}
+                        target={contact.href.startsWith("http") ? "_blank" : undefined}
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      >
+                        {contact.label}
+                      </a>
+                    </div>
+                  ) : null;
+                })()}
                 {detail.allGuardians.indexOf(guardian) < detail.allGuardians.length - 1 && (
                   <Separator className="my-2" />
                 )}
@@ -551,7 +605,18 @@ function StudentDetailViewContent({
               key={plan.id}
               plan={plan}
               today={today}
-              onMarkPaid={store.markInstallmentPaid}
+              onMarkPaid={async (planId: string, installmentId: string) => {
+                if (
+                  await confirm({
+                    kind: "financial",
+                    title: "Taksit ödendi olarak işaretlensin mi?",
+                    description: "Bu işlem öğrencinin hesabına bir ödeme kaydı ekler.",
+                    confirmLabel: "Ödendi İşaretle",
+                  })
+                ) {
+                  store.markInstallmentPaid(planId, installmentId);
+                }
+              }}
             />
           ))}
         </div>
@@ -892,6 +957,19 @@ function StudentDetailViewContent({
             variant={detail.totalDebt > 0 ? "danger" : "success"}
           />
         </div>
+
+        {/* Ayarlar → Öğrenci ve Veli → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
+        {store.institutionSettings.students.debtWarningEnabled &&
+          detail.totalDebt > 0 &&
+          detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+              <p className="text-sm text-destructive">
+                Bu öğrencinin borcu ({formatCurrency(detail.totalDebt)}) kurumun borç uyarı eşiğini (
+                {formatCurrency(store.institutionSettings.finance.studentDebtWarningThreshold)}) aşıyor.
+              </p>
+            </div>
+          )}
 
         {/* Planned sessions — informational only, never billed */}
         {plannedSummary.count > 0 && (

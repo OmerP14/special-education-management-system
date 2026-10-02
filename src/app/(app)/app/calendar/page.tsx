@@ -29,8 +29,11 @@ import {
   buildCalendarStats,
   getCalendarEventRelations,
   getWeekDays,
+  getSessionsForDate,
+  getVisibleHourRange,
+  getCalendarLegend,
+  type CalendarDisplayOptions,
 } from "@/lib/helpers/calendar";
-import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import type { Session, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -175,11 +178,15 @@ export default function CalendarPage() {
   const [view, setView] = useState<CalendarView>(() => store.institutionSettings.calendar.defaultView);
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
-  // Configured work-day hour range for Week/Day views — "HH:mm" strings are
-  // reduced to whole hours since the grid renders one row per hour.
-  const hourStart = Number(store.institutionSettings.calendar.dayStartTime.split(":")[0]);
-  const hourEndRaw = store.institutionSettings.calendar.dayEndTime.split(":");
-  const hourEnd = Number(hourEndRaw[0]) + (Number(hourEndRaw[1]) > 0 ? 1 : 0);
+  const calendarSettings = store.institutionSettings.calendar;
+  const display = useMemo<CalendarDisplayOptions>(
+    () => ({
+      colorSource: calendarSettings.colorSource,
+      overlapDisplay: calendarSettings.overlapDisplay,
+      calendar: calendarSettings,
+    }),
+    [calendarSettings]
+  );
 
   // Filters
   const [teacherFilter, setTeacherFilter] = useState("all");
@@ -309,12 +316,21 @@ export default function CalendarPage() {
     setStatusFilter("all");
   };
 
-  const showWeekends = store.institutionSettings.calendar.showWeekends;
+  const showWeekends = calendarSettings.showWeekends;
   const weekDays = useMemo(() => {
-    const days = getWeekDays(currentDate);
+    const days = getWeekDays(currentDate, calendarSettings.weekStartsOn);
     return showWeekends ? days : days.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
-  }, [currentDate, showWeekends]);
+  }, [currentDate, showWeekends, calendarSettings.weekStartsOn]);
   const navLabel = getNavLabel(view, currentDate);
+
+  // Week/Day hour range — working hours, or (with "Boş saatleri gizle") just
+  // the hours that actually hold sessions in the visible days.
+  const visibleGridEvents = useMemo(() => {
+    const days = view === "day" || isMobile ? [currentDate] : weekDays;
+    return days.flatMap((d) => getSessionsForDate(filteredEvents, d));
+  }, [view, isMobile, currentDate, weekDays, filteredEvents]);
+  const { hourStart, hourEnd } = getVisibleHourRange(calendarSettings, visibleGridEvents);
+  const legend = getCalendarLegend(calendarSettings.colorSource, store.educationTypes, scopedTeachers);
 
   return (
     <>
@@ -497,35 +513,14 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* Status + education-type legend — one dense row (was two stacked
-            rows with a border between them) to keep the calendar higher up. */}
+        {/* Legend — follows Ayarlar → Takvim → Seans Renklendirme. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {(
-            [
-              { status: "planned", label: "Planlandı", color: "bg-blue-500" },
-              { status: "completed", label: "Tamamlandı", color: "bg-emerald-500" },
-              { status: "cancelled", label: "İptal", color: "bg-gray-400" },
-              { status: "no_show", label: "Gelmedi", color: "bg-red-500" },
-              { status: "makeup", label: "Telafi", color: "bg-purple-500" },
-            ] as { status: string; label: string; color: string }[]
-          ).map(({ status, label, color }) => (
-            <div key={status} className="flex items-center gap-1.5">
-              <div className={cn("h-2 w-2 rounded-full", color)} />
+          {legend.map(({ key, label, color }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
               <span className="text-xs text-muted-foreground">{label}</span>
             </div>
           ))}
-
-          {getActiveEducationTypes(store.educationTypes).length > 0 && (
-            <>
-              <span className="h-3 w-px bg-border" aria-hidden />
-              {getActiveEducationTypes(store.educationTypes).map((et) => (
-                <div key={et.id} className="flex items-center gap-1.5">
-                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: et.color }} />
-                  <span className="text-xs text-muted-foreground">{et.name}</span>
-                </div>
-              ))}
-            </>
-          )}
 
           {filteredEvents.length < allEvents.length && (
             <span className="ml-auto text-xs text-muted-foreground">
@@ -546,9 +541,10 @@ export default function CalendarPage() {
                 onEventClick={handleEventClick}
                 hourStart={hourStart}
                 hourEnd={hourEnd}
+                display={display}
               />
             ) : (
-              <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+              <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} colorSource={display.colorSource} />
             )
           ) : view === "month" ? (
             <CalendarMonthView
@@ -557,6 +553,7 @@ export default function CalendarPage() {
               events={filteredEvents}
               onEventClick={handleEventClick}
               onDayClick={handleDayClick}
+              display={display}
             />
           ) : view === "week" ? (
             <CalendarWeekView
@@ -566,6 +563,7 @@ export default function CalendarPage() {
               onDayHeaderClick={handleDayClick}
               hourStart={hourStart}
               hourEnd={hourEnd}
+              display={display}
             />
           ) : view === "day" ? (
             <CalendarDayView
@@ -574,9 +572,10 @@ export default function CalendarPage() {
               onEventClick={handleEventClick}
               hourStart={hourStart}
               hourEnd={hourEnd}
+              display={display}
             />
           ) : (
-            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
+            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} colorSource={display.colorSource} />
           )}
         </div>
       </div>

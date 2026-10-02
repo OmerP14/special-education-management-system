@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "./EmptyState";
 import { cn } from "@/lib/utils";
+import { getActiveSettings } from "@/lib/settings/runtime";
 
 export interface Column<T> {
   key: string;
@@ -30,6 +31,8 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   /** Tighter cell padding for wide tables with many columns. */
   dense?: boolean;
+  /** Extra classes per row (e.g. greyed-out inactive records). */
+  rowClassName?: (row: T) => string | undefined;
 }
 
 export function DataTable<T>({
@@ -41,7 +44,10 @@ export function DataTable<T>({
   className,
   onRowClick,
   dense,
+  rowClassName,
 }: DataTableProps<T>) {
+  // Ayarlar → Belge ve Görünüm → Tablo Satır Yoğunluğu
+  const compactRows = !dense && getActiveSettings().appearance.tableRowDensity === "compact";
   if (data.length === 0) {
     return (
       <EmptyState
@@ -77,7 +83,8 @@ export function DataTable<T>({
               key={keyExtractor(row)}
               className={cn(
                 "border-border transition-colors",
-                onRowClick && "cursor-pointer hover:bg-muted/40"
+                onRowClick && "cursor-pointer hover:bg-muted/40",
+                rowClassName?.(row)
               )}
               onClick={() => onRowClick?.(row)}
             >
@@ -86,7 +93,7 @@ export function DataTable<T>({
                   key={col.key}
                   className={cn(
                     "text-sm",
-                    dense ? "py-2 px-1.5" : "py-3.5",
+                    dense ? "py-2 px-1.5" : compactRows ? "py-2" : "py-3.5",
                     col.className
                   )}
                 >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { AlertTriangle, CheckCircle2, Info, User } from "lucide-react";
 import Link from "next/link";
 import { FormDrawer } from "@/components/shared/FormDrawer";
@@ -24,6 +24,7 @@ import {
   formatCurrency,
   formatDate,
   formatTime,
+  getCurrencySymbol,
 } from "@/lib/helpers/finance";
 import {
   isTeacherAssignedToEducationType,
@@ -34,7 +35,17 @@ import {
   findDuplicateDateTimestamps,
 } from "@/lib/helpers/weekly-plans";
 import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
-import { WeeklyPlanConflictWarning } from "@/components/sessions/WeeklyPlanConflictWarning";
+import {
+  WeeklyPlanConflictWarning,
+  HolidaySkipNotice,
+  SlotScheduleNotice,
+} from "@/components/sessions/WeeklyPlanConflictWarning";
+import {
+  getConflictOptions,
+  getDefaultSessionDuration,
+  getWeeklySlotIssues,
+  partitionDatesByHoliday,
+} from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -144,24 +155,17 @@ export function WeeklyPlanFormDrawer({
   const [form, setForm] = useState<FormState>(buildInitial);
   const [incompatibilityAcknowledged, setIncompatibilityAcknowledged] = useState(false);
 
-  useEffect(() => {
+  // Reset when the drawer opens (or targets another record). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? `${initialData?.id ?? ""}|${copyFromPlan?.id ?? ""}|${preselectedStudentId ?? ""}` : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
     if (open) {
-      if (initialData) {
-        setForm(buildFromPlan(initialData));
-      } else if (copyFromPlan) {
-        const f = buildFromPlan(copyFromPlan);
-        f.startDate = "";
-        f.endDate = "";
-        setForm(f);
-      } else {
-        const f = buildEmptyForm();
-        if (preselectedStudentId) f.studentId = preselectedStudentId;
-        setForm(f);
-      }
+      setForm(buildInitial());
       setIncompatibilityAcknowledged(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialData?.id, copyFromPlan?.id, preselectedStudentId]);
+  }
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }));
@@ -256,6 +260,22 @@ export function WeeklyPlanFormDrawer({
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
+  // Generated sessions take the education type's duration (or Ayarlar → Seans
+  // default) and skip holidays (Ayarlar → Takvim → Resmi Tatiller).
+  const planDuration = getDefaultSessionDuration(
+    form.educationTypeId,
+    store.educationTypes,
+    store.institutionSettings.sessions
+  );
+  const { datesToKeep: datesAfterHolidays, holidaySkips } = useMemo(
+    () =>
+      isEditing
+        ? { datesToKeep: datesAfterDuplicates, holidaySkips: [] }
+        : partitionDatesByHoliday(datesAfterDuplicates, store.institutionSettings.calendar),
+    [isEditing, datesAfterDuplicates, store.institutionSettings.calendar]
+  );
+  const slotIssues = getWeeklySlotIssues(activeSlots, planDuration, store.institutionSettings.calendar);
+
   // ── Conflict detection (teacher / student double-booking) ─────────────────
   // Conflicting dates are never created — they're excluded from datesToCreate and
   // surfaced as a skip list, so double-booking can't slip through even if the user
@@ -263,15 +283,16 @@ export function WeeklyPlanFormDrawer({
   const { datesToCreate, conflicts } = useMemo(
     () =>
       isEditing || !form.studentId || !form.teacherId
-        ? { datesToCreate: datesAfterDuplicates, conflicts: [] }
+        ? { datesToCreate: datesAfterHolidays, conflicts: [] }
         : partitionDatesByConflict(
-            datesAfterDuplicates,
+            datesAfterHolidays,
             form.studentId,
             form.teacherId,
-            50,
-            store.sessions
+            planDuration,
+            store.sessions,
+            getConflictOptions(store.institutionSettings)
           ),
-    [isEditing, datesAfterDuplicates, form.studentId, form.teacherId, store.sessions]
+    [isEditing, datesAfterHolidays, form.studentId, form.teacherId, planDuration, store.sessions, store.institutionSettings]
   );
 
   // ── Financial preview ─────────────────────────────────────────────────────
@@ -393,7 +414,7 @@ export function WeeklyPlanFormDrawer({
           teacherId: form.teacherId,
           educationTypeId: form.educationTypeId,
           date: dateStr,
-          durationMinutes: 50,
+          durationMinutes: planDuration,
           sessionCount: 1,
           studentPrice: form.studentPrice,
           teacherEarning: form.teacherEarning,
@@ -560,7 +581,7 @@ export function WeeklyPlanFormDrawer({
         {/* Seans Ücreti + Hakediş */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="plan-student-price">Seans Ücreti (₺)</Label>
+            <Label htmlFor="plan-student-price">Seans Ücreti ({getCurrencySymbol()})</Label>
             <NumericInput
               id="plan-student-price"
               min={0}
@@ -569,7 +590,7 @@ export function WeeklyPlanFormDrawer({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="plan-teacher-earning">Öğretmen Hakedişi (₺)</Label>
+            <Label htmlFor="plan-teacher-earning">Öğretmen Hakedişi ({getCurrencySymbol()})</Label>
             <NumericInput
               id="plan-teacher-earning"
               min={0}
@@ -717,6 +738,8 @@ export function WeeklyPlanFormDrawer({
               )}
 
               {/* Conflict warnings */}
+              <SlotScheduleNotice issues={slotIssues} />
+              <HolidaySkipNotice skips={holidaySkips} />
               <WeeklyPlanConflictWarning
                 conflicts={conflicts}
                 students={store.students}

@@ -5,11 +5,16 @@ import {
   isSameDay,
   getSessionsForDate,
   layoutOverlappingEvents,
-  SESSION_STATUS_BLOCK_COLORS,
+  getCalendarDayMeta,
+  getEventBlockAppearance,
+  getOverlapPosition,
+  type CalendarDisplayOptions,
   type CalendarEvent,
   type EventLayout,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
+import { formatHourLabel } from "@/lib/helpers/finance";
+import { LunchBand } from "@/components/calendar/CalendarWeekView";
 
 // ─── Time grid constants ────────────────────────────────────────────────────────
 // Hour range comes from Ayarlar → Takvim ve Çalışma Saatleri (dayStartTime/
@@ -21,9 +26,6 @@ const HOUR_HEIGHT = 72; // slightly taller for single-day view
 // close instead of the last hour block just stopping at the container edge.
 const END_LABEL_HEIGHT = 28;
 
-function formatHourLabel(h: number): string {
-  return `${String(h).padStart(2, "0")}:00`;
-}
 
 function getEventTop(event: CalendarEvent, hourStart: number, hourEnd: number): number {
   const h = event.date.getHours();
@@ -54,18 +56,20 @@ function EventBlock({
   layout,
   hourStart,
   hourEnd,
+  display,
   onClick,
 }: {
   event: CalendarEvent;
   layout: EventLayout;
   hourStart: number;
   hourEnd: number;
+  display: CalendarDisplayOptions;
   onClick: () => void;
 }) {
   const top = getEventTop(event, hourStart, hourEnd);
   const height = getEventHeight(event.durationMinutes);
-  const { col, totalCols } = layout;
-  const widthPct = 100 / totalCols;
+  const position = getOverlapPosition(layout, display.overlapDisplay, 4);
+  const appearance = getEventBlockAppearance(event, display.colorSource);
   // Narrow (overlapping) cards still show everything that fits vertically —
   // duration determines available height regardless of how many columns
   // split the width, so the previous totalCols === 1 gate hid teacher/
@@ -77,18 +81,12 @@ function EventBlock({
     <button
       onClick={onClick}
       title={tooltip}
-      style={{
-        top,
-        height,
-        left: `calc(${col * widthPct}% + 4px)`,
-        width: `calc(${widthPct}% - ${totalCols > 1 ? 6 : 8}px)`,
-        borderLeft: `3px solid ${event.educationTypeColor}`,
-      }}
+      style={{ top, height, ...position, ...appearance.style }}
       className={cn(
         "absolute rounded-xl pl-2 pr-2.5 py-1.5 text-left overflow-hidden z-0",
         "transition-all duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
         "focus:outline-none focus:ring-2 focus:ring-primary/50",
-        SESSION_STATUS_BLOCK_COLORS[event.status]
+        appearance.className
       )}
     >
       {event.billingMode === "historical_non_billable" && (
@@ -142,10 +140,12 @@ interface CalendarDayViewProps {
   /** Configured work-day hour range (Ayarlar → Takvim ve Çalışma Saatleri). */
   hourStart: number;
   hourEnd: number;
+  display: CalendarDisplayOptions;
 }
 
-export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd }: CalendarDayViewProps) {
+export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd, display }: CalendarDayViewProps) {
   const today = new Date();
+  const meta = getCalendarDayMeta(date, display.calendar);
   const isToday = isSameDay(date, today);
   const dayEvents = getSessionsForDate(events, date);
   const eventLayout = layoutOverlappingEvents(dayEvents);
@@ -184,6 +184,8 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
           {dayEvents.length} seans
+          {meta.holiday && <> · Resmi tatil: {meta.holiday}</>}
+          {!meta.holiday && meta.closed && <> · Kurum kapalı</>}
         </p>
       </div>
 
@@ -220,7 +222,7 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
           </div>
 
           {/* Event column */}
-          <div className="flex-1 relative border-b border-border/40">
+          <div className={cn("flex-1 relative border-b border-border/40", (meta.closed || meta.holiday) && "bg-muted/60")}>
             {hours.map((h) => (
               <div
                 key={h}
@@ -232,6 +234,8 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
                 same total height and the grid lines stay aligned. */}
             <div style={{ height: END_LABEL_HEIGHT }} />
 
+            <LunchBand calendar={display.calendar} hourStart={hourStart} hourEnd={hourEnd} />
+
             {dayEvents.map((event) => (
               <EventBlock
                 key={event.id}
@@ -239,6 +243,7 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
                 layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
                 hourStart={hourStart}
                 hourEnd={hourEnd}
+                display={display}
                 onClick={() => onEventClick(event.id)}
               />
             ))}

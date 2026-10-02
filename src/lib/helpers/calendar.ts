@@ -1,3 +1,9 @@
+import type { CSSProperties } from "react";
+import type { CalendarSettings, CalendarColorSource } from "@/types/settings";
+import { formatTime } from "@/lib/helpers/finance";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { cn } from "@/lib/utils";
+import { getActiveSettings } from "@/lib/settings/runtime";
 import type {
   Session,
   Student,
@@ -61,25 +67,48 @@ export function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
-/** Returns 7 Date objects Mon–Sun for the week containing referenceDate. */
-export function getWeekDays(referenceDate: Date): Date[] {
+const WEEKDAY_SHORT_LABELS = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+
+/** "Pzt", "Sal", … for a JS weekday index (0 = Sunday). */
+export function getWeekdayShortLabel(dayOfWeek: number): string {
+  return WEEKDAY_SHORT_LABELS[dayOfWeek] ?? "";
+}
+
+/** Weekday indexes in display order for Ayarlar → Takvim → Haftanın İlk Günü. */
+export function getOrderedWeekdays(
+  weekStartsOn: 0 | 1 = getActiveSettings().calendar.weekStartsOn
+): number[] {
+  return Array.from({ length: 7 }, (_, i) => (weekStartsOn + i) % 7);
+}
+
+/** Returns the 7 days of the week containing referenceDate, starting on
+ *  Monday (1) or Sunday (0) — Ayarlar → Takvim → Haftanın İlk Günü by default. */
+export function getWeekDays(
+  referenceDate: Date,
+  weekStartsOn: 0 | 1 = getActiveSettings().calendar.weekStartsOn
+): Date[] {
   const dow = referenceDate.getDay(); // 0=Sun
-  const diff = dow === 0 ? -6 : 1 - dow;
-  const monday = new Date(referenceDate);
-  monday.setDate(referenceDate.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
+  const diff = -((dow - weekStartsOn + 7) % 7);
+  const first = new Date(referenceDate);
+  first.setDate(referenceDate.getDate() + diff);
+  first.setHours(0, 0, 0, 0);
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
+    const d = new Date(first);
+    d.setDate(first.getDate() + i);
     return d;
   });
 }
 
-/** Returns 42 Date objects (6 full weeks) for a Mon-start month grid. */
-export function getMonthDays(year: number, month: number): Date[] {
+/** Returns 42 Date objects (6 full weeks) for a month grid starting on
+ *  Monday (1) or Sunday (0) — Ayarlar → Takvim → Haftanın İlk Günü by default. */
+export function getMonthDays(
+  year: number,
+  month: number,
+  weekStartsOn: 0 | 1 = getActiveSettings().calendar.weekStartsOn
+): Date[] {
   const firstOfMonth = new Date(year, month, 1);
   const startDow = firstOfMonth.getDay(); // 0=Sun
-  const leadCount = startDow === 0 ? 6 : startDow - 1;
+  const leadCount = (startDow - weekStartsOn + 7) % 7;
   const startDate = new Date(year, month, 1 - leadCount);
   return Array.from({ length: 42 }, (_, i) => {
     const d = new Date(startDate);
@@ -101,11 +130,7 @@ export function buildCalendarEvents(
     const student = students.find((s) => s.id === session.studentId);
     const teacher = teachers.find((t) => t.id === session.teacherId);
     const et = educationTypes.find((e) => e.id === session.educationTypeId);
-    const timeStr = new Intl.DateTimeFormat("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(date);
+    const timeStr = formatTime(session.date);
     return {
       id: session.id,
       date,
@@ -282,3 +307,155 @@ export const SESSION_STATUS_PILL_COLORS: Record<SessionStatus, string> = {
   no_show: "bg-red-500 text-white",
   makeup: "bg-purple-500 text-white",
 };
+
+// ─── Institution calendar overlays (Ayarlar → Takvim) ──────────────────────────
+
+export interface CalendarDayMeta {
+  /** Holiday label when the date is a configured holiday. */
+  holiday: string | null;
+  /** Not one of the configured working days. */
+  closed: boolean;
+}
+
+export function getCalendarDayMeta(date: Date, calendar: CalendarSettings): CalendarDayMeta {
+  const holiday = calendar.holidays.find((h) => h.date === toLocalDateKey(date));
+  return { holiday: holiday?.label ?? null, closed: !calendar.workingDays.includes(date.getDay()) };
+}
+
+/** Lunch break as fractional hours ({ start: 12.5, end: 13.5 }), or null when unset. */
+export function getLunchBreakHours(calendar: CalendarSettings): { start: number; end: number } | null {
+  if (!calendar.lunchBreakStart || !calendar.lunchBreakEnd) return null;
+  const toHours = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h ?? 0) + (m ?? 0) / 60;
+  };
+  const start = toHours(calendar.lunchBreakStart);
+  const end = toHours(calendar.lunchBreakEnd);
+  return end > start ? { start, end } : null;
+}
+
+/** Everything the time-grid views need from the institution settings. */
+export interface CalendarDisplayOptions {
+  colorSource: CalendarColorSource;
+  overlapDisplay: CalendarSettings["overlapDisplay"];
+  calendar: CalendarSettings;
+}
+
+const STATUS_ACCENT_COLORS: Record<SessionStatus, string> = {
+  planned: "#3b82f6",
+  completed: "#10b981",
+  cancelled: "#9ca3af",
+  no_show: "#ef4444",
+  makeup: "#a855f7",
+};
+
+const TEACHER_PALETTE = [
+  "#2563eb", "#db2777", "#16a34a", "#ea580c", "#7c3aed",
+  "#0891b2", "#ca8a04", "#dc2626", "#4f46e5", "#0d9488",
+];
+
+/** Stable color per teacher (Ayarlar → Takvim → Seans Renklendirme: Öğretmene Göre). */
+export function getTeacherColor(teacherId: string): string {
+  let hash = 0;
+  for (let i = 0; i < teacherId.length; i++) hash = (hash * 31 + teacherId.charCodeAt(i)) | 0;
+  return TEACHER_PALETTE[Math.abs(hash) % TEACHER_PALETTE.length]!;
+}
+
+/** Accent color of an event for the configured color source. */
+export function getEventAccentColor(event: CalendarEvent, colorSource: CalendarColorSource): string {
+  if (colorSource === "educationType") return event.educationTypeColor;
+  if (colorSource === "teacher") return getTeacherColor(event.teacherId);
+  return STATUS_ACCENT_COLORS[event.status];
+}
+
+/** Classes + inline style for a time-grid/agenda event card. */
+export function getEventBlockAppearance(
+  event: CalendarEvent,
+  colorSource: CalendarColorSource
+): { className: string; style: CSSProperties } {
+  const accent = getEventAccentColor(event, colorSource);
+  if (colorSource === "status") {
+    return { className: SESSION_STATUS_BLOCK_COLORS[event.status], style: { borderLeft: `3px solid ${accent}` } };
+  }
+  const muted = event.status === "cancelled" || event.status === "no_show";
+  return {
+    className: cn("text-foreground hover:brightness-95", muted && "opacity-60", event.status === "cancelled" && "line-through"),
+    style: { backgroundColor: `${accent}1f`, borderLeft: `3px solid ${accent}` },
+  };
+}
+
+/** Classes + inline style for a compact month-view pill. */
+export function getEventPillAppearance(
+  event: CalendarEvent,
+  colorSource: CalendarColorSource
+): { className: string; style: CSSProperties } {
+  if (colorSource === "status") return { className: SESSION_STATUS_PILL_COLORS[event.status], style: {} };
+  return {
+    className: cn("text-white", event.status === "cancelled" && "line-through opacity-70"),
+    style: { backgroundColor: getEventAccentColor(event, colorSource) },
+  };
+}
+
+/** Legend entries matching the configured color source. */
+export function getCalendarLegend(
+  colorSource: CalendarColorSource,
+  educationTypes: EducationType[],
+  teachers: Teacher[]
+): { key: string; label: string; color: string }[] {
+  if (colorSource === "educationType") {
+    return educationTypes.filter((et) => et.status === "active").map((et) => ({ key: et.id, label: et.name, color: et.color }));
+  }
+  if (colorSource === "teacher") {
+    return teachers.filter((t) => t.status === "active").map((t) => ({ key: t.id, label: t.fullName, color: getTeacherColor(t.id) }));
+  }
+  return [
+    { key: "planned", label: "Planlandı", color: STATUS_ACCENT_COLORS.planned },
+    { key: "completed", label: "Tamamlandı", color: STATUS_ACCENT_COLORS.completed },
+    { key: "cancelled", label: "İptal", color: STATUS_ACCENT_COLORS.cancelled },
+    { key: "no_show", label: "Gelmedi", color: STATUS_ACCENT_COLORS.no_show },
+    { key: "makeup", label: "Telafi", color: STATUS_ACCENT_COLORS.makeup },
+  ];
+}
+
+/** Position of an event inside its overlap cluster for the configured
+ *  "Çakışan Seans Görünümü": side by side columns, or cascaded cards that
+ *  keep full width with a small offset per overlap. */
+export function getOverlapPosition(
+  layout: EventLayout,
+  overlapDisplay: CalendarSettings["overlapDisplay"],
+  gutterPx: number
+): { left: string; width: string; zIndex?: number } {
+  const { col, totalCols } = layout;
+  if (overlapDisplay === "compact" && totalCols > 1) {
+    const offset = col * 10;
+    return { left: `${offset + gutterPx}px`, width: `calc(100% - ${offset + gutterPx * 2}px)`, zIndex: col };
+  }
+  const widthPct = 100 / totalCols;
+  return {
+    left: `calc(${col * widthPct}% + ${gutterPx}px)`,
+    width: `calc(${widthPct}% - ${totalCols > 1 ? gutterPx * 1.5 : gutterPx * 2}px)`,
+  };
+}
+
+/**
+ * Hour range for Week/Day grids. Normally the configured working hours; with
+ * "Boş saatleri gizle" it shrinks to just the hours that hold sessions in the
+ * visible days (falling back to working hours when there are none).
+ */
+export function getVisibleHourRange(
+  calendar: CalendarSettings,
+  visibleEvents: CalendarEvent[]
+): { hourStart: number; hourEnd: number } {
+  const hourStart = Number(calendar.dayStartTime.split(":")[0]);
+  const [endH, endM] = calendar.dayEndTime.split(":").map(Number);
+  const hourEnd = (endH ?? 21) + ((endM ?? 0) > 0 ? 1 : 0);
+  if (!calendar.hideEmptyHours || visibleEvents.length === 0) return { hourStart, hourEnd };
+  let min = 24;
+  let max = 0;
+  for (const ev of visibleEvents) {
+    const start = ev.date.getHours() + ev.date.getMinutes() / 60;
+    min = Math.min(min, Math.floor(start));
+    max = Math.max(max, Math.ceil(start + ev.durationMinutes / 60));
+  }
+  return { hourStart: Math.max(0, min), hourEnd: Math.min(24, Math.max(max, min + 1)) };
+}

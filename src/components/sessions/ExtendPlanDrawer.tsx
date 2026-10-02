@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,12 @@ import {
   findDuplicateDateTimestamps,
 } from "@/lib/helpers/weekly-plans";
 import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
-import { WeeklyPlanConflictWarning } from "@/components/sessions/WeeklyPlanConflictWarning";
+import { WeeklyPlanConflictWarning, HolidaySkipNotice } from "@/components/sessions/WeeklyPlanConflictWarning";
+import {
+  getConflictOptions,
+  getDefaultSessionDuration,
+  partitionDatesByHoliday,
+} from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
 
 interface ExtendPlanDrawerProps {
@@ -27,11 +32,14 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
   const store = useMockStore();
   const [newEndDate, setNewEndDate] = useState("");
 
-  useEffect(() => {
-    if (open) {
-      setNewEndDate("");
-    }
-  }, [open, plan.id]);
+  // Reset when the drawer opens (or targets another plan). Done during render
+  // rather than in an effect so the stale value never paints.
+  const resetKey = open ? plan.id : null;
+  const [prevResetKey, setPrevResetKey] = useState(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
+    if (open) setNewEndDate("");
+  }
 
   const student = store.students.find((s) => s.id === plan.studentId);
   const teacher = store.teachers.find((t) => t.id === plan.teacherId);
@@ -65,19 +73,30 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
+  const planDuration = getDefaultSessionDuration(
+    plan.educationTypeId,
+    store.educationTypes,
+    store.institutionSettings.sessions
+  );
+  const { datesToKeep: datesAfterHolidays, holidaySkips } = useMemo(
+    () => partitionDatesByHoliday(datesAfterDuplicates, store.institutionSettings.calendar),
+    [datesAfterDuplicates, store.institutionSettings.calendar]
+  );
+
   // Conflicting dates are excluded from datesToCreate, never force-created.
   const { datesToCreate, conflicts } = useMemo(
     () =>
-      datesAfterDuplicates.length === 0
+      datesAfterHolidays.length === 0
         ? { datesToCreate: [], conflicts: [] }
         : partitionDatesByConflict(
-            datesAfterDuplicates,
+            datesAfterHolidays,
             plan.studentId,
             plan.teacherId,
-            50,
-            store.sessions
+            planDuration,
+            store.sessions,
+            getConflictOptions(store.institutionSettings)
           ),
-    [datesAfterDuplicates, plan.studentId, plan.teacherId, store.sessions]
+    [datesAfterHolidays, plan.studentId, plan.teacherId, planDuration, store.sessions, store.institutionSettings]
   );
 
   const totalBilling = datesToCreate.length * plan.studentPrice;
@@ -97,7 +116,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
         teacherId: plan.teacherId,
         educationTypeId: plan.educationTypeId,
         date: dateStr,
-        durationMinutes: 50,
+        durationMinutes: planDuration,
         sessionCount: 1,
         studentPrice: plan.studentPrice,
         teacherEarning: plan.teacherEarning,
@@ -188,6 +207,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
             </div>
           )}
 
+          <HolidaySkipNotice skips={holidaySkips} />
           <WeeklyPlanConflictWarning
             conflicts={conflicts}
             students={store.students}

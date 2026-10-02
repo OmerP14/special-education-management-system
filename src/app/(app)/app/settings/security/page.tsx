@@ -6,7 +6,6 @@ import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { NumericInput } from "@/components/ui/numeric-input";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -15,15 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { SecuritySettings } from "@/types/settings";
+import type { NumberFormatPreference, SecuritySettings } from "@/types/settings";
 
-const LOCALE_LABELS: Record<string, string> = {
-  "tr-TR": "Türkçe (Türkiye)",
-  "en-US": "İngilizce (ABD)",
-};
-
-const TIMEZONE_LABELS: Record<string, string> = {
-  "Europe/Istanbul": "İstanbul (UTC+3)",
+const NUMBER_FORMAT_LABELS: Record<NumberFormatPreference, string> = {
+  "1.234,56": "1.234,56 (Türkiye)",
+  "1,234.56": "1,234.56 (Uluslararası)",
 };
 
 function SecuritySettingsContent() {
@@ -38,16 +33,15 @@ function SecuritySettingsContent() {
       <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:bg-amber-950/20">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-500" />
         <p className="text-xs text-amber-800 dark:text-amber-400">
-          Bu bölümdeki ayarlar arayüz/mock düzeyinde saklanır. Uygulamada gerçek bir kimlik doğrulama/oturum
-          sunucusu bulunmadığından oturum zaman aşımı, parola politikası, başarısız giriş kilidi ve iki
-          faktörlü doğrulama burada <span className="font-semibold">gerçekten uygulanmaz</span> — bu alanlar,
-          gerçek bir kimlik doğrulama katmanı eklendiğinde kullanılacak politikayı önceden tanımlamak içindir.
+          Oturum süresi, hareketsizlikte çıkış, parola politikası ve hatalı giriş kilidi giriş ekranında ve
+          şifre formlarında uygulanır. Uygulama henüz sunucusuz çalıştığından bu kontroller tarayıcıda yapılır;
+          sunucu altyapısı eklendiğinde aynı politika sunucu tarafında da zorunlu tutulacaktır.
         </p>
       </div>
 
       <SettingsFormSection
         title="Güvenlik ve Sistem"
-        description="Oturum, parola politikası, giriş denemesi ve onay kuralları."
+        description="Oturum, parola politikası, giriş denemesi, işlem geçmişi ve onay kuralları."
         isDirty={isDirty}
         errors={errors}
         savedMessage={savedMessage}
@@ -108,9 +102,9 @@ function SecuritySettingsContent() {
         </div>
 
         <div className="space-y-2 border-t border-border/60 pt-5">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Giriş Denemesi ve 2FA</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Giriş Denemesi</p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SettingsField label="Başarısız Giriş Eşiği" description="Bu sayıda hatalı denemeden sonra hesap kilitlenir (mock).">
+            <SettingsField label="Başarısız Giriş Eşiği" description="Bu sayıda hatalı denemeden sonra hesap kilitlenir.">
               <NumericInput
                 min={1}
                 value={draft.failedLoginThreshold}
@@ -124,13 +118,6 @@ function SecuritySettingsContent() {
                 onValueChange={(v) => set("lockoutDurationMinutes", v ?? 0)}
               />
             </SettingsField>
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-              <div>
-                <p className="text-sm text-foreground">İki faktörlü doğrulama (hazır)</p>
-                <p className="text-xs text-muted-foreground">Yalnızca tercih — sağlayıcı entegrasyonu yok.</p>
-              </div>
-              <Switch checked={draft.twoFactorReady} onCheckedChange={(v) => set("twoFactorReady", v)} />
-            </div>
           </div>
         </div>
 
@@ -145,62 +132,54 @@ function SecuritySettingsContent() {
               <Switch checked={draft.auditLoggingEnabled} onCheckedChange={(v) => set("auditLoggingEnabled", v)} />
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-              <p className="text-sm text-foreground">Hassas işlemlerde onay iste</p>
+              <div>
+                <p className="text-sm text-foreground">Hassas işlemlerde onay iste</p>
+                <p className="text-xs text-muted-foreground">Silme ve kullanıcı/rol pasifleştirme öncesi.</p>
+              </div>
               <Switch
                 checked={draft.confirmSensitiveActions}
                 onCheckedChange={(v) => set("confirmSensitiveActions", v)}
               />
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-              <p className="text-sm text-foreground">Finansal düzenlemede onay iste</p>
+              <div>
+                <p className="text-sm text-foreground">Finansal düzenlemede onay iste</p>
+                <p className="text-xs text-muted-foreground">Ödeme/kasa düzenleme, silme ve taksit tahsili öncesi.</p>
+              </div>
               <Switch
                 checked={draft.confirmFinancialEdits}
                 onCheckedChange={(v) => set("confirmFinancialEdits", v)}
               />
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-              <p className="text-sm text-foreground">Veri dışa aktarımında onay iste</p>
+              <div>
+                <p className="text-sm text-foreground">Veri dışa aktarımında onay iste</p>
+                <p className="text-xs text-muted-foreground">CSV/PDF, rapor ve makbuz çıktısı öncesi.</p>
+              </div>
               <Switch checked={draft.confirmDataExport} onCheckedChange={(v) => set("confirmDataExport", v)} />
             </div>
           </div>
         </div>
 
         <div className="space-y-2 border-t border-border/60 pt-5">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Bölge ve Biçim</p>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <SettingsField label="Zaman Dilimi">
-              <Select value={draft.timezone} onValueChange={(v) => { if (v) set("timezone", v); }}>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Biçim</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <SettingsField label="Sayı Formatı" description="Tüm tutar ve sayılarda binlik/ondalık ayırıcı.">
+              <Select
+                value={draft.numberFormat}
+                onValueChange={(v) => { if (v) set("numberFormat", v as NumberFormatPreference); }}
+              >
                 <SelectTrigger className="w-full">
-                  <SelectValue>{() => TIMEZONE_LABELS[draft.timezone] ?? draft.timezone}</SelectValue>
+                  <SelectValue>{() => NUMBER_FORMAT_LABELS[draft.numberFormat]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(TIMEZONE_LABELS).map(([key, label]) => (
+                  {(Object.keys(NUMBER_FORMAT_LABELS) as NumberFormatPreference[]).map((key) => (
                     <SelectItem key={key} value={key}>
-                      {label}
+                      {NUMBER_FORMAT_LABELS[key]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </SettingsField>
-            <SettingsField label="Dil / Yerel Ayar">
-              <Select value={draft.locale} onValueChange={(v) => { if (v) set("locale", v); }}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{() => LOCALE_LABELS[draft.locale] ?? draft.locale}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(LOCALE_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </SettingsField>
-            <SettingsField label="Tarih Formatı">
-              <Input value={draft.dateFormat} onChange={(e) => set("dateFormat", e.target.value)} placeholder="DD.MM.YYYY" />
-            </SettingsField>
-            <SettingsField label="Sayı Formatı">
-              <Input value={draft.numberFormat} onChange={(e) => set("numberFormat", e.target.value)} placeholder="1.234,56" />
             </SettingsField>
           </div>
         </div>
