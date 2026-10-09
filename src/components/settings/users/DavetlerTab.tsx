@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
 import type { Invitation, InvitationStatus } from "@/types/auth";
+import { buildInviteLink } from "@/lib/auth/tokens";
 
 const STATUS_CONFIG: Record<InvitationStatus, { label: string; className: string }> = {
   pending: { label: "Bekliyor", className: "bg-amber-100 text-amber-700 border-amber-200" },
@@ -26,8 +27,7 @@ export function DavetlerTab() {
 
   const invitations = [...store.invitations].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const buildLink = (token: string) =>
-    typeof window !== "undefined" ? `${window.location.origin}/accept-invite?token=${token}` : `/accept-invite?token=${token}`;
+  const buildLink = buildInviteLink;
 
   const copyLink = async (invitation: Invitation) => {
     try {

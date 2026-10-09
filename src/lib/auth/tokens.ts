@@ -10,3 +10,9 @@ export function generateToken(): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+/** The /accept-invite link an admin hands to an invited user (no email
+ *  delivery yet — see the Davetler tab). */
+export function buildInviteLink(token: string): string {
+  return typeof window !== "undefined" ? `${window.location.origin}/accept-invite?token=${token}` : `/accept-invite?token=${token}`;
+}

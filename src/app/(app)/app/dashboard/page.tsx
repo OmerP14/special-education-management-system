@@ -2,9 +2,10 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Users, GraduationCap, CalendarDays, CheckCircle2 } from "lucide-react";
+import { Users, GraduationCap, CalendarDays, CheckCircle2, Link2Off } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { RecentSessionsTable } from "@/components/dashboard/RecentSessionsTable";
 import { SessionStatusBreakdown } from "@/components/dashboard/SessionStatusBreakdown";
@@ -27,7 +28,23 @@ export default function DashboardPage() {
   const scope = useUserScope();
   if (scope.teacherId) return <TeacherDashboard />;
   if (scope.guardianId) return <GuardianDashboard />;
+  // A teacher/guardian-scoped account with no record linked yet sees no
+  // data at all — never the institution-wide dashboard below.
+  if (!scope.isUnrestricted) return <UnlinkedAccountDashboard />;
   return <OwnerDashboard />;
+}
+
+function UnlinkedAccountDashboard() {
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Panel" />
+      <EmptyState
+        icon={Link2Off}
+        title="Hesabınız henüz bir kayda bağlanmadı"
+        description="Öğrenci, seans ve ödeme bilgilerini görebilmeniz için kurum yöneticinizin hesabınızı bir öğretmen veya veli kaydına bağlaması gerekiyor."
+      />
+    </div>
+  );
 }
 
 function OwnerDashboard() {

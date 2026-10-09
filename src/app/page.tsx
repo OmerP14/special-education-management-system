@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMockStore } from "@/lib/mock/store";
-import { LANDING_PAGE_ROUTES } from "@/lib/settings/landing-page";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { resolvePostLoginPath } from "@/lib/settings/landing-page";
 
 // Client component (not a server redirect) because the configured landing
 // page — Ayarlar → Belge ve Görünüm's defaultLandingPage — lives in
@@ -13,11 +14,13 @@ import { LANDING_PAGE_ROUTES } from "@/lib/settings/landing-page";
 export default function RootPage() {
   const router = useRouter();
   const { institutionSettings } = useMockStore();
+  const { isLoading, permissions } = useAuth();
 
   useEffect(() => {
-    router.replace(LANDING_PAGE_ROUTES[institutionSettings.appearance.defaultLandingPage]);
+    if (isLoading) return;
+    router.replace(resolvePostLoginPath(null, institutionSettings.appearance.defaultLandingPage, permissions));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isLoading]);
 
   return null;
 }

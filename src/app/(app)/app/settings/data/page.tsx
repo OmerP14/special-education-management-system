@@ -6,6 +6,7 @@ import { FileSpreadsheet, DownloadCloud, DatabaseBackup, RotateCcw, AlertTriangl
 import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { useMockStore, type PersistedState } from "@/lib/mock/store";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { isOwner } from "@/lib/auth/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -152,7 +153,12 @@ const EXPORT_LABELS: Record<ExportKind, string> = {
 function DataManagementContent() {
   const store = useMockStore();
   const confirm = useConfirm();
-  const { user } = useAuth();
+  const { user, role, hasPermission } = useAuth();
+  // Restore and reset replace every account and password — owner only (the
+  // store enforces the same). Backup/export follow their own permissions.
+  const canRestoreOrReset = isOwner(role);
+  const canBackup = hasPermission("data.backup");
+  const canExport = hasPermission("data.export");
   const actorName = user?.name ?? "Bilinmeyen kullanıcı";
   const { dataManagement } = store.institutionSettings;
   const [pendingRestore, setPendingRestore] = useState<{ data: PersistedState; label: string } | null>(null);
@@ -290,8 +296,9 @@ function DataManagementContent() {
   };
 
   const handleReset = () => {
-    store.resetToDemo();
-    showToast("Tüm veriler demo verilerine sıfırlandı.");
+    const error = store.resetToDemo();
+    if (error) showToast(error, "error");
+    else showToast("Tüm veriler demo verilerine sıfırlandı.");
   };
 
   const toggleAutoBackup = (v: boolean) => {
@@ -339,7 +346,7 @@ function DataManagementContent() {
         >
           <div className="flex flex-wrap gap-1.5">
             {(Object.keys(EXPORT_LABELS) as ExportKind[]).map((kind) => (
-              <Button key={kind} size="sm" variant="outline" onClick={() => void handleExport(kind)}>
+              <Button key={kind} size="sm" variant="outline" disabled={!canExport} onClick={() => void handleExport(kind)}>
                 {EXPORT_LABELS[kind]}
               </Button>
             ))}
@@ -359,12 +366,14 @@ function DataManagementContent() {
           }
         >
           <div className="flex flex-wrap items-center gap-3">
-            <Button size="sm" onClick={handleBackup}>
+            <Button size="sm" onClick={handleBackup} disabled={!canBackup}>
               Yedek Dosyası İndir
             </Button>
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
-              Dosyadan Geri Yükle
-            </Button>
+            {canRestoreOrReset && (
+              <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                Dosyadan Geri Yükle
+              </Button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -383,6 +392,14 @@ function DataManagementContent() {
             </div>
             <Switch checked={dataManagement.autoBackupEnabled} onCheckedChange={toggleAutoBackup} />
           </div>
+          {!canRestoreOrReset && (
+            <p className="mt-2 text-xs text-muted-foreground">Yedekten geri yükleme yalnızca kurum sahibine açıktır.</p>
+          )}
+          {(!canBackup || !canExport) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Pasif butonlar için rolünüzde ilgili veri yetkisi (Yedek Al / Veri Dışa Aktar) bulunmuyor.
+            </p>
+          )}
           {autoBackups.length > 0 && (
             <div className="mt-2 divide-y divide-border/60 rounded-lg border border-border/60">
               {autoBackups.map((b) => (
@@ -392,6 +409,7 @@ function DataManagementContent() {
                     size="sm"
                     variant="ghost"
                     className="h-6 px-2 text-xs"
+                    disabled={!canRestoreOrReset}
                     onClick={() => setPendingRestore({ data: b.data, label: `Otomatik yedek (${formatDateTime(b.createdAt)})` })}
                   >
                     Geri Yükle
@@ -407,9 +425,13 @@ function DataManagementContent() {
           title="Demo Verilerine Sıfırla"
           description="Tüm öğrenci, öğretmen, seans, ödeme ve ayar verilerini başlangıç demo verilerine döndürür. Geri alınamaz."
         >
-          <Button size="sm" variant="destructive" onClick={() => setResetOpen(true)}>
-            Verileri Sıfırla
-          </Button>
+          {canRestoreOrReset ? (
+            <Button size="sm" variant="destructive" onClick={() => setResetOpen(true)}>
+              Verileri Sıfırla
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">Yalnızca kurum sahibi sıfırlayabilir.</p>
+          )}
         </ActionCard>
       </div>
 

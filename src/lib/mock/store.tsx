@@ -29,7 +29,7 @@ import { mockInstallmentPlans } from "@/lib/mock/installment-plans";
 import { mockCashMovements } from "@/lib/mock/cash-movements";
 import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
 import { mockEducationTypes } from "@/lib/mock/education-types";
-import { mockAppUsers } from "@/lib/mock/app-users";
+import { mockAppUsers, migrateLegacyDemoAccounts } from "@/lib/mock/app-users";
 import { mockCredentials } from "@/lib/mock/credentials";
 import type {
   InstitutionSettings,
@@ -45,7 +45,16 @@ import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
 import type { Role, Credential, AuthSession, Invitation, PasswordResetToken } from "@/types/auth";
 import { SYSTEM_ROLES, migrateRemovedRoleId } from "@/lib/auth/roles";
 import { generateToken } from "@/lib/auth/tokens";
-import { loadPersistedStore, savePersistedStore, clearPersistedStore } from "@/lib/mock/persistence";
+import { isOwner } from "@/lib/auth/permissions";
+import { syncLinkedAccounts } from "@/lib/auth/linked-account";
+import {
+  canAssignRole,
+  canDeactivateUser,
+  canEditUser,
+  canSaveRole,
+  type ManagementActor,
+} from "@/lib/auth/user-management-rules";
+import { loadPersistedStore, savePersistedStore, clearPersistedStore, watchOtherTabWrites } from "@/lib/mock/persistence";
 import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
@@ -251,7 +260,10 @@ interface MockStore {
   addWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   deleteWeeklySessionPlan: (id: string) => void;
-  resetToDemo: () => void;
+  /** Owner only — returns an error message otherwise. */
+  resetToDemo: () => string | null;
+  /** True while changes can't be saved to this browser (storage full). */
+  storageFull: boolean;
   /** Everything this app stores — what a backup file contains. */
   getBackupSnapshot: () => PersistedState;
   /** Replaces all data with a backup's contents. Returns an error message
@@ -281,13 +293,19 @@ interface MockStore {
   appUsers: AppUser[];
   /** No-ops on a duplicate email (case-insensitive) — mirrors the "prevent
    *  duplicate email invites" requirement without a separate validation pass. */
-  inviteAppUser: (user: AppUser) => void;
+  inviteAppUser: (user: AppUser) => string | null;
   /** Logs `user_updated`, and additionally `role_changed` when `roleId`
    *  differs from the previous record — see AuditModule usage below. */
   updateAppUser: (user: AppUser) => void;
+  /** Auth-driven bookkeeping (login counters, lockout, lastLoginAt) — a plain
+   *  write with no `user_updated` audit entry; the auth flow logs its own
+   *  login_success/login_failed/account_locked events instead. */
+  saveAuthUserState: (user: AppUser) => void;
   /** No-ops if this would leave zero active owners — deliberately no hard
    *  delete for users either, same reasoning as Student/Teacher/Guardian at
-   *  the top of this file: deactivate, never remove. Logs `user_deactivated`. */
+   *  the top of this file: deactivate, never remove. Logs `user_deactivated`.
+   *  Also revokes the user's pending invitation so an old link can't
+   *  reactivate the account. */
   deactivateAppUser: (id: string) => void;
   /** Logs `user_activated`. Also clears any prior lockout — this doubles as
    *  the "unlock" action for a locked account in this phase. */
@@ -386,7 +404,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // snapshot instead of each re-parsing localStorage independently. `null`
   // (nothing persisted yet, or a stale schema version) falls back to the
   // existing seed data exactly as before this phase.
-  const [persisted] = useState(() => loadPersistedStore<PersistedState>());
+  const [persisted] = useState(() => {
+    const loaded = loadPersistedStore<PersistedState>();
+    if (!loaded?.appUsers || !loaded.credentials) return loaded;
+    const { users, credentials } = migrateLegacyDemoAccounts(loaded.appUsers, loaded.credentials);
+    // Accounts linked to a teacher/guardian take name + e-mail from the record.
+    const appUsers = syncLinkedAccounts(
+      users,
+      loaded.roles ?? SYSTEM_ROLES,
+      loaded.teachers ?? mockTeachers,
+      loaded.guardians ?? mockGuardians
+    );
+    return { ...loaded, appUsers, credentials };
+  });
   const [initialSettings] = useState(() => normalizeInstitutionSettings(persisted?.institutionSettings));
 
   const [students, setStudents] = useState<Student[]>(() =>
@@ -394,6 +424,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   );
   const studentsRef = useRef(students);
   const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? mockGuardians);
+  const guardiansRef = useRef(guardians);
   const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? mockTeachers);
   const [educationTypes, setEducationTypes] = useState<EducationType[]>(
     () => persisted?.educationTypes ?? mockEducationTypes
@@ -483,6 +514,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const rolesRef = useRef(roles);
   const [credentials, setCredentials] = useState<Credential[]>(() => persisted?.credentials ?? mockCredentials);
   const [authSession, setAuthSessionState] = useState<AuthSession | null>(() => persisted?.authSession ?? null);
+  const authSessionRef = useRef(authSession);
   const [invitations, setInvitations] = useState<Invitation[]>(() => persisted?.invitations ?? []);
   const invitationsRef = useRef(invitations);
   const [passwordResets, setPasswordResets] = useState<PasswordResetToken[]>(() => persisted?.passwordResets ?? []);
@@ -508,10 +540,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     weeklySessionPlansRef.current = weeklySessionPlans;
     teacherMergeHistoryRef.current = teacherMergeHistory;
     appUsersRef.current = appUsers;
+    guardiansRef.current = guardians;
     rolesRef.current = roles;
     invitationsRef.current = invitations;
     actorNameRef.current = actorName;
+    authSessionRef.current = authSession;
   });
+
+  /** The signed-in user + role, for the user/role management rules
+   *  (lib/auth/user-management-rules.ts) the mutators below enforce. */
+  const currentActor = (): ManagementActor => {
+    const user = appUsersRef.current.find((u) => u.id === authSessionRef.current?.userId);
+    return { userId: user?.id ?? "", role: rolesRef.current.find((r) => r.id === user?.roleId) ?? null };
+  };
 
   useEffect(() => {
     function autoCompletePastPlanned() {
@@ -604,6 +645,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     ]);
   }, [setAuditLog]);
 
+  useEffect(() => watchOtherTabWrites(), []);
+  /** True while the latest change could not be written to this browser. */
+  const [storageFull, setStorageFull] = useState(false);
+
   // Full-store persistence — one write path for every domain instead of
   // per-field bespoke code, mirrored by the lazy `useState` initializers
   // above reading loadPersistedStore() back on the next mount. See
@@ -615,7 +660,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // before the timer fires. localStorage.setItem on data this size is cheap
   // enough that writing on every change is not a real cost here.
   useEffect(() => {
-    savePersistedStore<PersistedState>({
+    const saved = savePersistedStore<PersistedState>({
       students,
       guardians,
       teachers,
@@ -642,6 +687,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       invitations,
       passwordResets,
     });
+    // Mirrors an external system (localStorage) into state so the layout can
+    // warn — not derivable during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStorageFull(!saved);
   }, [
     students,
     guardians,
@@ -747,21 +796,25 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addGuardian: (g) => setGuardians((prev) => [...prev, g]),
-    updateGuardian: (g) =>
+    updateGuardian: (g) => {
       setGuardians((prev) =>
         prev.map((x) =>
           x.id === g.id
             ? { ...g, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
             : x
         )
-      ),
+      );
+      // A linked guardian account follows the record's name and e-mail.
+      const forSync = guardiansRef.current.map((x) => (x.id === g.id ? g : x));
+      setAppUsers((prev) => syncLinkedAccounts(prev, rolesRef.current, teachersRef.current, forSync));
+    },
     deleteGuardians: (ids) => {
       const idSet = new Set(ids);
       setGuardians((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
     addTeacher: (t) => setTeachers((prev) => [...prev, t]),
-    updateTeacher: (t) =>
+    updateTeacher: (t) => {
       setTeachers((prev) =>
         prev.map((x) =>
           x.id === t.id
@@ -778,7 +831,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
               }
             : x
         )
-      ),
+      );
+      const forSync = teachersRef.current.map((x) => (x.id === t.id ? t : x));
+      setAppUsers((prev) => syncLinkedAccounts(prev, rolesRef.current, forSync, guardiansRef.current));
+    },
     deleteTeachers: (ids) => {
       const idSet = new Set(ids);
       setTeachers((prev) => prev.filter((x) => !idSet.has(x.id)));
@@ -1369,8 +1425,12 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       const exists = appUsersRef.current.some(
         (u) => u.email.toLowerCase() === user.email.toLowerCase()
       );
-      if (exists) return;
-      setAppUsers((prev) => [...prev, user]);
+      if (exists) return null;
+      const nextRole = rolesRef.current.find((r) => r.id === user.roleId);
+      if (canAssignRole(currentActor(), null, nextRole, appUsersRef.current, rolesRef.current)) return null;
+      setAppUsers((prev) =>
+        syncLinkedAccounts([...prev, user], rolesRef.current, teachersRef.current, guardiansRef.current)
+      );
       notify([
         {
           id: `notif-user_invited-${user.id}`,
@@ -1386,12 +1446,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       // alongside the user — the Davetler tab is where an admin copies the
       // link, nothing is actually sent. See types/auth.ts's Invitation.
       const now = new Date().toISOString();
+      const token = generateToken();
       setInvitations((prev) => [
         ...prev,
         {
           id: `invite-${user.id}`,
           tenantId: user.tenantId,
-          token: generateToken(),
+          token,
           userId: user.id,
           email: user.email,
           roleId: user.roleId,
@@ -1410,10 +1471,21 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         }),
         ...prev,
       ]);
+      return token;
     },
     updateAppUser: (user) => {
       const previous = appUsersRef.current.find((u) => u.id === user.id);
-      setAppUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
+      if (!previous) return;
+      const nextRole = rolesRef.current.find((r) => r.id === user.roleId);
+      if (canAssignRole(currentActor(), previous, nextRole, appUsersRef.current, rolesRef.current)) return;
+      setAppUsers((prev) =>
+        syncLinkedAccounts(
+          prev.map((u) => (u.id === user.id ? user : u)),
+          rolesRef.current,
+          teachersRef.current,
+          guardiansRef.current
+        )
+      );
       setAuditLog((prev) => [
         makeAuditEntry({
           userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
@@ -1424,8 +1496,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         ...prev,
       ]);
       if (previous && previous.roleId !== user.roleId) {
-        const previousRole = SYSTEM_ROLES.find((r) => r.id === previous.roleId);
-        const nextRole = SYSTEM_ROLES.find((r) => r.id === user.roleId);
+        const previousRole = rolesRef.current.find((r) => r.id === previous.roleId);
+        const nextRole = rolesRef.current.find((r) => r.id === user.roleId);
         setAuditLog((prev) => [
           makeAuditEntry({
             userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
@@ -1439,19 +1511,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         ]);
       }
     },
+    saveAuthUserState: (user) => {
+      setAppUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)));
+    },
     deactivateAppUser: (id) => {
       const target = appUsersRef.current.find((u) => u.id === id);
       if (!target) return;
-      const targetRole = SYSTEM_ROLES.find((r) => r.id === target.roleId);
-      if (targetRole?.isOwnerRole) {
-        const otherActiveOwners = appUsersRef.current.filter((u) => {
-          const role = SYSTEM_ROLES.find((r) => r.id === u.roleId);
-          return role?.isOwnerRole && u.status === "active" && u.id !== id;
-        });
-        if (otherActiveOwners.length === 0) return; // never deactivate the sole owner
-      }
+      if (canDeactivateUser(currentActor(), target, appUsersRef.current, rolesRef.current)) return;
+      const now = new Date().toISOString();
       setAppUsers((prev) =>
-        prev.map((u) => (u.id === id ? { ...u, status: "inactive" as const, updatedAt: new Date().toISOString() } : u))
+        prev.map((u) => (u.id === id ? { ...u, status: "inactive" as const, updatedAt: now } : u))
+      );
+      setInvitations((prev) =>
+        prev.map((i) => (i.userId === id && i.status === "pending" ? { ...i, status: "revoked" as const, revokedAt: now } : i))
       );
       setAuditLog((prev) => [
         makeAuditEntry({
@@ -1465,6 +1537,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
     activateAppUser: (id) => {
       const target = appUsersRef.current.find((u) => u.id === id);
+      if (!target || canEditUser(currentActor(), target, rolesRef.current)) return;
       setAppUsers((prev) =>
         prev.map((u) =>
           u.id === id
@@ -1495,6 +1568,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     resendInvitation: (userId) => {
       const target = appUsersRef.current.find((u) => u.id === userId);
       if (!target || target.status !== "invited") return;
+      if (canEditUser(currentActor(), target, rolesRef.current)) return;
       const now = new Date().toISOString();
       const existing = invitationsRef.current.find((i) => i.userId === userId && i.status === "pending");
       setInvitations((prev) => [
@@ -1525,6 +1599,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     revokeInvitation: (invitationId) => {
       const invitation = invitationsRef.current.find((i) => i.id === invitationId);
       if (!invitation || invitation.status !== "pending") return;
+      const invited = appUsersRef.current.find((u) => u.id === invitation.userId);
+      if (invited && canEditUser(currentActor(), invited, rolesRef.current)) return;
       setInvitations((prev) =>
         prev.map((i) => (i.id === invitationId ? { ...i, status: "revoked" as const, revokedAt: new Date().toISOString() } : i))
       );
@@ -1541,6 +1617,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
 
     roles,
     createRole: (role) => {
+      if (role.isOwnerRole || canSaveRole(currentActor(), null, role.permissions)) return;
       setRoles((prev) => [...prev, role]);
       setAuditLog((prev) => [
         makeAuditEntry({
@@ -1553,6 +1630,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       ]);
     },
     updateRole: (role) => {
+      const previous = rolesRef.current.find((r) => r.id === role.id);
+      if (!previous || canSaveRole(currentActor(), previous, role.permissions)) return;
+      // Owner flag and system flag never change through an edit.
+      role = { ...role, isOwnerRole: previous.isOwnerRole, isSystemRole: previous.isSystemRole };
       setRoles((prev) => prev.map((r) => (r.id === role.id ? role : r)));
       setAuditLog((prev) => [
         makeAuditEntry({
@@ -1567,6 +1648,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     deactivateRole: (id) => {
       const target = rolesRef.current.find((r) => r.id === id);
       if (!target || target.isSystemRole) return;
+      if (canSaveRole(currentActor(), target, [])) return;
       const inUse = appUsersRef.current.some((u) => u.roleId === id && u.status !== "inactive");
       if (inUse) return;
       setRoles((prev) => prev.map((r) => (r.id === id ? { ...r, isActive: false, updatedAt: new Date().toISOString() } : r)));
@@ -1627,6 +1709,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     }),
 
     restoreBackup: (d) => {
+      // A backup replaces every account, role and password — only an owner
+      // may do that, or a crafted file would be a way to become one.
+      if (!isOwner(currentActor().role)) return "Yedeği yalnızca kurum sahibi geri yükleyebilir.";
       const arrays: (keyof PersistedState)[] = [
         "students", "guardians", "teachers", "educationTypes", "sessions", "payments",
         "teacherPayments", "teacherEducationTypeAssignments", "appUsers", "roles", "credentials",
@@ -1652,9 +1737,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setWeeklySessionPlans(d.weeklySessionPlans ?? []);
       setNotifications(normalizeNotifications(d.notifications));
       setInstitutionSettings(settings);
-      setAppUsers(d.appUsers);
+      const accounts = migrateLegacyDemoAccounts(d.appUsers, d.credentials);
+      setAppUsers(syncLinkedAccounts(accounts.users, d.roles, d.teachers, d.guardians));
       setRoles(d.roles);
-      setCredentials(d.credentials);
+      setCredentials(accounts.credentials);
       setInvitations(d.invitations ?? []);
       setPasswordResets(d.passwordResets ?? []);
       // The restored audit log is kept, plus a record of the restore itself.
@@ -1680,7 +1766,11 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         },
       })),
 
+    storageFull,
     resetToDemo: () => {
+      // Resets every account to the demo ones (with known passwords) — owner
+      // only, or it would be a way to sign in as the demo owner.
+      if (!isOwner(currentActor().role)) return "Verileri yalnızca kurum sahibi sıfırlayabilir.";
       clearPersistedStore();
       setStudents([...DEMO_STUDENTS]);
       setGuardians([...DEMO_GUARDIANS]);
@@ -1707,6 +1797,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setRoles(SYSTEM_ROLES);
       setInvitations([]);
       setPasswordResets([]);
+      return null;
     },
 
     notifications,
@@ -1743,6 +1834,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     // `value` for why that's safe (each one only closes over a stable setState
     // function or a ref read).
     [
+      storageFull,
       students,
       guardians,
       teachers,

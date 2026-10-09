@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useMockStore } from "@/lib/mock/store";
-import { LANDING_PAGE_ROUTES } from "@/lib/settings/landing-page";
+import { resolvePostLoginPath } from "@/lib/settings/landing-page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,9 +16,9 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
-  const { signIn, isAuthenticated, isLoading } = useAuth();
+  const { signIn, isAuthenticated, isLoading, permissions } = useAuth();
   const { institutionSettings } = useMockStore();
-  const landingPage = LANDING_PAGE_ROUTES[institutionSettings.appearance.defaultLandingPage];
+  const landingPage = institutionSettings.appearance.defaultLandingPage;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,14 +26,38 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   // Already signed in (or just finished signing in) — don't leave an
-  // authenticated visitor sitting on the login form.
+  // authenticated visitor sitting on the login form. Also the post-login
+  // redirect itself: it runs once the new user's permissions are known.
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace(next ?? landingPage);
+      router.replace(resolvePostLoginPath(next, landingPage, permissions));
     }
-  }, [isLoading, isAuthenticated, next, router, landingPage]);
+  }, [isLoading, isAuthenticated, next, router, landingPage, permissions]);
+
+  // Live lockout countdown — clears itself once the lock has run out.
+  useEffect(() => {
+    if (lockedUntil === null) return;
+    const timer = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (t >= lockedUntil) {
+        setLockedUntil(null);
+        setError(null);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
+
+  const remainingMs = lockedUntil === null ? 0 : Math.max(0, lockedUntil - now);
+  const countdown = `${Math.floor(remainingMs / 60_000)}:${String(Math.floor((remainingMs % 60_000) / 1000)).padStart(2, "0")}`;
+  const displayedError =
+    lockedUntil !== null
+      ? `Hesabınız çok sayıda başarısız girişten sonra kilitlendi. ${countdown} sonra tekrar deneyin.`
+      : error;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -47,9 +71,13 @@ function LoginForm() {
     setSubmitting(false);
     if (!result.success) {
       setError(result.errorMessage ?? "Giriş yapılamadı.");
-      return;
+      if (result.lockedUntil) {
+        setNow(Date.now());
+        setLockedUntil(new Date(result.lockedUntil).getTime());
+      } else {
+        setLockedUntil(null);
+      }
     }
-    router.replace(next ?? landingPage);
   };
 
   return (
@@ -72,14 +100,14 @@ function LoginForm() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email">E-posta</Label>
+                <Label htmlFor="email">E-posta veya kullanıcı adı</Label>
                 <Input
                   id="email"
-                  type="email"
+                  type="text"
                   placeholder="admin@kurumunuz.com"
-                  autoComplete="email"
+                  autoComplete="username"
                   value={email}
-                  onChange={(e) => { setEmail(e.target.value); setError(null); }}
+                  onChange={(e) => { setEmail(e.target.value); setError(null); setLockedUntil(null); }}
                   autoFocus
                 />
               </div>
@@ -121,10 +149,10 @@ function LoginForm() {
                 Beni hatırla
               </label>
 
-              {error && (
+              {displayedError && (
                 <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                  <p className="text-sm text-destructive">{error}</p>
+                  <p className="text-sm text-destructive">{displayedError}</p>
                 </div>
               )}
 

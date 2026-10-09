@@ -21,6 +21,7 @@ import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { GuardianFormDrawer } from "@/components/guardians/GuardianFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { buildGuardianListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Guardian, GuardianListItem } from "@/types";
 import { cn } from "@/lib/utils";
@@ -84,6 +85,10 @@ function FilterChip({
 export default function GuardiansPage() {
   const store = useMockStore();
   const router = useRouter();
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission("guardians.create");
+  const canEdit = hasPermission("guardians.edit");
+  const canSeeFinance = hasPermission("guardians.view_finance");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
   const [search, setSearch] = useState("");
@@ -151,7 +156,7 @@ export default function GuardiansPage() {
   };
 
   // ─── Table columns ─────────────────────────────────────────────────────────
-  const columns: Column<GuardianListItem>[] = [
+  const allColumns: Column<GuardianListItem>[] = [
     {
       key: "name",
       header: "Ad Soyad",
@@ -298,20 +303,24 @@ export default function GuardiansPage() {
           >
             Detay
           </Link>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            onClick={() => handleEdit(row)}
-          >
-            Düzenle
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => handleEdit(row)}
+            >
+              Düzenle
+            </Button>
+          )}
         </div>
       ),
       className: "text-right",
       headerClassName: "text-right",
     },
   ];
+
+  const columns = allColumns.filter((c) => canSeeFinance || !["totalBilled", "totalPaid", "debt"].includes(c.key));
 
   return (
     <>
@@ -320,16 +329,18 @@ export default function GuardiansPage() {
           title="Veliler"
           description={`${items.length} kayıtlı veli · ${totalStudentCount} bağlı öğrenci`}
           actions={
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingGuardian(null);
-                setDrawerOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Veli Ekle
-            </Button>
+            canCreate ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingGuardian(null);
+                  setDrawerOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Veli Ekle
+              </Button>
+            ) : undefined
           }
         />
 
@@ -338,20 +349,24 @@ export default function GuardiansPage() {
           items={[
             { icon: Users, label: "Toplam Veli", value: items.length, tone: "primary" },
             { icon: Users, label: "Bağlı Öğrenci", value: totalStudentCount, tone: "primary" },
-            { icon: TrendingUp, label: "Toplam Tahakkuk", value: formatCurrency(totalBilled), tone: "primary" },
-            { icon: CreditCard, label: "Toplam Tahsilat", value: formatCurrency(totalPaid), tone: "success" },
-            {
-              icon: AlertCircle,
-              label: "Toplam Borç",
-              value: formatCurrency(totalDebt),
-              tone: totalDebt > 0 ? "danger" : "success",
-            },
-            {
-              icon: UserMinus,
-              label: "Borçlu Veli",
-              value: guardiansWithDebt,
-              tone: guardiansWithDebt > 0 ? "warning" : "success",
-            },
+            ...(canSeeFinance
+              ? [
+                  { icon: TrendingUp, label: "Toplam Tahakkuk", value: formatCurrency(totalBilled), tone: "primary" as const },
+                  { icon: CreditCard, label: "Toplam Tahsilat", value: formatCurrency(totalPaid), tone: "success" as const },
+                  {
+                    icon: AlertCircle,
+                    label: "Toplam Borç",
+                    value: formatCurrency(totalDebt),
+                    tone: totalDebt > 0 ? ("danger" as const) : ("success" as const),
+                  },
+                  {
+                    icon: UserMinus,
+                    label: "Borçlu Veli",
+                    value: guardiansWithDebt,
+                    tone: guardiansWithDebt > 0 ? ("warning" as const) : ("success" as const),
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -377,17 +392,21 @@ export default function GuardiansPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground font-medium">Borç:</span>
-            {DEBT_FILTER_OPTIONS.map((opt) => (
-              <FilterChip
-                key={opt.value}
-                active={debtFilter === opt.value}
-                onClick={() => setDebtFilter(opt.value)}
-              >
-                {opt.label}
-              </FilterChip>
-            ))}
-            <span className="text-muted-foreground/40 text-xs mx-0.5">·</span>
+            {canSeeFinance && (
+              <>
+                <span className="text-xs text-muted-foreground font-medium">Borç:</span>
+                {DEBT_FILTER_OPTIONS.map((opt) => (
+                  <FilterChip
+                    key={opt.value}
+                    active={debtFilter === opt.value}
+                    onClick={() => setDebtFilter(opt.value)}
+                  >
+                    {opt.label}
+                  </FilterChip>
+                ))}
+                <span className="text-muted-foreground/40 text-xs mx-0.5">·</span>
+              </>
+            )}
             <span className="text-xs text-muted-foreground font-medium">Yakınlık:</span>
             {REL_FILTER_OPTIONS.map((opt) => (
               <FilterChip

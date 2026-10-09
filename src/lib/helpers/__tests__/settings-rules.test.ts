@@ -64,9 +64,8 @@ describe("formatting follows Ayarlar", () => {
     withSettings((s) => {
       s.finance.currency = "EUR";
       s.finance.currencySymbolPosition = "after";
-      s.security.numberFormat = "1,234.56";
     });
-    expect(formatCurrency(1234.5)).toBe("1,234.5 €");
+    expect(formatCurrency(1234.5)).toBe("1.234,5 €");
     expect(formatCurrency(-50)).toBe("-50 €");
   });
 
@@ -240,10 +239,12 @@ describe("settings migration and password policy", () => {
     expect("system_alert" in s.notifications.events).toBe(false);
   });
 
-  it("validates passwords against the policy", () => {
-    const policy = getSettingsDefaults().security; // 8+, uppercase, number
-    expect(validatePasswordPolicy("short", policy)).toContain("en az 8 karakter");
-    expect(validatePasswordPolicy("longpassword1", policy)).toContain("büyük harf");
-    expect(validatePasswordPolicy("Demo1234!", policy)).toBeNull();
+  it("validates passwords against the fixed policy (6+, uppercase, number, special)", () => {
+    expect(validatePasswordPolicy("Ab1.")).toContain("en az 6 karakter");
+    expect(validatePasswordPolicy("sifre1.")).toContain("büyük harf");
+    expect(validatePasswordPolicy("Sifre.")).toContain("rakam");
+    expect(validatePasswordPolicy("Sifre1")).toContain("özel karakter");
+    expect(validatePasswordPolicy("Sifre 1")).toContain("özel karakter");
+    expect(validatePasswordPolicy("Sifre1.")).toBeNull();
   });
 });

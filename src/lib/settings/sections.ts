@@ -165,7 +165,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     key: "security",
     label: "Güvenlik ve Sistem",
-    description: "Oturum, parola politikası ve onay kuralları (mock)",
+    description: "Sabit sistem kuralları, işlem geçmişi ve onay kuralları",
     href: "/app/settings/security",
     icon: ShieldCheck,
     permissionKey: "settings.security.manage",

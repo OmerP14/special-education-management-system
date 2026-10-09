@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { GraduationCap, AlertCircle, ShieldX } from "lucide-react";
+import { GraduationCap, AlertCircle, ShieldX, UserRound } from "lucide-react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { useMockStore } from "@/lib/mock/store";
 import { Button } from "@/components/ui/button";
@@ -15,23 +16,21 @@ function AcceptInviteForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
-  const { getInvitationByToken, acceptInvitation, isAuthenticated, isLoading } = useAuth();
-  // Ayarlar → Güvenlik ve Sistem → Parola Politikası
-  const { roles, institutionSettings: { security } } = useMockStore();
+  const { getInvitationByToken, acceptInvitation, isAuthenticated, isLoading, user, signOut } = useAuth();
+  const { roles } = useMockStore();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Set once this page's own submit signs the new user in, so the
+  // "someone else is signed in" card doesn't flash before the redirect.
+  const [activated, setActivated] = useState(false);
   // Captured once at mount rather than calling Date.now() directly during
   // render (impure) — a page load-time snapshot is all "is this link still
   // valid right now" needs here.
   const [loadedAt] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) router.replace("/app/dashboard");
-  }, [isLoading, isAuthenticated, router]);
 
   const invitation = getInvitationByToken(token);
   const invalid = !invitation || invitation.status !== "pending" || new Date(invitation.expiresAt).getTime() <= loadedAt;
@@ -39,7 +38,7 @@ function AcceptInviteForm() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const policyError = validatePasswordPolicy(password, security);
+    const policyError = validatePasswordPolicy(password);
     if (policyError) {
       setError(policyError);
       return;
@@ -60,6 +59,7 @@ function AcceptInviteForm() {
       setError(result.errorMessage ?? "Davet kabul edilemedi.");
       return;
     }
+    setActivated(true);
     router.replace("/app/dashboard");
   };
 
@@ -75,7 +75,33 @@ function AcceptInviteForm() {
         </div>
 
         <Card>
-          {invalid ? (
+          {/* The invitation lives in client-only storage: until the first
+              client render settles (isLoading), render neither branch so the
+              server HTML matches. */}
+          {isLoading || activated ? (
+            <CardContent className="py-8" />
+          ) : isAuthenticated ? (
+            // Opening someone's invite link while already signed in (e.g. the
+            // admin who sent it) must not silently land on that session's
+            // dashboard — it looks as if the invite was accepted.
+            <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+              <div className="rounded-full bg-muted p-3">
+                <UserRound className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Şu an {user?.name ?? "başka bir hesapla"} olarak oturum açık</p>
+              <p className="text-xs text-muted-foreground">
+                Bu daveti kabul edip yeni hesabı oluşturmak için önce çıkış yapın.
+              </p>
+              <div className="flex flex-col gap-2 pt-1">
+                <Button size="sm" onClick={() => void signOut()}>
+                  Çıkış yap ve daveti aç
+                </Button>
+                <Link href="/app/dashboard" className="text-xs text-muted-foreground hover:text-foreground">
+                  Panele dön
+                </Link>
+              </div>
+            </CardContent>
+          ) : invalid ? (
             <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
               <div className="rounded-full bg-destructive/10 p-3">
                 <ShieldX className="h-6 w-6 text-destructive" />
@@ -105,7 +131,7 @@ function AcceptInviteForm() {
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     autoFocus
                   />
-                  <p className="text-xs text-muted-foreground">{describePasswordPolicy(security)}</p>
+                  <p className="text-xs text-muted-foreground">{describePasswordPolicy()}</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="confirm-password">Şifre (Tekrar)</Label>

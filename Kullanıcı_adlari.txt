@@ -1,7 +1,9 @@
-Şifre: Demo1234!
-Kullanabileceğiniz hesaplar:
+Şifre (hepsi için): 1
 
-Yönetici: admin@ornekokul.com
-Müdür: mudur@ornekokul.com
-Öğretmen: ogretmen@ornekokul.com
-Veli: veli@ornekokul.com
+Yönetici (Sahip): admin
+Müdür: mudur
+Öğretmen (Ayşe Kaya): ayse.kaya@egitim.com
+Veli (Ahmet Yıldırım): ahmet@gmail.com
+
+Not: Öğretmen ve veli hesapları bağlı oldukları kayıttaki e-postayla giriş yapar.
+E-postayı değiştirmek için Öğretmenler / Veliler sayfasından kaydı düzenleyin.

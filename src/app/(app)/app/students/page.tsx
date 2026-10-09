@@ -13,6 +13,7 @@ import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
 import { useUserScope } from "@/lib/auth/use-scope";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { getScopedStudents } from "@/lib/auth/scope";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
@@ -39,6 +40,11 @@ const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
 
 export default function StudentsPage() {
   const store = useMockStore();
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission("students.create");
+  const canEdit = hasPermission("students.edit");
+  const canSeeFinance = hasPermission("students.view_finance") || hasPermission("finance.student_payments.view");
+  const FINANCE_COLUMNS = new Set(["totalBilled", "totalPaid", "totalDebt"]);
   const scope = useUserScope();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
@@ -107,7 +113,7 @@ export default function StudentsPage() {
     if (!open) setEditingStudent(null);
   };
 
-  const columns: Column<StudentListItem>[] = [
+  const allColumns: Column<StudentListItem>[] = [
     {
       key: "name",
       header: "Öğrenci",
@@ -273,6 +279,10 @@ export default function StudentsPage() {
     },
   ];
 
+  const columns = allColumns.filter(
+    (c) => (canSeeFinance || !FINANCE_COLUMNS.has(c.key)) && (canEdit || c.key !== "edit")
+  );
+
   return (
     <>
       <div className="space-y-5">
@@ -280,10 +290,12 @@ export default function StudentsPage() {
           title="Öğrenciler"
           description={`${activeCount} aktif öğrenci · ${allItems.length} toplam`}
           actions={
-            <Button size="sm" onClick={() => { setEditingStudent(null); setDrawerOpen(true); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Öğrenci Ekle
-            </Button>
+            canCreate ? (
+              <Button size="sm" onClick={() => { setEditingStudent(null); setDrawerOpen(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Öğrenci Ekle
+              </Button>
+            ) : undefined
           }
         />
 
@@ -292,12 +304,16 @@ export default function StudentsPage() {
             { icon: Users, label: "Toplam Öğrenci", value: allItems.length, tone: "primary" },
             { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
             { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" },
-            {
-              icon: AlertCircle,
-              label: "Toplam Borç",
-              value: formatCurrency(totalDebt),
-              tone: totalDebt > 0 ? "danger" : "success",
-            },
+            ...(canSeeFinance
+              ? [
+                  {
+                    icon: AlertCircle,
+                    label: "Toplam Borç",
+                    value: formatCurrency(totalDebt),
+                    tone: totalDebt > 0 ? ("danger" as const) : ("success" as const),
+                  },
+                ]
+              : []),
           ]}
         />
 

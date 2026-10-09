@@ -505,7 +505,7 @@ function SessionsPageContent() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğretmenler</option>
-              {store.teachers.map((t) => (
+              {scopedTeachers.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.fullName}
                 </option>
@@ -517,7 +517,7 @@ function SessionsPageContent() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
-              {store.students.map((s) => (
+              {scopedStudents.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.fullName}
                 </option>

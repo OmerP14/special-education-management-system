@@ -2,7 +2,8 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { GraduationCap, AlertCircle, CheckCircle2 } from "lucide-react";
+import { GraduationCap, AlertCircle, CheckCircle2, ShieldX } from "lucide-react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,19 +16,24 @@ function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
-  const { resetPassword } = useAuth();
-  // Ayarlar → Güvenlik ve Sistem → Parola Politikası
-  const passwordPolicy = useMockStore().institutionSettings.security;
+  const { resetPassword, isLoading } = useAuth();
+  const { passwordResets } = useMockStore();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Same load-time snapshot as accept-invite: a used/expired/unknown link is
+  // rejected up front, not only after the user has typed a new password.
+  const [loadedAt] = useState(() => Date.now());
+
+  const resetEntry = passwordResets.find((t) => t.token === token);
+  const invalid = !resetEntry || !!resetEntry.usedAt || new Date(resetEntry.expiresAt).getTime() <= loadedAt;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const policyError = validatePasswordPolicy(password, passwordPolicy);
+    const policyError = validatePasswordPolicy(password);
     if (policyError) {
       setError(policyError);
       return;
@@ -64,12 +70,29 @@ function ResetPasswordForm() {
             <CardDescription>Hesabınız için yeni bir şifre girin.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {success ? (
+            {/* Reset tokens live in client-only storage: render neither branch
+                until the first client render settles, so server HTML matches. */}
+            {isLoading ? (
+              <div className="py-4" />
+            ) : success ? (
               <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-50 px-3 py-2.5 dark:bg-emerald-950/20">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
                   Şifreniz güncellendi, girişe yönlendiriliyorsunuz…
                 </p>
+              </div>
+            ) : invalid ? (
+              <div className="flex flex-col items-center gap-3 py-4 text-center">
+                <div className="rounded-full bg-destructive/10 p-3">
+                  <ShieldX className="h-6 w-6 text-destructive" />
+                </div>
+                <p className="text-sm font-medium text-foreground">Sıfırlama bağlantısı geçersiz</p>
+                <p className="text-xs text-muted-foreground">
+                  Bu bağlantının süresi dolmuş veya zaten kullanılmış olabilir. Yeni bir sıfırlama bağlantısı isteyin.
+                </p>
+                <Link href="/forgot-password" className="text-sm font-medium text-primary hover:underline">
+                  Yeni bağlantı iste
+                </Link>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -82,7 +105,7 @@ function ResetPasswordForm() {
                     onChange={(e) => { setPassword(e.target.value); setError(null); }}
                     autoFocus
                   />
-                <p className="text-xs text-muted-foreground">{describePasswordPolicy(passwordPolicy)}</p>
+                <p className="text-xs text-muted-foreground">{describePasswordPolicy()}</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="confirm-password">Yeni Şifre (Tekrar)</Label>

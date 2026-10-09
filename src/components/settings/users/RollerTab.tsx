@@ -9,13 +9,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RolePermissionEditor } from "@/components/settings/users/RolePermissionEditor";
 import { cn } from "@/lib/utils";
-import type { Role } from "@/types/auth";
+import type { Role, RoleRecordScope } from "@/types/auth";
+import { RECORD_SCOPE_LABELS, getRoleRecordScope } from "@/lib/auth/roles";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useConfirm } from "@/components/shared/ConfirmProvider";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { canSaveRole } from "@/lib/auth/user-management-rules";
 
 interface RoleFormState {
   name: string;
   description: string;
   permissions: string[];
+  recordScope: RoleRecordScope;
 }
 
 function slugify(name: string): string {
@@ -46,24 +51,51 @@ function RoleFormDrawer({
   existingKeys: string[];
 }) {
   const store = useMockStore();
+  const { user: me, role: myRole } = useAuth();
   const isEditing = !!initialData;
-  const [form, setForm] = useState<RoleFormState>(
+  const buildForm = (): RoleFormState =>
     initialData
-      ? { name: initialData.name, description: initialData.description, permissions: initialData.permissions }
+      ? {
+          name: initialData.name,
+          description: initialData.description,
+          permissions: initialData.permissions,
+          recordScope: getRoleRecordScope(initialData),
+        }
       : cloneFrom
-        ? { name: `${cloneFrom.name} (Kopya)`, description: cloneFrom.description, permissions: [...cloneFrom.permissions] }
-        : { name: "", description: "", permissions: [] }
-  );
+        ? {
+            name: `${cloneFrom.name} (Kopya)`,
+            description: cloneFrom.description,
+            permissions: [...cloneFrom.permissions],
+            // A copy of Öğretmen/Veli stays per-person — otherwise its users
+            // could never be linked to a teacher/guardian record.
+            recordScope: getRoleRecordScope(cloneFrom),
+          }
+        : { name: "", description: "", permissions: [], recordScope: "institution" };
+  const [form, setForm] = useState<RoleFormState>(buildForm);
   const [error, setError] = useState<string | null>(null);
 
+  // Reset when the drawer opens (or targets another role). Done during
+  // render rather than in an effect so stale values never paint.
+  const resetKey = open ? `${initialData?.id ?? ""}|${cloneFrom?.id ?? ""}` : null;
+  const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey);
+    if (open) {
+      setForm(buildForm());
+      setError(null);
+    }
+  }
+
   const resetAndClose = () => {
-    setForm({ name: "", description: "", permissions: [] });
+    setForm({ name: "", description: "", permissions: [], recordScope: "institution" });
     setError(null);
     onOpenChange(false);
   };
 
+  const saveError = canSaveRole({ userId: me?.id ?? "", role: myRole }, initialData ?? null, form.permissions);
+
   const handleSave = () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || saveError) return;
     const now = new Date().toISOString();
 
     if (isEditing) {
@@ -72,6 +104,7 @@ function RoleFormDrawer({
         name: form.name.trim(),
         description: form.description.trim(),
         permissions: form.permissions,
+        recordScope: form.recordScope,
         updatedAt: now,
       });
     } else {
@@ -90,6 +123,7 @@ function RoleFormDrawer({
         isOwnerRole: false,
         isActive: true,
         permissions: form.permissions,
+        recordScope: form.recordScope,
         createdAt: now,
         updatedAt: now,
       });
@@ -111,13 +145,14 @@ function RoleFormDrawer({
       }
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Rolü Oluştur"}
-      saveDisabled={!form.name.trim()}
+      saveDisabled={!form.name.trim() || !!saveError}
     >
       <div className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="role-name">Rol Adı</Label>
           <Input id="role-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           {error && <p className="text-xs font-medium text-destructive">{error}</p>}
+          {saveError && <p className="text-xs font-medium text-destructive">{saveError}</p>}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="role-description">Açıklama</Label>
@@ -126,6 +161,33 @@ function RoleFormDrawer({
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Kayıt Kapsamı</Label>
+          <Select
+            value={form.recordScope}
+            disabled={initialData?.isSystemRole}
+            onValueChange={(v) => { if (v) setForm((f) => ({ ...f, recordScope: v as RoleRecordScope })); }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue>{() => RECORD_SCOPE_LABELS[form.recordScope]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(RECORD_SCOPE_LABELS) as RoleRecordScope[]).map((key) => (
+                <SelectItem key={key} value={key}>
+                  {RECORD_SCOPE_LABELS[key]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {initialData?.isSystemRole
+              ? "Sistem rollerinin kapsamı değiştirilemez."
+              : form.recordScope === "institution"
+                ? "Bu roldeki kullanıcılar, izinlerin verdiği tüm kurum kayıtlarını görür."
+                : "Bu roldeki her kullanıcı bir " + (form.recordScope === "teacher" ? "öğretmen" : "veli") +
+                  " kaydına bağlanır ve yalnızca o kaydın verilerini görür; bağlanmamış kullanıcı hiçbir kayıt göremez."}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label>İzinler</Label>
@@ -147,6 +209,8 @@ function RoleFormDrawer({
 
 export function RollerTab() {
   const store = useMockStore();
+  const { user: me, role: myRole } = useAuth();
+  const actor = { userId: me?.id ?? "", role: myRole };
   const confirm = useConfirm();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
@@ -177,7 +241,7 @@ export function RollerTab() {
           <div>
             <h2 className="text-base font-semibold text-foreground">Roller</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sistem rolleri (7 adet) silinemez ama izinleri özelleştirilebilir. Özel roller oluşturup
+              Sistem rolleri (4 adet) silinemez ama izinleri özelleştirilebilir. Kendi rolünüzü düzenleyemez, sahip olmadığınız bir yetkiyi bir role veremezsiniz. Özel roller oluşturup
               kullanıcılara atayabilirsiniz.
             </p>
           </div>
@@ -191,7 +255,9 @@ export function RollerTab() {
       <div className="grid gap-3 sm:grid-cols-2">
         {store.roles.map((role) => {
           const usage = usageCount(role.id);
-          const canDeactivate = !role.isSystemRole && usage === 0 && role.isActive;
+          const editError = canSaveRole(actor, role, role.permissions);
+          const cloneError = canSaveRole(actor, null, role.permissions);
+          const canDeactivate = !role.isSystemRole && usage === 0 && role.isActive && !editError;
           return (
             <div key={role.id} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-start justify-between gap-2">
@@ -226,10 +292,23 @@ export function RollerTab() {
               </div>
 
               <div className="mt-3 flex items-center gap-1.5 border-t border-border/60 pt-3">
-                <Button variant="ghost" size="sm" onClick={() => openEdit(role)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => openEdit(role)}
+                  disabled={!!editError}
+                  title={editError ?? undefined}
+                >
                   Düzenle
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => openClone(role)} className="gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => openClone(role)}
+                  disabled={!!cloneError}
+                  title={cloneError ?? undefined}
+                  className="gap-1"
+                >
                   <Copy className="h-3.5 w-3.5" />
                   Kopyala
                 </Button>
@@ -239,7 +318,9 @@ export function RollerTab() {
                     size="sm"
                     disabled={!canDeactivate}
                     title={
-                      !role.isActive
+                      editError
+                        ? editError
+                        : !role.isActive
                         ? "Zaten pasif"
                         : usage > 0
                           ? "Bu role atanmış kullanıcılar olduğu için devre dışı bırakılamaz"

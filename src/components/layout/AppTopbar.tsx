@@ -39,12 +39,12 @@ interface AppTopbarProps {
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
   const scope = useUserScope();
-  // Only what this account may see — teachers their own sessions, guardians
-  // their children (see getVisibleNotifications).
-  const notifications = getVisibleNotifications(store.notifications, scope);
+  const { user, signOut, permissions } = useAuth();
+  // Only what this account may see — events its role allows, then teachers
+  // their own sessions, guardians their children (see getVisibleNotifications).
+  const notifications = getVisibleNotifications(store.notifications, scope, permissions);
   const markAllNotificationsRead = () =>
     store.markNotificationsRead(notifications.filter((n) => !n.readAt).map((n) => n.id));
-  const { user, signOut } = useAuth();
   const router = useRouter();
   // On mobile the sidebar is always a Sheet overlay with its own open/closed
   // state (openMobile) — our desktop visible/hidden state doesn't apply there,

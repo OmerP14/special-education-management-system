@@ -5,7 +5,7 @@ import { AppTopbar } from "@/components/layout/AppTopbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { useSidebarVisibility } from "@/hooks/use-sidebar-visibility";
 import { RouteGuard } from "@/components/auth/RouteGuard";
-import { InactivityWarningBanner } from "@/components/auth/InactivityWarningBanner";
+import { StorageFullBanner } from "@/components/layout/StorageFullBanner";
 import { useMockStore } from "@/lib/mock/store";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -22,7 +22,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarProvider open={visible} onOpenChange={setVisible}>
         <AppSidebar />
         <SidebarInset className="flex h-svh flex-col overflow-hidden">
-          <InactivityWarningBanner />
+          <StorageFullBanner />
           <AppTopbar sidebarVisible={visible} onToggleSidebar={toggle} />
           <div className="flex-1 overflow-y-auto bg-muted/20">
             {/* max-w keeps content at a comfortable reading/table width — wide

@@ -13,6 +13,7 @@
 
 const STORAGE_KEY = "mock-store-v1";
 const SCHEMA_VERSION = 1;
+const AUTO_BACKUP_KEY = "mock-store-auto-backups-v1";
 
 interface PersistedEnvelope<T> {
   version: number;
@@ -20,26 +21,77 @@ interface PersistedEnvelope<T> {
   data: T;
 }
 
+// ─── Cross-tab safety ───────────────────────────────────────────────────────
+//
+// Every open tab holds the whole store in memory and writes it back on each
+// change. Without coordination a tab left open on an old snapshot (e.g. the
+// admin tab that sent an invite) silently overwrites what another tab just
+// saved (the accepted invite). So: once another tab writes, this tab stops
+// writing and reloads to pick the new snapshot up. Writes whose data didn't
+// actually change are skipped, so a reload's first save never bounces back
+// and reloads the other tab in turn.
+let lastSavedData: string | null = null;
+let staleFromOtherTab = false;
+
 export function loadPersistedStore<T>(): T | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedEnvelope<T>;
-    if (parsed.version !== SCHEMA_VERSION) return null;
+    let parsed: PersistedEnvelope<T> | null = null;
+    try {
+      parsed = JSON.parse(raw) as PersistedEnvelope<T>;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || parsed.version !== SCHEMA_VERSION || !parsed.data) {
+      // The app falls back to demo data and its first save overwrites this
+      // key — keep the unreadable snapshot aside instead of losing it.
+      preserveUnreadable(raw);
+      return null;
+    }
+    lastSavedData = JSON.stringify(parsed.data);
     return parsed.data;
   } catch {
     return null;
   }
 }
 
-export function savePersistedStore<T>(data: T): void {
-  if (typeof window === "undefined") return;
+const UNREADABLE_KEY = `${STORAGE_KEY}-unreadable`;
+
+function preserveUnreadable(raw: string) {
   try {
+    if (!window.localStorage.getItem(UNREADABLE_KEY)) window.localStorage.setItem(UNREADABLE_KEY, raw);
+  } catch {
+    // Nothing more we can do without storage space.
+  }
+}
+
+/** Returns false when the data could not be written (storage full or
+ *  unavailable) — the caller must tell the user, since everything changed
+ *  from then on is lost on reload. */
+export function savePersistedStore<T>(data: T): boolean {
+  if (typeof window === "undefined" || staleFromOtherTab) return true;
+  const serialized = JSON.stringify(data);
+  if (serialized === lastSavedData) return true;
+  const write = () => {
     const envelope: PersistedEnvelope<T> = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+    lastSavedData = serialized;
+  };
+  try {
+    write();
+    return true;
   } catch {
-    // Storage unavailable/full — this visit just runs session-only, not fatal.
+    // The live data matters more than the in-browser automatic backups that
+    // share the same quota: drop those and try once more.
+    try {
+      window.localStorage.removeItem(AUTO_BACKUP_KEY);
+      write();
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -47,9 +99,30 @@ export function clearPersistedStore(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+    lastSavedData = null;
   } catch {
     // Nothing to do if storage itself is unavailable.
   }
+}
+
+/** Starts the cross-tab guard described above; returns its cleanup. A tab
+ *  in the background reloads when it is next shown, a visible one at once. */
+export function watchOtherTabWrites(): () => void {
+  if (typeof window === "undefined") return () => {};
+  const reloadWhenVisible = () => {
+    if (document.visibilityState === "visible") window.location.reload();
+  };
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== STORAGE_KEY && e.key !== null) return;
+    staleFromOtherTab = true;
+    reloadWhenVisible();
+    document.addEventListener("visibilitychange", reloadWhenVisible);
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    document.removeEventListener("visibilitychange", reloadWhenVisible);
+  };
 }
 
 // ─── Backups (Ayarlar → Excel ve Veri Yönetimi) ─────────────────────────────
@@ -83,7 +156,6 @@ export function parseBackupFile<T>(text: string): { data: T; createdAt: string }
   }
 }
 
-const AUTO_BACKUP_KEY = "mock-store-auto-backups-v1";
 /** Daily automatic backups kept in this browser (newest first). */
 export const MAX_AUTO_BACKUPS = 3;
 

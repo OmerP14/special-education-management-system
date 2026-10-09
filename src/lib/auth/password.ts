@@ -1,4 +1,4 @@
-import type { SecuritySettings } from "@/types/settings";
+import { PASSWORD_MIN_LENGTH, PASSWORD_RULES_TEXT } from "@/lib/auth/security-policy";
 // ─── Mock-only password hashing ─────────────────────────────────────────────
 //
 // SHA-256 via the browser's native Web Crypto API — no npm dependency. This
@@ -42,27 +42,18 @@ export async function verifyPassword(
   return hash === credential.hash;
 }
 
-/** Ayarlar → Güvenlik ve Sistem → Parola Politikası. Returns a Turkish error
- *  message, or null when the password satisfies every rule. */
-export function validatePasswordPolicy(
-  password: string,
-  policy: Pick<SecuritySettings, "passwordMinLength" | "requireUppercase" | "requireNumber" | "requireSpecialChar">
-): string | null {
+/** The fixed password policy (lib/auth/security-policy.ts). Returns a
+ *  Turkish error message, or null when the password satisfies every rule. */
+export function validatePasswordPolicy(password: string): string | null {
   const missing: string[] = [];
-  if (password.length < policy.passwordMinLength) missing.push(`en az ${policy.passwordMinLength} karakter`);
-  if (policy.requireUppercase && !/[A-ZÇĞİÖŞÜ]/.test(password)) missing.push("bir büyük harf");
-  if (policy.requireNumber && !/\d/.test(password)) missing.push("bir rakam");
-  if (policy.requireSpecialChar && !/[^A-Za-z0-9ÇĞİÖŞÜçğıöşü]/.test(password)) missing.push("bir özel karakter");
+  if (password.length < PASSWORD_MIN_LENGTH) missing.push(`en az ${PASSWORD_MIN_LENGTH} karakter`);
+  if (!/[A-ZÇĞİÖŞÜ]/.test(password)) missing.push("bir büyük harf");
+  if (!/\d/.test(password)) missing.push("bir rakam");
+  if (!/[^A-Za-z0-9ÇĞİÖŞÜçğıöşü\s]/.test(password)) missing.push("bir özel karakter (. ! @ # gibi)");
   return missing.length > 0 ? `Şifre ${missing.join(", ")} içermelidir.` : null;
 }
 
-/** Human-readable summary of the current policy, for form hints. */
-export function describePasswordPolicy(
-  policy: Pick<SecuritySettings, "passwordMinLength" | "requireUppercase" | "requireNumber" | "requireSpecialChar">
-): string {
-  const parts = [`En az ${policy.passwordMinLength} karakter`];
-  if (policy.requireUppercase) parts.push("büyük harf");
-  if (policy.requireNumber) parts.push("rakam");
-  if (policy.requireSpecialChar) parts.push("özel karakter");
-  return parts.join(", ") + ".";
+/** Hint text for new-password fields. */
+export function describePasswordPolicy(): string {
+  return PASSWORD_RULES_TEXT;
 }

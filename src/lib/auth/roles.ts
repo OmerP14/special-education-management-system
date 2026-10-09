@@ -1,4 +1,4 @@
-import type { Role, RoleKey } from "@/types/auth";
+import type { Role, RoleKey, RoleRecordScope } from "@/types/auth";
 import { WILDCARD_PERMISSION } from "@/types/auth";
 import { PERMISSION_KEYS } from "@/lib/auth/permission-catalog";
 
@@ -32,6 +32,7 @@ export const SYSTEM_ROLES: Role[] = [
     isSystemRole: true,
     isOwnerRole: true,
     isActive: true,
+    recordScope: "institution",
     permissions: [WILDCARD_PERMISSION],
   }),
   role({
@@ -42,6 +43,7 @@ export const SYSTEM_ROLES: Role[] = [
     isSystemRole: true,
     isOwnerRole: false,
     isActive: true,
+    recordScope: "institution",
     permissions: ALL_EXCEPT_SECURITY,
   }),
   role({
@@ -52,6 +54,7 @@ export const SYSTEM_ROLES: Role[] = [
     isSystemRole: true,
     isOwnerRole: false,
     isActive: true,
+    recordScope: "teacher",
     permissions: [
       "dashboard.view",
       "dashboard.operational.view",
@@ -79,6 +82,7 @@ export const SYSTEM_ROLES: Role[] = [
     isSystemRole: true,
     isOwnerRole: false,
     isActive: true,
+    recordScope: "guardian",
     // No calendar.view — the phase spec's guardian nav is Panel/Çocuklarım/
     // Seanslar/Ödemeler/Bildirimler/Profil, deliberately not the full
     // multi-teacher Takvim page (staff-oriented filters/views a guardian
@@ -101,6 +105,22 @@ export const SYSTEM_ROLES: Role[] = [
     ],
   }),
 ];
+
+/** A role's record scope. Roles saved before `recordScope` existed fall back
+ *  by system key (a custom role defaults to institution-wide; an admin sets
+ *  it in the role form). */
+export function getRoleRecordScope(role: Pick<Role, "key" | "recordScope"> | null | undefined): RoleRecordScope {
+  if (role?.recordScope) return role.recordScope;
+  if (role?.key === "teacher") return "teacher";
+  if (role?.key === "guardian") return "guardian";
+  return "institution";
+}
+
+export const RECORD_SCOPE_LABELS: Record<RoleRecordScope, string> = {
+  institution: "Kurum geneli",
+  teacher: "Öğretmen — yalnız kendi öğrenci ve seansları",
+  guardian: "Veli — yalnız kendi çocukları",
+};
 
 export function getRoleByKey(key: RoleKey): Role | undefined {
   return SYSTEM_ROLES.find((r) => r.key === key);

@@ -21,8 +21,6 @@ export interface AuthService {
 
   getCurrentUser(): AuthUser | null;
 
-  refreshSession(): Promise<AuthSession | null>;
-
   changePassword(input: {
     userId: string;
     currentPassword: string;

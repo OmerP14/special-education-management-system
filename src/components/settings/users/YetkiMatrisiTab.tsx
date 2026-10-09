@@ -15,6 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { canSaveRole } from "@/lib/auth/user-management-rules";
+import type { Role } from "@/types/auth";
 
 const MODULE_LABELS: Record<PermissionModule, string> = {
   dashboard: "Panel",
@@ -34,6 +37,10 @@ const MODULE_LABELS: Record<PermissionModule, string> = {
 
 export function YetkiMatrisiTab() {
   const store = useMockStore();
+  const { user: me, role: myRole } = useAuth();
+  const actor = { userId: me?.id ?? "", role: myRole };
+  const toggled = (role: Role, key: string) =>
+    role.permissions.includes(key) ? role.permissions.filter((k) => k !== key) : [...role.permissions, key];
   const [search, setSearch] = useState("");
   const [moduleFilter, setModuleFilter] = useState<PermissionModule | "all">("all");
 
@@ -51,9 +58,8 @@ export function YetkiMatrisiTab() {
   const toggle = (roleId: string, key: string) => {
     const role = store.roles.find((r) => r.id === roleId);
     if (!role || role.permissions.includes("*")) return; // owner wildcard — read-only
-    const next = role.permissions.includes(key)
-      ? role.permissions.filter((k) => k !== key)
-      : [...role.permissions, key];
+    const next = toggled(role, key);
+    if (canSaveRole(actor, role, next)) return;
     store.updateRole({ ...role, permissions: next, updatedAt: new Date().toISOString() });
   };
 
@@ -63,7 +69,7 @@ export function YetkiMatrisiTab() {
         <h2 className="text-base font-semibold text-foreground">Yetki Matrisi</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Her rolün her izne sahip olup olmadığını tek bakışta görün ve doğrudan değiştirin. Sahip rolü (joker
-          izin) düzenlenemez.
+          izin), kendi rolünüz ve sahip olmadığınız yetkiler değiştirilemez.
         </p>
       </div>
 
@@ -118,11 +124,16 @@ export function YetkiMatrisiTab() {
                 {visibleRoles.map((role) => {
                   const wildcard = role.permissions.includes("*");
                   const checked = wildcard || role.permissions.includes(perm.key);
+                  const lockReason = wildcard ? null : canSaveRole(actor, role, toggled(role, perm.key));
                   return (
-                    <td key={role.id} className={cn("px-3 py-2 text-center", wildcard && "opacity-60")}>
+                    <td
+                      key={role.id}
+                      title={lockReason ?? undefined}
+                      className={cn("px-3 py-2 text-center", (wildcard || lockReason) && "opacity-60")}
+                    >
                       <Checkbox
                         checked={checked}
-                        disabled={wildcard}
+                        disabled={wildcard || !!lockReason}
                         onCheckedChange={() => toggle(role.id, perm.key)}
                       />
                     </td>

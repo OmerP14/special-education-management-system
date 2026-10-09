@@ -2,11 +2,9 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -26,11 +24,6 @@ interface AuthContextValue {
    *  not a second async localStorage read. */
   isLoading: boolean;
   loginTime: string | null;
-  lastActivityAt: string | null;
-  sessionExpiresAt: string | null;
-  /** True in the last 60s before an inactivity-triggered logout (only ever
-   *  true when institutionSettings.security.inactivityLogoutEnabled is on). */
-  isInactivityWarning: boolean;
   signIn: AuthService["signIn"];
   signOut: () => Promise<void>;
   changePassword: AuthService["changePassword"];
@@ -39,20 +32,23 @@ interface AuthContextValue {
   acceptInvitation: AuthService["acceptInvitation"];
   getInvitationByToken: (token: string) => Invitation | null;
   hasPermission: (key: PermissionKey) => boolean;
-  /** Resets the inactivity clock — called by the "Oturumu Uzat" banner button
-   *  and, throttled, by the passive activity listeners below. */
-  extendSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// How often the passive activity listeners are allowed to write a fresh
-// lastActivityAt — real interaction happens far more often than this, but
-// every write goes through the store's setAuthSession -> its debounced
-// localStorage save, so this cap keeps that from firing on every mousemove.
-const ACTIVITY_THROTTLE_MS = 30_000;
-const TICK_MS = 30_000;
-const WARNING_WINDOW_MS = 60_000;
+// "Beni hatırla" off → the session must not survive closing the browser.
+// The whole store (session included) lives in localStorage, so a cookie with
+// no expiry marks "this browser session" — browsers drop it on exit, and it is
+// shared across tabs, unlike sessionStorage.
+const BROWSER_SESSION_COOKIE = "oe_browser_session";
+
+function markBrowserSession() {
+  document.cookie = `${BROWSER_SESSION_COOKIE}=1; path=/; SameSite=Lax`;
+}
+
+function hasBrowserSessionMark(): boolean {
+  return document.cookie.split("; ").some((c) => c === `${BROWSER_SESSION_COOKIE}=1`);
+}
 
 /**
  * Mounted inside MockDataProvider (needs useMockStore()) and above both
@@ -72,11 +68,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     appUsers,
     credentials,
     roles,
-    institutionSettings,
     authSession,
     invitations,
     passwordResets,
-    updateAppUser,
+    saveAuthUserState,
     setCredential,
     setAuthSession,
     setActorName,
@@ -84,11 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPasswordReset,
     logAuditEvent,
   } = store;
-  const security = institutionSettings.security;
-
   const [isLoading, setIsLoading] = useState(true);
-  const [isInactivityWarning, setIsInactivityWarning] = useState(false);
-  const lastActivityWriteRef = useRef(0);
 
   const authService = useMemo(
     () =>
@@ -98,9 +89,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         roles,
         invitations,
         passwordResets,
-        security,
         session: authSession,
-        updateAppUser,
+        saveAuthUserState,
         setCredential,
         setAuthSession,
         setInvitation,
@@ -113,9 +103,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roles,
       invitations,
       passwordResets,
-      security,
       authSession,
-      updateAppUser,
+      saveAuthUserState,
       setCredential,
       setAuthSession,
       setInvitation,
@@ -124,12 +113,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  // One-time post-mount validity check — an expired session from a previous
-  // visit is cleared rather than silently treated as "still logged in."
+  // One-time post-mount check — there is no idle timeout (see
+  // lib/auth/security-policy.ts); the only way a stored session ends on its
+  // own is "Beni hatırla" off and the browser closed since.
   useEffect(() => {
-    if (authSession && new Date(authSession.expiresAt).getTime() <= Date.now()) {
-      setAuthSession(null);
-    }
+    if (authSession && !authSession.remember && !hasBrowserSessionMark()) setAuthSession(null);
     // One-time flip after the mount-only expiry check above — deliberately
     // not a "sync external state" effect the lint rule expects to only ever
     // subscribe, so it's exempted rather than restructured.
@@ -152,64 +140,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.name]);
 
-  const extendSession = useCallback(() => {
-    void authService.refreshSession();
-    setIsInactivityWarning(false);
-    lastActivityWriteRef.current = Date.now();
-  }, [authService]);
-
-  // Passive activity listeners — real interaction refreshes lastActivityAt
-  // (throttled), which is what the inactivity deadline below is computed
-  // from. No listener runs at all once signed out.
-  useEffect(() => {
-    if (!authSession) return;
-    const onActivity = () => {
-      const now = Date.now();
-      if (now - lastActivityWriteRef.current < ACTIVITY_THROTTLE_MS) return;
-      lastActivityWriteRef.current = now;
-      setAuthSession({ ...authSession, lastActivityAt: new Date(now).toISOString() });
-    };
-    const events: (keyof WindowEventMap)[] = ["mousemove", "keydown", "click", "scroll"];
-    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
-    return () => events.forEach((e) => window.removeEventListener(e, onActivity));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!authSession]);
-
-  // The 30s-tick deadline check — mirrors store.tsx's existing
-  // autoCompletePastPlanned timer's cadence/shape.
-  useEffect(() => {
-    if (!authSession) return;
-
-    function check() {
-      if (!authSession) return;
-      const now = Date.now();
-      const absoluteDeadline = new Date(authSession.expiresAt).getTime();
-
-      // Reuses sessionTimeoutMinutes as the inactivity threshold too — the
-      // security settings model has one duration field, not two; when
-      // inactivity logout is on, "N minutes of inactivity" and "N minutes
-      // since login" both apply and whichever comes first wins.
-      const inactivityDeadline = security.inactivityLogoutEnabled
-        ? new Date(authSession.lastActivityAt).getTime() + security.sessionTimeoutMinutes * 60_000
-        : Infinity;
-      const effectiveDeadline = Math.min(absoluteDeadline, inactivityDeadline);
-
-      if (now >= effectiveDeadline) {
-        setIsInactivityWarning(false);
-        void authService.signOut();
-        return;
-      }
-      setIsInactivityWarning(
-        security.inactivityLogoutEnabled && effectiveDeadline - now <= WARNING_WINDOW_MS
-      );
-    }
-
-    check();
-    const timer = setInterval(check, TICK_MS);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authSession?.expiresAt, authSession?.lastActivityAt, security.inactivityLogoutEnabled, security.sessionTimeoutMinutes]);
-
   const value: AuthContextValue = {
     user,
     role,
@@ -217,18 +147,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: !!user,
     isLoading,
     loginTime: authSession?.loginAt ?? null,
-    lastActivityAt: authSession?.lastActivityAt ?? null,
-    sessionExpiresAt: authSession?.expiresAt ?? null,
-    isInactivityWarning,
-    signIn: (input) => authService.signIn(input),
+    signIn: async (input) => {
+      const result = await authService.signIn(input);
+      if (result.success) markBrowserSession();
+      return result;
+    },
     signOut: () => authService.signOut(),
     changePassword: (input) => authService.changePassword(input),
     requestPasswordReset: (email) => authService.requestPasswordReset(email),
     resetPassword: (input) => authService.resetPassword(input),
-    acceptInvitation: (input) => authService.acceptInvitation(input),
+    acceptInvitation: async (input) => {
+      const result = await authService.acceptInvitation(input);
+      if (result.success) markBrowserSession();
+      return result;
+    },
     getInvitationByToken: (token) => authService.getInvitationByToken(token),
     hasPermission: (key) => hasPermissionHelper(permissions, key),
-    extendSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

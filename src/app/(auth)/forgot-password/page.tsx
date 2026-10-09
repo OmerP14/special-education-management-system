@@ -60,7 +60,7 @@ export default function ForgotPasswordPage() {
           {submitted ? (
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Bu e-posta adresine kayıtlı bir hesap varsa, aşağıda bağlantı görünür. 1 saat geçerlidir.
+                Bu bilgiye kayıtlı bir hesap varsa, aşağıda bağlantı görünür. 1 saat geçerlidir.
               </p>
               {resetLink ? (
                 <div className="space-y-2">
@@ -73,15 +73,15 @@ export default function ForgotPasswordPage() {
                   </Button>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">Bu e-posta adresiyle eşleşen bir hesap bulunamadı.</p>
+                <p className="text-xs text-muted-foreground">Bu bilgiyle eşleşen bir hesap bulunamadı.</p>
               )}
             </CardContent>
           ) : (
             <form onSubmit={handleSubmit}>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email">E-posta</Label>
-                  <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+                  <Label htmlFor="email">E-posta veya kullanıcı adı</Label>
+                  <Input id="email" type="text" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
                 </div>
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting ? "Gönderiliyor…" : "Sıfırlama Bağlantısı Oluştur"}

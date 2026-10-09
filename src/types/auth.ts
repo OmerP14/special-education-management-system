@@ -21,6 +21,11 @@ import type { AppUserStatus } from "@/types/settings";
 // so a custom role was never blocked by this list even before Phase 3.
 export type RoleKey = "owner" | "admin" | "teacher" | "guardian";
 
+/** Which records a role's users see. "teacher"/"guardian" roles are
+ *  per-person: their users see only the records of the teacher/guardian they
+ *  are linked to — and nothing at all while unlinked. */
+export type RoleRecordScope = "institution" | "teacher" | "guardian";
+
 export type PermissionModule =
   | "dashboard"
   | "students"
@@ -74,6 +79,9 @@ export interface Role {
   isOwnerRole: boolean;
   isActive: boolean;
   permissions: PermissionKey[];
+  /** Absent on roles saved before this field existed — read it through
+   *  getRoleRecordScope (lib/auth/roles.ts), never directly. */
+  recordScope?: RoleRecordScope;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +98,7 @@ export interface AuthUser {
   email: string;
   roleId: string;
   roleKey: string;
+  recordScope: RoleRecordScope;
   status: AppUserStatus;
   teacherId?: string;
   guardianId?: string;
@@ -98,8 +107,6 @@ export interface AuthUser {
 export interface AuthSession {
   userId: string;
   loginAt: string;
-  lastActivityAt: string;
-  expiresAt: string;
   remember: boolean;
 }
 
@@ -117,6 +124,8 @@ export interface AuthResult<T = void> {
   /** Turkish, user-facing — built once by LocalAuthService, never re-derived
    *  from `error` in a component. */
   errorMessage?: string;
+  /** Set with error "account_locked" so the login form can count down. */
+  lockedUntil?: string;
 }
 
 /** Lives ONLY in the store's `credentials` slice — read/write exclusively

@@ -192,6 +192,11 @@ export function GuardianFormDrawer({
             value={form.email}
             onChange={(e) => set("email", e.target.value)}
           />
+          {initialData && store.appUsers.some((u) => u.guardianId === initialData.id && u.status !== "inactive") && (
+            <p className="text-xs text-muted-foreground">
+              Bu velinin giriş hesabı var: ad ve e-posta hesaba da yansır, veli yeni e-postayla giriş yapar.
+            </p>
+          )}
         </div>
 
         {/* Yakınlık */}

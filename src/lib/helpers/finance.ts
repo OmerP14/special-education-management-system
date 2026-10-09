@@ -399,9 +399,9 @@ function getNumberFormatter(locale: string, maximumFractionDigits: number): Intl
   return formatter;
 }
 
-/** Locale implied by Ayarlar → Güvenlik ve Sistem → Sayı Formatı. */
+/** Numbers always use the Turkish format (1.234,56) — a fixed system rule. */
 function getNumberLocale(): string {
-  return getActiveSettings().security.numberFormat === "1,234.56" ? "en-US" : "tr-TR";
+  return "tr-TR";
 }
 
 /** Plain number with the institution's thousands/decimal separators. */
@@ -410,7 +410,7 @@ export function formatNumber(value: number, maximumFractionDigits = 2): string {
 }
 
 /** Money in the institution's currency, symbol position and number format
- *  (Ayarlar → Finans / Güvenlik ve Sistem). */
+ *  (Ayarlar → Finans; sayı biçimi sabit). */
 export function formatCurrency(amount: number): string {
   const { currencySymbolPosition } = getActiveSettings().finance;
   const symbol = getCurrencySymbol();

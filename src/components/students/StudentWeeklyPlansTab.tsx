@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { ExtendPlanDrawer } from "@/components/sessions/ExtendPlanDrawer";
 import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { formatDate, formatCurrency } from "@/lib/helpers/finance";
 import {
   computeWeeklyPlanStatus,
@@ -103,11 +104,12 @@ function PlanCard({
   onDelete,
 }: {
   plan: WeeklySessionPlan;
-  onEdit: () => void;
-  onToggleActive: () => void;
-  onCopy: () => void;
-  onExtend: () => void;
-  onDelete: () => void;
+  /** Each action is shown only when its handler is given (permission). */
+  onEdit?: () => void;
+  onToggleActive?: () => void;
+  onCopy?: () => void;
+  onExtend?: () => void;
+  onDelete?: () => void;
 }) {
   const store = useMockStore();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -156,41 +158,51 @@ function PlanCard({
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Düzenle"
-            onClick={onEdit}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Planı Uzat"
-            onClick={onExtend}
-          >
-            <CalendarPlus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title={plan.isActive ? "Planı Durdur" : "Planı Devam Ettir"}
-            onClick={onToggleActive}
-          >
-            {plan.isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Planı Kopyala"
-            onClick={onCopy}
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Planı Sil"
-            onClick={() => setConfirmDelete(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {onEdit && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Düzenle"
+              onClick={onEdit}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onExtend && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Planı Uzat"
+              onClick={onExtend}
+            >
+              <CalendarPlus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onToggleActive && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={plan.isActive ? "Planı Durdur" : "Planı Devam Ettir"}
+              onClick={onToggleActive}
+            >
+              {plan.isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            </button>
+          )}
+          {onCopy && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Planı Kopyala"
+              onClick={onCopy}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Planı Sil"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -253,7 +265,7 @@ function PlanCard({
         {confirmDelete && (
           <ConfirmBanner
             message="Bu planı silmek üzeresiniz. Tamamlanmış seanslar korunacak, yalnızca gelecekteki Planlandı durumundaki seanslar silinecektir."
-            onConfirm={() => { setConfirmDelete(false); onDelete(); }}
+            onConfirm={() => { setConfirmDelete(false); onDelete?.(); }}
             onCancel={() => setConfirmDelete(false)}
           />
         )}
@@ -270,6 +282,10 @@ type DrawerMode = "new" | "edit" | "copy";
 
 export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
   const store = useMockStore();
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission("sessions.create");
+  const canEdit = hasPermission("sessions.edit");
+  const canDelete = hasPermission("sessions.delete");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("new");
   const [activePlan, setActivePlan] = useState<WeeklySessionPlan | undefined>(undefined);
@@ -311,10 +327,12 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
               <p className="text-xs text-muted-foreground">{plans.length} plan tanımlı</p>
             )}
           </div>
-          <Button size="sm" onClick={() => openDrawer("new")}>
-            <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
-            Yeni Plan
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => openDrawer("new")}>
+              <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
+              Yeni Plan
+            </Button>
+          )}
         </div>
 
         {plans.length === 0 ? (
@@ -322,7 +340,7 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
             title="Henüz seans planı yok"
             description="Haftalık seans planı oluşturarak seansları otomatik olarak planlayabilirsiniz."
             icon={CalendarClock}
-            action={{ label: "Haftalık Plan Oluştur", onClick: () => openDrawer("new") }}
+            action={canCreate ? { label: "Haftalık Plan Oluştur", onClick: () => openDrawer("new") } : undefined}
           />
         ) : (
           <div className="space-y-4">
@@ -330,11 +348,11 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
               <PlanCard
                 key={plan.id}
                 plan={plan}
-                onEdit={() => openDrawer("edit", plan)}
-                onToggleActive={() => store.updateWeeklySessionPlan({ ...plan, isActive: !plan.isActive })}
-                onCopy={() => openDrawer("copy", plan)}
-                onExtend={() => openExtendDrawer(plan)}
-                onDelete={() => store.deleteWeeklySessionPlan(plan.id)}
+                onEdit={canEdit ? () => openDrawer("edit", plan) : undefined}
+                onToggleActive={canEdit ? () => store.updateWeeklySessionPlan({ ...plan, isActive: !plan.isActive }) : undefined}
+                onCopy={canCreate ? () => openDrawer("copy", plan) : undefined}
+                onExtend={canEdit ? () => openExtendDrawer(plan) : undefined}
+                onDelete={canDelete ? () => store.deleteWeeklySessionPlan(plan.id) : undefined}
               />
             ))}
           </div>

@@ -148,19 +148,10 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     defaultLandingPage: "dashboard",
   },
   security: {
-    sessionTimeoutMinutes: 60,
-    inactivityLogoutEnabled: false,
-    passwordMinLength: 8,
-    requireUppercase: true,
-    requireNumber: true,
-    requireSpecialChar: false,
-    failedLoginThreshold: 5,
-    lockoutDurationMinutes: 15,
     auditLoggingEnabled: true,
     confirmSensitiveActions: true,
     confirmFinancialEdits: true,
     confirmDataExport: false,
-    numberFormat: "1.234,56",
   },
   dataManagement: {
     lastBackupAt: null,
@@ -227,9 +218,6 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
   const fallback = getSettingsDefaults();
   if (!["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD"].includes(defaults.documents.dateFormat)) {
     defaults.documents.dateFormat = fallback.documents.dateFormat;
-  }
-  if (!["1.234,56", "1,234.56"].includes(defaults.security.numberFormat)) {
-    defaults.security.numberFormat = fallback.security.numberFormat;
   }
   if (!["TRY", "USD", "EUR", "GBP"].includes(defaults.finance.currency)) {
     defaults.finance.currency = fallback.finance.currency;

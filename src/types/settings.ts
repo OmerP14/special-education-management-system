@@ -217,7 +217,6 @@ export type CardRadiusPreference = "sm" | "md" | "lg" | "xl";
 export type SidebarDefaultState = "expanded" | "collapsed";
 export type ThemePreference = "light" | "dark" | "system";
 export type DocumentDateFormat = "DD.MM.YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD";
-export type NumberFormatPreference = "1.234,56" | "1,234.56";
 export type LandingPage = "dashboard" | "calendar" | "sessions";
 
 export interface DocumentSettings {
@@ -250,20 +249,13 @@ export interface AppearanceSettings {
 // Enforced by LocalAuthService/AuthProvider in this client-only build; moves
 // server-side together with authentication when the backend arrives.
 
+/** Password policy, login lockout, session lifetime and number format are
+ *  fixed system rules (lib/auth/security-policy.ts), not settings. */
 export interface SecuritySettings {
-  sessionTimeoutMinutes: number;
-  inactivityLogoutEnabled: boolean;
-  passwordMinLength: number;
-  requireUppercase: boolean;
-  requireNumber: boolean;
-  requireSpecialChar: boolean;
-  failedLoginThreshold: number;
-  lockoutDurationMinutes: number;
   auditLoggingEnabled: boolean;
   confirmSensitiveActions: boolean;
   confirmFinancialEdits: boolean;
   confirmDataExport: boolean;
-  numberFormat: NumberFormatPreference;
 }
 
 // ─── 10. Excel ve Veri Yönetimi ──────────────────────────────────────────────
@@ -360,7 +352,7 @@ export interface AppUser {
   lastLoginAt?: string;
   /** Reset to 0 on a successful login; incremented on a bad password.
    *  LocalAuthService locks the account once this reaches
-   *  institutionSettings.security.failedLoginThreshold. */
+   *  MAX_FAILED_LOGIN_ATTEMPTS (lib/auth/security-policy.ts). */
   failedLoginAttempts?: number;
   /** Set alongside status:"locked" — LocalAuthService rejects sign-in until
    *  this passes, then treats the account as unlocked without needing a

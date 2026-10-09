@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansTab";
 import { StatCard } from "@/components/shared/StatCard";
 import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
@@ -247,7 +248,8 @@ function InstallmentPlanCard({
 }: {
   plan: InstallmentPlan;
   today: Date;
-  onMarkPaid: (planId: string, instId: string) => void;
+  /** Absent → no "Ödendi" button (needs finance.installments.manage). */
+  onMarkPaid?: (planId: string, instId: string) => void;
 }) {
   const progress = getPlanProgress(plan, today);
   const paidFraction = `${progress.paid}/${plan.installmentCount}`;
@@ -291,7 +293,7 @@ function InstallmentPlanCard({
                 {formatCurrency(inst.amount)}
               </span>
               <StatusBadge status={display} />
-              {(display === "pending" || display === "overdue") && (
+              {onMarkPaid && (display === "pending" || display === "overdue") && (
                 <button
                   onClick={() => onMarkPaid(plan.id, inst.id)}
                   className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0"
@@ -343,8 +345,17 @@ function StudentDetailViewContent({
   store,
 }: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
   const confirm = useConfirm();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("students.edit");
+  // A guardian sees their own child's payments (finance.student_payments.view,
+  // scoped); a teacher sees none unless the role grants student finance.
+  const canSeeFinance = hasPermission("students.view_finance") || hasPermission("finance.student_payments.view");
+  const canMarkPaid = hasPermission("finance.installments.manage");
+  const canSeeNotes = hasPermission("students.view_private_notes");
   const [editOpen, setEditOpen] = useState(false);
-  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
+  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes).filter(
+    (c) => canSeeFinance || (c.key !== "unitPrice" && c.key !== "total")
+  );
   const detail = buildStudentDetail(
     studentId,
     store.students,
@@ -605,7 +616,7 @@ function StudentDetailViewContent({
               key={plan.id}
               plan={plan}
               today={today}
-              onMarkPaid={async (planId: string, installmentId: string) => {
+              onMarkPaid={!canMarkPaid ? undefined : async (planId: string, installmentId: string) => {
                 if (
                   await confirm({
                     kind: "financial",
@@ -840,14 +851,18 @@ function StudentDetailViewContent({
       badge: weeklyPlanCount > 0 ? weeklyPlanCount : undefined,
       content: <StudentWeeklyPlansTab studentId={studentId} />,
     },
-    {
-      key: "payments",
-      label: "Ödemeler",
-      badge: detail.payments.length + studentPlans.length,
-      content: paymentsContent,
-    },
-    { key: "cari", label: "Cari Hesap", content: cariHesapContent },
-    { key: "notes", label: "Notlar", content: notesContent },
+    ...(canSeeFinance
+      ? [
+          {
+            key: "payments",
+            label: "Ödemeler",
+            badge: detail.payments.length + studentPlans.length,
+            content: paymentsContent,
+          },
+          { key: "cari", label: "Cari Hesap", content: cariHesapContent },
+        ]
+      : []),
+    ...(canSeeNotes ? [{ key: "notes", label: "Notlar", content: notesContent }] : []),
   ];
 
   const rawStudent = store.students.find((s) => s.id === studentId);
@@ -913,15 +928,17 @@ function StudentDetailViewContent({
                   <DetailHeaderMeta createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
                 </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setEditOpen(true)}
-                className="shrink-0"
-              >
-                <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                Düzenle
-              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditOpen(true)}
+                  className="shrink-0"
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Düzenle
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -935,31 +952,36 @@ function StudentDetailViewContent({
             icon={CalendarDays}
             variant="default"
           />
-          <StatCard
-            title="Toplam Tutar"
-            value={formatCurrency(detail.totalBilled)}
-            description="Tahakkuk eden"
-            icon={TrendingUp}
-            variant="default"
-          />
-          <StatCard
-            title="Alınan Ödeme"
-            value={formatCurrency(detail.totalPaid)}
-            description="Tahsil edilen"
-            icon={CreditCard}
-            variant="success"
-          />
-          <StatCard
-            title="Kalan Borç"
-            value={formatCurrency(detail.totalDebt)}
-            description="Ödenmemiş"
-            icon={AlertCircle}
-            variant={detail.totalDebt > 0 ? "danger" : "success"}
-          />
+          {canSeeFinance && (
+            <>
+            <StatCard
+              title="Toplam Tutar"
+              value={formatCurrency(detail.totalBilled)}
+              description="Tahakkuk eden"
+              icon={TrendingUp}
+              variant="default"
+            />
+            <StatCard
+              title="Alınan Ödeme"
+              value={formatCurrency(detail.totalPaid)}
+              description="Tahsil edilen"
+              icon={CreditCard}
+              variant="success"
+            />
+            <StatCard
+              title="Kalan Borç"
+              value={formatCurrency(detail.totalDebt)}
+              description="Ödenmemiş"
+              icon={AlertCircle}
+              variant={detail.totalDebt > 0 ? "danger" : "success"}
+            />
+            </>
+          )}
         </div>
 
         {/* Ayarlar → Öğrenci ve Veli → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
-        {store.institutionSettings.students.debtWarningEnabled &&
+        {canSeeFinance &&
+          store.institutionSettings.students.debtWarningEnabled &&
           detail.totalDebt > 0 &&
           detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">

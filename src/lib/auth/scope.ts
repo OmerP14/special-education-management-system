@@ -3,9 +3,10 @@
 // Centralized "what can THIS signed-in user see" — every list/detail/
 // dashboard/report consumer that needs teacher-sees-own-data or guardian-
 // sees-own-children behavior reads through these, never re-derives its own
-// filter. Scoping is keyed off AuthUser.teacherId/guardianId (not role name)
-// per the phase spec — a future custom role assigned to a per-teacher
-// account is scoped exactly the same way a system "Öğretmen" account is.
+// filter. Scoping is keyed off the role's record scope (AuthUser.recordScope,
+// see getRoleRecordScope) plus the account's teacherId/guardianId link — a
+// custom role with a "teacher" record scope is scoped exactly the same way
+// the system "Öğretmen" role is, and an unlinked account sees nothing.
 //
 // canAccess* are the enforcement half of this: route-level pages call these
 // (not just filter a list) so a direct URL to another teacher's/guardian's
@@ -16,9 +17,11 @@ import type { Guardian, InstallmentPlan, Payment, Session, Student, Teacher } fr
 import type { AuthUser } from "@/types/auth";
 
 export interface CurrentUserScope {
-  /** True for any account with neither teacherId nor guardianId — owner,
-   *  manager, or any other staff account. Institution-wide data, subject
-   *  only to permission checks elsewhere (finance, settings, ...). */
+  /** True only for a role whose record scope is "institution" — owner,
+   *  manager, or any other staff role. Institution-wide data, subject only to
+   *  permission checks elsewhere (finance, settings, ...). A teacher/guardian
+   *  role is never unrestricted: unlinked, its teacherId/guardianId stay null
+   *  and every getScopedX below returns nothing. */
   isUnrestricted: boolean;
   teacherId: string | null;
   guardianId: string | null;
@@ -28,11 +31,14 @@ export interface CurrentUserScope {
 }
 
 export function getCurrentUserScope(user: AuthUser | null, guardians: Guardian[]): CurrentUserScope {
-  const teacherId = user?.teacherId ?? null;
-  const guardianId = user?.guardianId ?? null;
+  // Scope comes from the role, not from whether a link happens to be set:
+  // an unlinked teacher/guardian account must see nothing, not everything.
+  const recordScope = user?.recordScope ?? "teacher";
+  const teacherId = recordScope === "teacher" ? user?.teacherId ?? null : null;
+  const guardianId = recordScope === "guardian" ? user?.guardianId ?? null : null;
   const linkedStudentIds = guardianId ? guardians.find((g) => g.id === guardianId)?.studentIds ?? [] : [];
   return {
-    isUnrestricted: !teacherId && !guardianId,
+    isUnrestricted: !!user && recordScope === "institution",
     teacherId,
     guardianId,
     linkedStudentIds,

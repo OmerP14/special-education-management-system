@@ -1,6 +1,8 @@
 import type { InstallmentPlan, Payment, Session, Student, Teacher } from "@/types";
 import type { NotificationEventKey, NotificationSettings } from "@/types/settings";
 import type { CurrentUserScope } from "@/lib/auth/scope";
+import type { PermissionKey } from "@/types/auth";
+import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
 import { getInstallmentDisplayStatus } from "@/lib/helpers/installments";
 
@@ -41,13 +43,33 @@ export function mergeNotifications(prev: AppNotification[], fresh: AppNotificati
     .slice(0, MAX_NOTIFICATIONS);
 }
 
-/** Notifications the signed-in user may see (see lib/auth/scope.ts). */
+/** The permission(s) a role needs to receive each event — any one suffices.
+ *  A notification about a module the role cannot open is never shown,
+ *  whatever the record scope says. */
+const NOTIFICATION_EVENT_PERMISSIONS: Record<NotificationEventKey, PermissionKey[]> = {
+  session_upcoming: ["sessions.view"],
+  session_auto_completed: ["sessions.view"],
+  session_cancelled: ["sessions.view"],
+  student_no_show: ["sessions.view"],
+  payment_received: ["finance.student_payments.view"],
+  installment_due: ["finance.student_payments.view"],
+  installment_overdue: ["finance.student_payments.view"],
+  teacher_earning_created: ["finance.teacher_earnings.view", "teachers.view_earnings"],
+  teacher_payment_made: ["finance.teacher_earnings.view", "teachers.view_earnings"],
+  user_invited: ["settings.users.manage"],
+};
+
+/** Notifications the signed-in user may see: the role must allow the
+ *  event (permissions), then the record must be theirs (lib/auth/scope.ts). */
 export function getVisibleNotifications(
   notifications: AppNotification[],
-  scope: CurrentUserScope
+  scope: CurrentUserScope,
+  permissions: PermissionKey[]
 ): AppNotification[] {
-  if (scope.isUnrestricted) return notifications;
-  return notifications.filter((n) => {
+  if (!hasPermission(permissions, "notifications.view")) return [];
+  const allowed = notifications.filter((n) => hasAnyPermission(permissions, NOTIFICATION_EVENT_PERMISSIONS[n.event] ?? []));
+  if (scope.isUnrestricted) return allowed;
+  return allowed.filter((n) => {
     if (n.staffOnly) return false;
     if (scope.teacherId) return n.teacherId === scope.teacherId;
     if (scope.guardianId) return !!n.studentId && scope.linkedStudentIds.includes(n.studentId);
