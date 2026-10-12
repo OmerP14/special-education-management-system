@@ -58,7 +58,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     key: "finance",
     label: "Finans Ayarları",
-    description: "Para birimi, ödeme yöntemleri ve kasa kuralları",
+    description: "Para birimi, ödeme yöntemleri ve makbuz kuralları",
     href: "/app/settings/finance",
     icon: Wallet,
   },
@@ -92,8 +92,8 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     key: "appearance",
-    label: "Belge ve Görünüm Ayarları",
-    description: "Marka, belge şablonları ve arayüz yoğunluğu",
+    label: "Görünüm Ayarları",
+    description: "Renkler, tema, yoğunluk ve açılış sayfası",
     href: "/app/settings/appearance",
     icon: Palette,
   },
@@ -120,10 +120,9 @@ export function getSettingsSectionMeta(key: SettingsSectionKey): SettingsSection
 }
 
 /** Human-readable labels for the raw InstitutionSettings data fields — used
- *  by audit log entries, which record what data changed. Deliberately
- *  separate from SETTINGS_SECTIONS (nav labels): "documents" and
- *  "appearance" are two data fields edited from the one "Belge ve Görünüm
- *  Ayarları" nav page, so the two registries can't share keys. */
+ *  by audit log entries, which record what data changed. Separate from
+ *  SETTINGS_SECTIONS (nav labels): `dataManagement` has no nav entry of its
+ *  own and the audit page has no data field. */
 export const INSTITUTION_SETTINGS_FIELD_LABELS: Record<InstitutionSettingsKey, string> = {
   institution: "Kurum Bilgileri",
   sessions: "Seans Ayarları",
@@ -132,7 +131,6 @@ export const INSTITUTION_SETTINGS_FIELD_LABELS: Record<InstitutionSettingsKey, s
   teacherEarnings: "Öğretmen ve Hakediş Ayarları",
   students: "Öğrenci ve Veli Ayarları",
   notifications: "Bildirim Ayarları",
-  documents: "Belge Ayarları",
   appearance: "Görünüm Ayarları",
   security: "Güvenlik ve Sistem",
   dataManagement: "Veri Yönetimi",

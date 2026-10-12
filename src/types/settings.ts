@@ -37,26 +37,16 @@ export type SettingsSectionStatus = "complete" | "incomplete" | "attention";
 
 export interface InstitutionProfileSettings {
   name: string;
-  shortName: string;
   logoUrl: string | null;
   phone: string;
   email: string;
-  website: string;
   address: string;
   city: string;
   district: string;
-  postalCode: string;
-  taxOffice: string;
-  taxNumber: string;
-  mersisNumber: string;
-  contactPersonName: string;
-  contactPersonPhone: string;
-  contactPersonEmail: string;
 }
 
 // ─── 2. Seans Ayarları ───────────────────────────────────────────────────────
 
-export type SessionConflictBehavior = "block_full_and_partial" | "block_full_only";
 export type MakeupSessionBillingBehavior = "billable" | "non_billable";
 
 /** A lesson is always LESSON_MINUTES (40) long; a block lesson is two
@@ -68,20 +58,12 @@ export interface SessionSettings {
   autoCompleteEnabled: boolean;
   autoCompleteDelayMinutes: number;
   cancellationMinNoticeHours: number;
-  preventStudentConflict: boolean;
-  preventTeacherConflict: boolean;
-  conflictBehavior: SessionConflictBehavior;
   allowPastDateSessions: boolean;
   allowEditingCompletedSessions: boolean;
   makeupSessionBehavior: MakeupSessionBillingBehavior;
 }
 
 // ─── 3. Takvim ve Çalışma Saatleri ──────────────────────────────────────────
-
-export type CalendarView = "month" | "week" | "day" | "agenda";
-export type CalendarColorSource = "educationType" | "status" | "teacher";
-export type CalendarOverlapDisplay = "side_by_side" | "compact";
-export type CalendarMobileView = "agenda" | "day";
 
 export interface CalendarHoliday {
   id: string;
@@ -96,39 +78,15 @@ export interface CalendarSettings {
   lunchBreakStart: string | null;
   lunchBreakEnd: string | null;
   holidays: CalendarHoliday[];
-  defaultView: CalendarView;
-  weekStartsOn: 0 | 1;
-  timeFormat: "24h" | "12h";
-  showWeekends: boolean;
-  hideEmptyHours: boolean;
-  colorSource: CalendarColorSource;
-  overlapDisplay: CalendarOverlapDisplay;
-  mobileDefaultView: CalendarMobileView;
 }
 
 // ─── 4. Finans Ayarları ──────────────────────────────────────────────────────
 
-export type OverpaymentPolicy = "credit" | "block" | "warn";
-export type CashClosingBehavior = "manual" | "auto_lock";
-
-export type CurrencyCode = "TRY" | "USD" | "EUR" | "GBP";
 
 export interface FinanceSettings {
-  currency: CurrencyCode;
-  currencySymbolPosition: "before" | "after";
   defaultPaymentMethod: PaymentMethod;
   enabledPaymentMethods: PaymentMethod[];
   studentDebtWarningThreshold: number;
-  overpaymentPolicy: OverpaymentPolicy;
-  allowInstallments: boolean;
-  defaultInstallmentIntervalDays: number;
-  latePaymentToleranceDays: number;
-  highlightOverdueInstallments: boolean;
-  paymentNumberStart: number;
-  receiptNumberFormat: string;
-  collectionDescriptionTemplate: string;
-  cashClosingBehavior: CashClosingBehavior;
-  negativeCashWarning: boolean;
 }
 
 // ─── 5. Öğretmen ve Hakediş Ayarları ─────────────────────────────────────────
@@ -187,14 +145,12 @@ export type NotificationEventKey =
   | "session_cancelled"
   | "student_no_show"
   | "payment_received"
-  | "installment_due"
-  | "installment_overdue"
   | "teacher_earning_created"
   | "teacher_payment_made";
 
 export interface NotificationEventConfig {
   enabled: boolean;
-  /** Only for reminder events (session_upcoming, installment_due). */
+  /** Only for reminder events (session_upcoming). */
   reminderMinutesBefore?: number;
 }
 
@@ -204,30 +160,13 @@ export interface NotificationSettings {
   events: Record<NotificationEventKey, NotificationEventConfig>;
 }
 
-// ─── 8. Belge ve Görünüm Ayarları ────────────────────────────────────────────
+// ─── 8. Görünüm Ayarları ────────────────────────────────────────────
 
-export type CsvDelimiter = "," | ";";
-export type PdfPageSize = "A4" | "Letter";
-export type ExportOrientation = "portrait" | "landscape";
 export type UiDensity = "comfortable" | "compact";
 export type CardRadiusPreference = "sm" | "md" | "lg" | "xl";
 export type SidebarDefaultState = "expanded" | "collapsed";
 export type ThemePreference = "light" | "dark" | "system";
-export type DocumentDateFormat = "DD.MM.YYYY" | "DD/MM/YYYY" | "YYYY-MM-DD";
 export type LandingPage = "dashboard" | "calendar" | "sessions";
-
-export interface DocumentSettings {
-  documentLogoUrl: string | null;
-  receiptTitle: string;
-  invoiceNote: string;
-  pdfFooterText: string;
-  showSignatureArea: boolean;
-  showStampArea: boolean;
-  dateFormat: DocumentDateFormat;
-  csvDelimiter: CsvDelimiter;
-  pdfPageSize: PdfPageSize;
-  defaultExportOrientation: ExportOrientation;
-}
 
 export interface AppearanceSettings {
   primaryBrandColor: string;
@@ -274,10 +213,7 @@ export interface SettingsSectionMetadataEntry {
 }
 
 // Keyed by the data-model field (InstitutionSettingsKey), not the nav
-// SettingsSectionKey — they're not 1:1 (the "appearance" nav section covers
-// both the `documents` and `appearance` model fields on one page), and audit
-// history should reference what data actually changed, not how it's grouped
-// in the nav.
+// SettingsSectionKey — audit history references what data actually changed.
 export type SettingsMetadataMap = Partial<
   Record<InstitutionSettingsKey, SettingsSectionMetadataEntry>
 >;
@@ -292,7 +228,6 @@ export interface InstitutionSettings {
   teacherEarnings: TeacherEarningsSettings;
   students: StudentSettings;
   notifications: NotificationSettings;
-  documents: DocumentSettings;
   appearance: AppearanceSettings;
   security: SecuritySettings;
   dataManagement: DataManagementSettings;

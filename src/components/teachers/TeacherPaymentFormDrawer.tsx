@@ -261,7 +261,7 @@ export function TeacherPaymentFormDrawer({
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
-              Kesinti kasa çıkışı oluşturmaz, yalnızca bekleyen hakedişten düşülür.
+              Kesinti para çıkışı değildir, yalnızca bekleyen hakedişten düşülür.
             </p>
           </div>
         ) : (

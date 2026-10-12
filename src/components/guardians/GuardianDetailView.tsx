@@ -19,8 +19,6 @@ import {
   UserCheck,
   Plus,
   UserPlus,
-  Landmark,
-  CheckCircle2,
   StickyNote,
   Trash2,
   Edit3,
@@ -53,10 +51,6 @@ import {
   getStudentTotalBilled,
   getGuardianPlannedSummary,
 } from "@/lib/helpers/finance";
-import {
-  buildGuardianInstallmentSummary,
-  getInstallmentDisplayStatus,
-} from "@/lib/helpers/installments";
 import {
   buildGuardianCurrentAccountSummary,
   buildGuardianCurrentAccountMovements,
@@ -101,8 +95,6 @@ interface ActivityEvent {
     | "student_added"
     | "session_created"
     | "payment_received"
-    | "installment_created"
-    | "installment_paid"
     | "note_added";
   date: string;
   title: string;
@@ -257,16 +249,7 @@ function buildPaymentColumns(
       key: "method",
       header: "Yöntem",
       render: (row) => (
-        <div className="flex flex-col gap-1">
-          <span className="text-sm text-muted-foreground">
-            {PAYMENT_METHOD_LABELS[row.method]}
-          </span>
-          {row.paymentSource === "installment" && (
-            <span className="inline-flex rounded-full bg-indigo-100 border border-indigo-200 px-2 py-0.5 text-[10px] font-medium text-indigo-700 w-fit">
-              Taksit Ödemesi
-            </span>
-          )}
-        </div>
+        <span className="text-sm text-muted-foreground">{PAYMENT_METHOD_LABELS[row.method]}</span>
       ),
       className: "hidden md:table-cell",
       headerClassName: "hidden md:table-cell",
@@ -540,28 +523,6 @@ function GuardianDetailViewContent({
   const guardianStudentIds = detail?.students.map((s) => s.id) ?? [];
   const guardianStudentKey = guardianStudentIds.join(",");
 
-  const installmentSummary = buildGuardianInstallmentSummary(
-    guardianStudentIds,
-    store.installmentPlans,
-    today
-  );
-
-  const nextInstallmentDate = useMemo<string | null>(() => {
-    const relevantPlans = store.installmentPlans.filter((p) =>
-      guardianStudentIds.includes(p.studentId)
-    );
-    let nearest: string | null = null;
-    for (const plan of relevantPlans) {
-      for (const inst of plan.installments) {
-        if (getInstallmentDisplayStatus(inst, today) === "pending") {
-          if (nearest === null || inst.dueDate < nearest) nearest = inst.dueDate;
-        }
-      }
-    }
-    return nearest;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.installmentPlans, guardianStudentKey]);
-
   const guardianAccount = buildGuardianCurrentAccountSummary(
     guardianStudentIds,
     store.sessions,
@@ -655,40 +616,6 @@ function GuardianDetailViewContent({
       });
     }
 
-    // Taksit planları
-    const guardianPlans = store.installmentPlans.filter((p) =>
-      guardianStudentIds.includes(p.studentId)
-    );
-    for (const plan of guardianPlans) {
-      const student = detail.students.find((s) => s.id === plan.studentId);
-      events.push({
-        id: `ev-plan-${plan.id}`,
-        type: "installment_created",
-        date: plan.createdAt,
-        title: "Taksit planı oluşturuldu",
-        description: `${formatCurrency(plan.totalAmount)} — ${plan.installmentCount} taksit${student ? ` (${student.fullName})` : ""}`,
-        iconEl: Landmark,
-        iconColor: "text-indigo-600",
-        iconBg: "bg-indigo-100",
-      });
-
-      // Ödenen taksitler
-      for (const inst of plan.installments) {
-        if (inst.status === "paid" && inst.paidDate) {
-          events.push({
-            id: `ev-inst-${inst.id}`,
-            type: "installment_paid",
-            date: inst.paidDate,
-            title: `${inst.installmentNumber}. taksit ödendi`,
-            description: `${formatCurrency(inst.amount)}${student ? ` — ${student.fullName}` : ""}`,
-            iconEl: CheckCircle2,
-            iconColor: "text-emerald-600",
-            iconBg: "bg-emerald-100",
-          });
-        }
-      }
-    }
-
     // Notlar
     for (const note of notes) {
       events.push({
@@ -705,7 +632,7 @@ function GuardianDetailViewContent({
 
     return events.sort((a, b) => b.date.localeCompare(a.date));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail, rawGuardian, store.teachers, store.installmentPlans, notes, guardianStudentKey]);
+  }, [detail, rawGuardian, store.teachers, notes, guardianStudentKey]);
 
   // ── Activity grouping ──────────────────────────────────────────────────────
   const activityByMonth = useMemo(() => {
@@ -758,41 +685,6 @@ function GuardianDetailViewContent({
   // General
   const generalContent = (
     <div className="space-y-4">
-      {/* Installment warning banners */}
-      {installmentSummary.planCount > 0 && installmentSummary.overdueCount > 0 && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-700">
-              {installmentSummary.overdueCount} gecikmiş taksit var
-            </p>
-            <p className="text-xs text-red-600 mt-0.5">
-              Toplam gecikmiş tutar:{" "}
-              <span className="font-bold">{formatCurrency(installmentSummary.totalOverdue)}</span>
-              {installmentSummary.totalPending > 0 && (
-                <> · Bekleyen: <span className="font-semibold">{formatCurrency(installmentSummary.totalPending)}</span></>
-              )}
-            </p>
-          </div>
-        </div>
-      )}
-      {installmentSummary.planCount > 0 &&
-        installmentSummary.overdueCount === 0 &&
-        installmentSummary.totalPending > 0 && (
-          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-700">
-                {installmentSummary.planCount} aktif taksit planı
-              </p>
-              <p className="text-xs text-amber-600 mt-0.5">
-                Bekleyen tutar:{" "}
-                <span className="font-bold">{formatCurrency(installmentSummary.totalPending)}</span>
-              </p>
-            </div>
-          </div>
-        )}
-
       {/* Contact + Students grid */}
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Veli Bilgileri */}
@@ -1425,7 +1317,7 @@ function GuardianDetailViewContent({
         </Card>
 
         {/* KPI stat cards */}
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
           <StatCard
             title="Bağlı Öğrenci"
             value={detail.students.length}
@@ -1464,18 +1356,6 @@ function GuardianDetailViewContent({
             }
             icon={CalendarDays}
             variant={detail.lastPaymentDate ? "success" : "default"}
-            valueClassName="text-base font-bold tracking-tight text-foreground break-words"
-          />
-          <StatCard
-            title="Yaklaşan Taksit"
-            value={nextInstallmentDate ? formatDate(nextInstallmentDate) : "Taksit yok"}
-            description={
-              nextInstallmentDate
-                ? "En yakın vadeli taksit"
-                : "Aktif taksit planı yok"
-            }
-            icon={Landmark}
-            variant={nextInstallmentDate ? "warning" : "default"}
             valueClassName="text-base font-bold tracking-tight text-foreground break-words"
           />
         </div>

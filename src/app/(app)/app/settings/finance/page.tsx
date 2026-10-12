@@ -3,9 +3,7 @@
 import { useSettingsSection } from "@/hooks/use-settings-section";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
-import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -15,59 +13,10 @@ import {
 } from "@/components/ui/select";
 import { getPaymentMethodLabel } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
-import type { FinanceSettings, OverpaymentPolicy, CashClosingBehavior, CurrencyCode } from "@/types/settings";
+import type { FinanceSettings } from "@/types/settings";
 import type { PaymentMethod } from "@/types";
 
 const ALL_METHODS: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
-
-const OVERPAYMENT_LABELS: Record<OverpaymentPolicy, string> = {
-  credit: "Bakiye olarak kaydet (sonraki borca sayılır)",
-  block: "Fazla ödemeye izin verme",
-  warn: "Uyar, yine de kaydetmeye izin ver",
-};
-
-const CURRENCY_LABELS: Record<CurrencyCode, string> = {
-  TRY: "Türk Lirası (₺)",
-  USD: "ABD Doları ($)",
-  EUR: "Euro (€)",
-  GBP: "İngiliz Sterlini (£)",
-};
-
-const CASH_CLOSING_LABELS: Record<CashClosingBehavior, string> = {
-  manual: "Manuel kapanış (Günlük Kasa'da 'Günü Kapat')",
-  auto_lock: "Gün sonunda otomatik kilitle",
-};
-
-function SelectField<T extends string>({
-  label,
-  value,
-  onChange,
-  labels,
-  className,
-}: {
-  label: string;
-  value: T;
-  onChange: (v: T) => void;
-  labels: Record<T, string>;
-  className?: string;
-}) {
-  return (
-    <SettingsField label={label} className={className}>
-      <Select value={value} onValueChange={(v) => { if (v) onChange(v as T); }}>
-        <SelectTrigger className="w-full">
-          <SelectValue>{() => labels[value]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {(Object.keys(labels) as T[]).map((key) => (
-            <SelectItem key={key} value={key}>
-              {labels[key]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </SettingsField>
-  );
-}
 
 function FinanceSettingsContent() {
   const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
@@ -87,7 +36,7 @@ function FinanceSettingsContent() {
   return (
     <SettingsFormSection
       title="Finans Ayarları"
-      description="Para birimi, ödeme yöntemleri, taksit, makbuz ve kasa kuralları. Tutarlar tüm ekranlarda bu para birimiyle gösterilir; ödeme ve kasa formları bu kurallara göre çalışır."
+      description="Ödeme yöntemleri ve borç uyarısı. Tutarlar Türk lirasıyla gösterilir; makbuzlar MKB-yıl-sıra biçiminde otomatik numaralanır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -96,20 +45,8 @@ function FinanceSettingsContent() {
       onCancel={cancel}
       onReset={resetToDefaults}
     >
-      {/* Currency */}
+      {/* Debt warning */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <SelectField
-          label="Para Birimi"
-          value={draft.currency}
-          onChange={(v) => set("currency", v)}
-          labels={CURRENCY_LABELS}
-        />
-        <SelectField
-          label="Sembol Konumu"
-          value={draft.currencySymbolPosition}
-          onChange={(v) => set("currencySymbolPosition", v)}
-          labels={{ before: "Tutardan önce (₺100)", after: "Tutardan sonra (100 ₺)" }}
-        />
         <SettingsField
           label="Öğrenci Borç Uyarı Eşiği"
           description="Bu tutarı aşan borçlar öğrenci listesinde ve detayında işaretlenir (Öğrenci ve Veli → Borç uyarısı açıkken)."
@@ -166,89 +103,6 @@ function FinanceSettingsContent() {
         </SettingsField>
       </div>
 
-      {/* Installments & overpayment */}
-      <div className="space-y-3 border-t border-border/60 pt-5">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Taksitli Ödemeye İzin Ver</p>
-            <p className="text-xs text-muted-foreground">Kapalı olduğunda yeni taksit planı oluşturulamaz.</p>
-          </div>
-          <Switch checked={draft.allowInstallments} onCheckedChange={(v) => set("allowInstallments", v)} />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <SettingsField label="Varsayılan Taksit Aralığı (gün)" description="30 = aylık, 7 = haftalık, diğer = özel aralık.">
-            <NumericInput
-              min={1}
-              value={draft.defaultInstallmentIntervalDays}
-              onValueChange={(v) => set("defaultInstallmentIntervalDays", v ?? 0)}
-            />
-          </SettingsField>
-          <SettingsField label="Gecikme Toleransı (gün)" description="Vade bu kadar gün geçince taksit 'gecikti' sayılır.">
-            <NumericInput
-              min={0}
-              value={draft.latePaymentToleranceDays}
-              onValueChange={(v) => set("latePaymentToleranceDays", v ?? 0)}
-            />
-          </SettingsField>
-          <SelectField
-            label="Fazla Ödeme Politikası"
-            value={draft.overpaymentPolicy}
-            onChange={(v) => set("overpaymentPolicy", v)}
-            labels={OVERPAYMENT_LABELS}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Gecikmiş taksitleri vurgula</p>
-          <Switch
-            checked={draft.highlightOverdueInstallments}
-            onCheckedChange={(v) => set("highlightOverdueInstallments", v)}
-          />
-        </div>
-      </div>
-
-      {/* Receipts */}
-      <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <SettingsField label="Başlangıç Ödeme Numarası" description="İlk makbuzun sıra numarası.">
-          <NumericInput
-            min={1}
-            value={draft.paymentNumberStart}
-            onValueChange={(v) => set("paymentNumberStart", v ?? 0)}
-          />
-        </SettingsField>
-        <SettingsField
-          label="Makbuz Numara Formatı"
-          description="Her yeni ödemeye verilir. {YYYY} yıl, {0000} sıra numarası olarak yerine geçer."
-        >
-          <Input value={draft.receiptNumberFormat} onChange={(e) => set("receiptNumberFormat", e.target.value)} />
-        </SettingsField>
-        <SettingsField
-          label="Tahsilat Açıklama Şablonu"
-          description="Yeni ödemenin açıklamasına yazılır; {ogrenciAdi} ve {ay} otomatik doldurulur."
-        >
-          <Input
-            value={draft.collectionDescriptionTemplate}
-            onChange={(e) => set("collectionDescriptionTemplate", e.target.value)}
-          />
-        </SettingsField>
-      </div>
-
-      {/* Cash & visibility */}
-      <div className="space-y-3 border-t border-border/60 pt-5">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField
-            label="Kasa Kapanış Davranışı"
-            value={draft.cashClosingBehavior}
-            onChange={(v) => set("cashClosingBehavior", v)}
-            labels={CASH_CLOSING_LABELS}
-          />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-            <p className="text-sm text-foreground">Negatif kasa bakiyesinde uyar</p>
-            <Switch checked={draft.negativeCashWarning} onCheckedChange={(v) => set("negativeCashWarning", v)} />
-          </div>
-        </div>
-      </div>
     </SettingsFormSection>
   );
 }

@@ -48,7 +48,7 @@ import type {
 } from "@/types";
 import { normalizeName } from "./import-match";
 import { getActiveSettings } from "@/lib/settings/runtime";
-import type { CurrencyCode, TeacherEarningsSettings } from "@/types/settings";
+import type { TeacherEarningsSettings } from "@/types/settings";
 import {
   getTeacherEducationAssignment,
   getTeacherActiveEducationTypeIds,
@@ -375,16 +375,9 @@ export function buildTeacherSummaries(
   }));
 }
 
-const CURRENCY_SYMBOLS: Record<CurrencyCode, string> = {
-  TRY: "₺",
-  USD: "$",
-  EUR: "€",
-  GBP: "£",
-};
-
-/** Symbol for the institution's currency (Ayarlar → Finans) — for input labels like "Tutar (₺)". */
+/** Money is always Turkish lira — for input labels like "Tutar (₺)". */
 export function getCurrencySymbol(): string {
-  return CURRENCY_SYMBOLS[getActiveSettings().finance.currency] ?? "₺";
+  return "₺";
 }
 
 const numberFormatterCache = new Map<string, Intl.NumberFormat>();
@@ -409,14 +402,11 @@ export function formatNumber(value: number, maximumFractionDigits = 2): string {
   return getNumberFormatter(getNumberLocale(), maximumFractionDigits).format(value);
 }
 
-/** Money in the institution's currency, symbol position and number format
- *  (Ayarlar → Finans; sayı biçimi sabit). */
+/** Money as "₺1.234,5" — fixed Turkish lira and number format. */
 export function formatCurrency(amount: number): string {
-  const { currencySymbolPosition } = getActiveSettings().finance;
-  const symbol = getCurrencySymbol();
   const number = formatNumber(Math.abs(amount));
   const sign = amount < 0 ? "-" : "";
-  return currencySymbolPosition === "after" ? `${sign}${number} ${symbol}` : `${sign}${symbol}${number}`;
+  return `${sign}${getCurrencySymbol()}${number}`;
 }
 
 /** Imported/hand-entered data can carry a malformed or empty date string (a bad
@@ -456,13 +446,8 @@ export function formatDateTime(dateStr: string | null | undefined): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: is12HourClock(),
+    hour12: false,
   }).format(d);
-}
-
-/** Ayarlar → Takvim → Saat Formatı. */
-export function is12HourClock(): boolean {
-  return getActiveSettings().calendar.timeFormat === "12h";
 }
 
 export function formatTime(dateStr: string | null | undefined): string {
@@ -471,26 +456,13 @@ export function formatTime(dateStr: string | null | undefined): string {
   return new Intl.DateTimeFormat("tr-TR", {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: is12HourClock(),
+    hour12: false,
   }).format(d);
 }
 
-/** "HH:mm" (24h, as stored in settings/forms) rendered in the configured clock format. */
-export function formatClock(hhmm: string): string {
-  if (!is12HourClock()) return hhmm;
-  const [h, m] = hhmm.split(":").map(Number);
-  if (h === undefined || m === undefined || Number.isNaN(h) || Number.isNaN(m)) return hhmm;
-  const suffix = h < 12 ? "ÖÖ" : "ÖS";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, "0")} ${suffix}`;
-}
-
-/** Hour label for calendar grids ("09:00" or "9 ÖÖ"). */
+/** Hour label for calendar grids ("09:00"). */
 export function formatHourLabel(hour: number): string {
-  if (!is12HourClock()) return `${String(hour).padStart(2, "0")}:00`;
-  const suffix = hour < 12 || hour === 24 ? "ÖÖ" : "ÖS";
-  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${hour12} ${suffix}`;
+  return `${String(hour).padStart(2, "0")}:00`;
 }
 
 /** "06.07.2026" — day.month.year, for report "Tarih" columns. Handles both full ISO
@@ -503,15 +475,7 @@ export function formatDateDMY(dateStr: string | null | undefined): string {
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const year = d.getFullYear();
-  // Ayarlar → Belge ve Görünüm → Tarih Formatı (reports, exports, receipts).
-  switch (getActiveSettings().documents.dateFormat) {
-    case "DD/MM/YYYY":
-      return `${day}/${month}/${year}`;
-    case "YYYY-MM-DD":
-      return `${year}-${month}-${day}`;
-    default:
-      return `${day}.${month}.${year}`;
-  }
+  return `${day}.${month}.${year}`;
 }
 
 // ─── Student-specific helpers ──────────────────────────────────────────────────
@@ -1943,8 +1907,6 @@ export function buildPaymentListItems(
         debtStatus: resolveDebtStatus(totalBilled, totalPaid, remainingDebt),
         notes: payment.notes,
         paymentSource: payment.paymentSource,
-        installmentPlanId: payment.installmentPlanId,
-        installmentNumber: payment.installmentNumber,
       } satisfies PaymentListItem;
     });
 }

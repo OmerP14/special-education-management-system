@@ -63,11 +63,8 @@ function InstitutionSettingsContent() {
 
       {/* Identity */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <SettingsField label="Kurum Adı" required error={errors.name}>
+        <SettingsField label="Kurum Adı" required error={errors.name} description="Menüde ve belgelerde görünür.">
           <Input value={draft.name} onChange={(e) => set("name", e.target.value)} aria-invalid={!!errors.name} />
-        </SettingsField>
-        <SettingsField label="Kısa Kurum Adı" description="Sidebar'da kurum adının altında görünür.">
-          <Input value={draft.shortName} onChange={(e) => set("shortName", e.target.value)} />
         </SettingsField>
       </div>
 
@@ -78,9 +75,6 @@ function InstitutionSettingsContent() {
         </SettingsField>
         <SettingsField label="E-posta" error={errors.email}>
           <Input type="email" value={draft.email} onChange={(e) => set("email", e.target.value)} aria-invalid={!!errors.email} />
-        </SettingsField>
-        <SettingsField label="Web Sitesi" error={errors.website}>
-          <Input value={draft.website} onChange={(e) => set("website", e.target.value)} aria-invalid={!!errors.website} placeholder="https://" />
         </SettingsField>
       </div>
 
@@ -94,35 +88,6 @@ function InstitutionSettingsContent() {
         </SettingsField>
         <SettingsField label="İlçe">
           <Input value={draft.district} onChange={(e) => set("district", e.target.value)} />
-        </SettingsField>
-        <SettingsField label="Posta Kodu">
-          <Input value={draft.postalCode} onChange={(e) => set("postalCode", e.target.value)} />
-        </SettingsField>
-      </div>
-
-      {/* Legal */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <SettingsField label="Vergi Dairesi">
-          <Input value={draft.taxOffice} onChange={(e) => set("taxOffice", e.target.value)} />
-        </SettingsField>
-        <SettingsField label="Vergi Numarası" error={errors.taxNumber}>
-          <Input value={draft.taxNumber} onChange={(e) => set("taxNumber", e.target.value)} aria-invalid={!!errors.taxNumber} />
-        </SettingsField>
-        <SettingsField label="MERSİS Numarası" error={errors.mersisNumber}>
-          <Input value={draft.mersisNumber} onChange={(e) => set("mersisNumber", e.target.value)} aria-invalid={!!errors.mersisNumber} />
-        </SettingsField>
-      </div>
-
-      {/* Contact person */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SettingsField label="Kurum Yetkilisi">
-          <Input value={draft.contactPersonName} onChange={(e) => set("contactPersonName", e.target.value)} />
-        </SettingsField>
-        <SettingsField label="Yetkili Telefon" error={errors.contactPersonPhone}>
-          <Input value={draft.contactPersonPhone} onChange={(e) => set("contactPersonPhone", e.target.value)} aria-invalid={!!errors.contactPersonPhone} />
-        </SettingsField>
-        <SettingsField label="Yetkili E-posta" error={errors.contactPersonEmail}>
-          <Input type="email" value={draft.contactPersonEmail} onChange={(e) => set("contactPersonEmail", e.target.value)} aria-invalid={!!errors.contactPersonEmail} />
         </SettingsField>
       </div>
     </SettingsFormSection>

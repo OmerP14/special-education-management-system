@@ -7,7 +7,6 @@ import {
   CalendarDays,
   CreditCard,
   Banknote,
-  Wallet,
   BarChart3,
   FileUp,
   Settings,
@@ -70,7 +69,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Finansal Panel", href: "/app/finance", icon: PieChart },
       { label: "Öğrenci Ödemeleri", href: "/app/payments", icon: CreditCard },
       { label: "Öğretmen Hakedişleri", href: "/app/teacher-earnings", icon: Banknote },
-      { label: "Günlük Kasa", href: "/app/cash-register", icon: Wallet },
     ],
   },
   {

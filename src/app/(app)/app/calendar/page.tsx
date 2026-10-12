@@ -27,7 +27,6 @@ import {
   buildCalendarStats,
   getCalendarEventRelations,
   getWeekDays,
-  getSessionsForDate,
   getVisibleHourRange,
   getCalendarLegend,
   type CalendarDisplayOptions,
@@ -161,18 +160,13 @@ export default function CalendarPage() {
   const store = useMockStore();
   const isMobile = useIsMobile();
 
-  // View & navigation — initial view comes from Ayarlar → Takvim ve Çalışma
-  // Saatleri's configured default (still freely switchable afterward).
-  const [view, setView] = useState<CalendarView>(() => store.institutionSettings.calendar.defaultView);
+  // View & navigation — opens on the week view (freely switchable).
+  const [view, setView] = useState<CalendarView>("week");
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
 
   const calendarSettings = store.institutionSettings.calendar;
   const display = useMemo<CalendarDisplayOptions>(
-    () => ({
-      colorSource: calendarSettings.colorSource,
-      overlapDisplay: calendarSettings.overlapDisplay,
-      calendar: calendarSettings,
-    }),
+    () => ({ calendar: calendarSettings }),
     [calendarSettings]
   );
 
@@ -302,21 +296,12 @@ export default function CalendarPage() {
     setStatusFilter("all");
   };
 
-  const showWeekends = calendarSettings.showWeekends;
-  const weekDays = useMemo(() => {
-    const days = getWeekDays(currentDate, calendarSettings.weekStartsOn);
-    return showWeekends ? days : days.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
-  }, [currentDate, showWeekends, calendarSettings.weekStartsOn]);
+  const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const navLabel = getNavLabel(view, currentDate);
 
-  // Week/Day hour range — working hours, or (with "Boş saatleri gizle") just
-  // the hours that actually hold sessions in the visible days.
-  const visibleGridEvents = useMemo(() => {
-    const days = view === "day" || isMobile ? [currentDate] : weekDays;
-    return days.flatMap((d) => getSessionsForDate(filteredEvents, d));
-  }, [view, isMobile, currentDate, weekDays, filteredEvents]);
-  const { hourStart, hourEnd } = getVisibleHourRange(calendarSettings, visibleGridEvents);
-  const legend = getCalendarLegend(calendarSettings.colorSource, store.educationTypes, store.teachers);
+  // Week/Day hour range — the configured working hours.
+  const { hourStart, hourEnd } = getVisibleHourRange(calendarSettings);
+  const legend = getCalendarLegend(store.educationTypes);
 
   return (
     <>
@@ -515,23 +500,11 @@ export default function CalendarPage() {
           )}
         </div>
 
-        {/* Calendar view — on mobile, uses Ayarlar → Takvim's configured
-            mobile default (Ajanda/Günlük) instead of the picked desktop
-            view, since month/week grids don't stay legible on a phone. */}
+        {/* Calendar view — on mobile always the agenda list, since month/week
+            grids don't stay legible on a phone. */}
         <div key={isMobile ? "mobile" : view} className="animate-in fade-in duration-200">
           {isMobile ? (
-            store.institutionSettings.calendar.mobileDefaultView === "day" ? (
-              <CalendarDayView
-                date={currentDate}
-                events={filteredEvents}
-                onEventClick={handleEventClick}
-                hourStart={hourStart}
-                hourEnd={hourEnd}
-                display={display}
-              />
-            ) : (
-              <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} colorSource={display.colorSource} />
-            )
+            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
           ) : view === "month" ? (
             <CalendarMonthView
               year={currentDate.getFullYear()}
@@ -561,7 +534,7 @@ export default function CalendarPage() {
               display={display}
             />
           ) : (
-            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} colorSource={display.colorSource} />
+            <CalendarAgendaView events={filteredEvents} onEventClick={handleEventClick} />
           )}
         </div>
       </div>

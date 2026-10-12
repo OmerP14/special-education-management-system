@@ -80,7 +80,7 @@ function SecuritySettingsContent() {
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
               <div>
                 <p className="text-sm text-foreground">Finansal düzenlemede onay iste</p>
-                <p className="text-xs text-muted-foreground">Ödeme/kasa düzenleme, silme ve taksit tahsili öncesi.</p>
+                <p className="text-xs text-muted-foreground">Ödeme düzenleme ve silme öncesi.</p>
               </div>
               <Switch
                 checked={draft.confirmFinancialEdits}

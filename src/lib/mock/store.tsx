@@ -10,8 +10,6 @@ import type {
   TeacherEarning,
   TeacherPayment,
   TeacherEducationTypeAssignment,
-  InstallmentPlan,
-  CashMovement,
   WeeklySessionPlan,
   OpeningBalance,
   ImportBatch,
@@ -25,8 +23,6 @@ import { mockPayments } from "@/lib/mock/payments";
 import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
 import { mockTeacherPayments } from "@/lib/mock/teacher-payments";
 import { mockTeacherEducationTypeAssignments } from "@/lib/mock/teacher-education-type-assignments";
-import { mockInstallmentPlans } from "@/lib/mock/installment-plans";
-import { mockCashMovements } from "@/lib/mock/cash-movements";
 import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
 import { mockEducationTypes } from "@/lib/mock/education-types";
 import { mockAccount, mockCredential } from "@/lib/mock/account";
@@ -42,7 +38,6 @@ import { getActiveSettings, setActiveSettings } from "@/lib/settings/runtime";
 import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
 import type { Account, Credential, AuthSession } from "@/types/auth";
 import { loadPersistedStore, savePersistedStore, clearPersistedStore, watchOtherTabWrites } from "@/lib/mock/persistence";
-import { buildInstallmentPayment } from "@/lib/helpers/installments";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
   getSessionEarningAmount,
@@ -67,8 +62,6 @@ import {
   canExceedPendingEarning,
   getAllowedTeacherPaymentTypes,
 } from "@/lib/helpers/finance-rules";
-import { isCashDayLocked } from "@/lib/helpers/cash";
-import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/education-types";
 
 // Upserts the TeacherEarning ledger row for a single session, keyed by sessionId so
@@ -139,7 +132,7 @@ export type { AppNotification };
 
 // ─── Delete / soft-delete — intentionally not implemented ──────────────────────
 // Audit finding: there's no delete action for Student, Teacher, Guardian, Payment, or
-// TeacherPayment (only CashMovement and WeeklySessionPlan support delete today).
+// TeacherPayment (only WeeklySessionPlan supports delete today).
 //
 // This is deliberate, not an oversight to silently fix: every financial calculation in
 // this app (getStudentDebt, getTeacherEarningTotals, current-account.ts, every Report)
@@ -170,8 +163,6 @@ interface MockStore {
   teacherEarnings: TeacherEarning[];
   teacherPayments: TeacherPayment[];
   teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
-  installmentPlans: InstallmentPlan[];
-  cashMovements: CashMovement[];
   openingBalances: OpeningBalance[];
   importBatches: ImportBatch[];
 
@@ -214,17 +205,6 @@ interface MockStore {
     tenantId: string,
     rows: { educationTypeId: string; earningAmount: number | null; status: "active" | "inactive" }[]
   ) => void;
-  addInstallmentPlan: (plan: InstallmentPlan) => void;
-  updateInstallmentPlan: (plan: InstallmentPlan) => void;
-  markInstallmentPaid: (planId: string, installmentId: string) => void;
-  cancelInstallment: (planId: string, installmentId: string) => void;
-  addCashMovement: (m: CashMovement) => void;
-  updateCashMovement: (m: CashMovement) => void;
-  deleteCashMovement: (id: string) => void;
-  /** Days closed with "Günü Kapat" (manual closing mode) — see isCashDayLocked. */
-  closedCashDays: string[];
-  closeCashDay: (date: string) => void;
-  reopenCashDay: (date: string) => void;
   addOpeningBalance: (b: OpeningBalance) => void;
   deleteOpeningBalances: (ids: string[]) => void;
   addImportBatch: (batch: ImportBatch) => void;
@@ -320,9 +300,6 @@ export interface PersistedState {
   teacherEarnings: TeacherEarning[];
   teacherPayments: TeacherPayment[];
   teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
-  installmentPlans: InstallmentPlan[];
-  cashMovements: CashMovement[];
-  closedCashDays: string[];
   openingBalances: OpeningBalance[];
   importBatches: ImportBatch[];
   teacherMergeHistory: TeacherMergeHistory[];
@@ -391,18 +368,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // reasoning as teachersRef/teacherPaymentsRef above.
   const teacherEarningsRef = useRef(teacherEarnings);
   const teacherEducationTypeAssignmentsRef = useRef(teacherEducationTypeAssignments);
-  const [installmentPlans, setInstallmentPlans] = useState<InstallmentPlan[]>(
-    () => persisted?.installmentPlans ?? mockInstallmentPlans
-  );
-  // Always-current ref so markInstallmentPaid / cancelInstallment never read
-  // a stale closure snapshot when called from memoised event handlers.
-  const installmentPlansRef = useRef(installmentPlans);
-  const [cashMovements, setCashMovements] = useState<CashMovement[]>(
-    () => persisted?.cashMovements ?? mockCashMovements
-  );
-  const cashMovementsRef = useRef(cashMovements);
-  const [closedCashDays, setClosedCashDays] = useState<string[]>(() => persisted?.closedCashDays ?? []);
-  const closedCashDaysRef = useRef(closedCashDays);
   const [openingBalances, setOpeningBalances] = useState<OpeningBalance[]>(
     () => persisted?.openingBalances ?? []
   );
@@ -466,9 +431,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherPaymentsRef.current = teacherPayments;
     teacherEarningsRef.current = teacherEarnings;
     teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
-    installmentPlansRef.current = installmentPlans;
-    cashMovementsRef.current = cashMovements;
-    closedCashDaysRef.current = closedCashDays;
     weeklySessionPlansRef.current = weeklySessionPlans;
     teacherMergeHistoryRef.current = teacherMergeHistory;
     guardiansRef.current = guardians;
@@ -514,13 +476,12 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       ]);
     }
 
-    // Reminders (upcoming sessions, installment due dates, overdue installments).
+    // Reminders (upcoming sessions).
     function collectReminders() {
       notify(
         collectTimedNotifications({
           settings: getActiveSettings().notifications,
           sessions: sessionsRef.current,
-          installmentPlans: installmentPlansRef.current,
           students: studentsRef.current,
           teachers: teachersRef.current,
         })
@@ -561,9 +522,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherEarnings,
       teacherPayments,
       teacherEducationTypeAssignments,
-      installmentPlans,
-      cashMovements,
-      closedCashDays,
       openingBalances,
       importBatches,
       teacherMergeHistory,
@@ -589,9 +547,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherEarnings,
     teacherPayments,
     teacherEducationTypeAssignments,
-    installmentPlans,
-    cashMovements,
-    closedCashDays,
     openingBalances,
     importBatches,
     teacherMergeHistory,
@@ -614,11 +569,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       : current;
     if (next !== current) setSessions(next);
     setTeacherEarnings((prev) => next.reduce((acc, s) => upsertEarningForSession(acc, s, policy), prev));
-  }, []);
-
-  const isCashDayLockedNow = useCallback((date: string): boolean => {
-    const { cashClosingBehavior } = getActiveSettings().finance;
-    return isCashDayLocked(date, cashClosingBehavior, closedCashDaysRef.current, toLocalDateKey(new Date()));
   }, []);
 
   /** Audit entry under the current actor — skipped when Ayarlar → Güvenlik →
@@ -653,9 +603,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teacherEarnings,
     teacherPayments,
     teacherEducationTypeAssignments,
-    installmentPlans,
-    cashMovements,
-    closedCashDays,
     openingBalances,
     importBatches,
     teacherMergeHistory,
@@ -1032,7 +979,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addPayment: (p) => {
-      setPayments((prev) => [...prev, assignReceiptNumber(p, prev, getActiveSettings().finance)]);
+      setPayments((prev) => [...prev, assignReceiptNumber(p, prev)]);
       notify([buildPaymentNotification(p, studentsRef.current)]);
       setAuditLog((prev) => [
         makeAuditEntry({
@@ -1054,8 +1001,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
                 // A receipt number, once issued, belongs to the payment for good.
                 receiptNumber: x.receiptNumber,
                 receiptSequence: x.receiptSequence,
-                installmentPlanId: x.installmentPlanId,
-                installmentNumber: x.installmentNumber,
                 paymentSource: x.paymentSource ?? p.paymentSource,
                 updatedAt: new Date().toISOString(),
               }
@@ -1119,82 +1064,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         });
         return [...others, ...next];
       });
-    },
-
-    addInstallmentPlan: (plan) =>
-      setInstallmentPlans((prev) => [...prev, plan]),
-
-    updateInstallmentPlan: (plan) =>
-      setInstallmentPlans((prev) => prev.map((x) => (x.id === plan.id ? plan : x))),
-
-    markInstallmentPaid: (planId, installmentId) => {
-      const today = toLocalDateKey(new Date());
-
-      // Read from the ref so we always get the latest value even when this
-      // function was captured in a memoised handler from an earlier render.
-      const plan = installmentPlansRef.current.find((p) => p.id === planId);
-      const record = plan?.installments.find((i) => i.id === installmentId);
-
-      // Guard: only proceed if the installment exists and is not already paid.
-      if (!plan || !record || record.status === "paid") return;
-
-      // 1. Mark the installment record as paid (functional updater = always fresh).
-      setInstallmentPlans((prev) =>
-        prev.map((p) => {
-          if (p.id !== planId) return p;
-          return {
-            ...p,
-            installments: p.installments.map((inst) =>
-              inst.id === installmentId
-                ? { ...inst, status: "paid" as const, paidDate: today }
-                : inst
-            ),
-          };
-        })
-      );
-
-      // 2. Create a linked Payment record (idempotent: skip if one already exists).
-      // `plan` and `record` come from the ref read above — same snapshot that
-      // setInstallmentPlans receives as `prev`, so the data is consistent.
-      setPayments((prev) => {
-        const alreadyExists = prev.some(
-          (p) =>
-            p.installmentPlanId === planId &&
-            p.installmentNumber === record.installmentNumber
-        );
-        if (alreadyExists) return prev;
-        return [...prev, assignReceiptNumber(buildInstallmentPayment(plan, record, today), prev, getActiveSettings().finance)];
-      });
-      notify([buildPaymentNotification(buildInstallmentPayment(plan, record, today), studentsRef.current)]);
-    },
-
-    // Backstop for Ayarlar → Finans → Kasa Kapanış Davranışı: the UI already
-    // hides these actions on a locked day; this keeps a closed day closed even
-    // from a stale handler.
-    addCashMovement: (m) => {
-      if (isCashDayLockedNow(m.date)) return;
-      setCashMovements((prev) => [...prev, m]);
-    },
-
-    updateCashMovement: (m) => {
-      const previous = cashMovementsRef.current.find((x) => x.id === m.id);
-      if (isCashDayLockedNow(m.date) || (previous && isCashDayLockedNow(previous.date))) return;
-      setCashMovements((prev) => prev.map((x) => (x.id === m.id ? m : x)));
-    },
-
-    deleteCashMovement: (id) => {
-      const previous = cashMovementsRef.current.find((x) => x.id === id);
-      if (previous && isCashDayLockedNow(previous.date)) return;
-      setCashMovements((prev) => prev.filter((x) => x.id !== id));
-    },
-
-    closeCashDay: (date) => {
-      setClosedCashDays((prev) => (prev.includes(date) ? prev : [...prev, date].sort()));
-      logAudit({ action: "cash_day_closed", module: "payments", recordLabel: date });
-    },
-    reopenCashDay: (date) => {
-      setClosedCashDays((prev) => prev.filter((d) => d !== date));
-      logAudit({ action: "cash_day_reopened", module: "payments", recordLabel: date });
     },
 
     addOpeningBalance: (b) => setOpeningBalances((prev) => [...prev, b]),
@@ -1334,9 +1203,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherEarnings,
       teacherPayments,
       teacherEducationTypeAssignments,
-      installmentPlans,
-      cashMovements,
-      closedCashDays,
       openingBalances,
       importBatches,
       teacherMergeHistory,
@@ -1365,9 +1231,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherEarnings(d.teacherEarnings ?? []);
       setTeacherPayments(d.teacherPayments);
       setTeacherEducationTypeAssignments(d.teacherEducationTypeAssignments);
-      setInstallmentPlans(d.installmentPlans ?? []);
-      setCashMovements(d.cashMovements ?? []);
-      setClosedCashDays(d.closedCashDays ?? []);
       setOpeningBalances(d.openingBalances ?? []);
       setImportBatches(d.importBatches ?? []);
       setTeacherMergeHistory(d.teacherMergeHistory ?? []);
@@ -1409,9 +1272,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setTeacherEarnings([]);
       setTeacherPayments([]);
       setTeacherEducationTypeAssignments([...mockTeacherEducationTypeAssignments]);
-      setInstallmentPlans([]);
-      setCashMovements([]);
-      setClosedCashDays([]);
       setWeeklySessionPlans([]);
       setNotifications([]);
       setOpeningBalances([]);
@@ -1429,27 +1289,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
     },
 
-    cancelInstallment: (planId, installmentId) => {
-      // Guard: never cancel a paid installment (payment already created).
-      // Read from ref for the same reason as markInstallmentPaid.
-      const plan = installmentPlansRef.current.find((p) => p.id === planId);
-      const record = plan?.installments.find((i) => i.id === installmentId);
-      if (!plan || !record || record.status === "paid") return;
-
-      setInstallmentPlans((prev) =>
-        prev.map((p) => {
-          if (p.id !== planId) return p;
-          return {
-            ...p,
-            installments: p.installments.map((inst) =>
-              inst.id === installmentId
-                ? { ...inst, status: "cancelled" as const }
-                : inst
-            ),
-          };
-        })
-      );
-    },
     }),
     // Action functions are intentionally omitted below; see the comment above
     // `value` for why that's safe (each one only closes over a stable setState
@@ -1465,9 +1304,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teacherEarnings,
       teacherPayments,
       teacherEducationTypeAssignments,
-      installmentPlans,
-      cashMovements,
-      closedCashDays,
       openingBalances,
       importBatches,
       teacherMergeHistory,
@@ -1480,7 +1316,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       authSession,
       setAuditLog,
       logAudit,
-      isCashDayLockedNow,
       applyEarningPolicy,
       notify,
     ]

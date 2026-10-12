@@ -103,7 +103,7 @@ function DayCell({
       {/* Event chips */}
       <div className="space-y-1">
         {visible.map((event) => {
-          const appearance = getEventPillAppearance(event, display.colorSource);
+          const appearance = getEventPillAppearance(event);
           return (
           <button
             key={event.id}
@@ -161,13 +161,13 @@ export function CalendarMonthView({
   display,
 }: CalendarMonthViewProps) {
   const today = new Date();
-  const days = getMonthDays(year, month, display.calendar.weekStartsOn);
+  const days = getMonthDays(year, month);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       {/* Weekday headers */}
       <div className="grid grid-cols-7 border-b border-border bg-muted/40">
-        {getOrderedWeekdays(display.calendar.weekStartsOn).map((d) => (
+        {getOrderedWeekdays().map((d) => (
           <div
             key={d}
             className="py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-r border-border last:border-r-0"

@@ -1,9 +1,9 @@
 // ─── Client-side export helpers ────────────────────────────────────────────────
 // No external libraries: "Excel" export is a CSV file (opens natively in Excel),
 // and "PDF" export opens a print-friendly window using the browser's native
-// print-to-PDF flow. Both run entirely client-side and follow Ayarlar → Belge
-// ve Görünüm (CSV ayırıcı, PDF sayfa boyutu/yönü, logo, alt bilgi) and the
-// institution profile (Ayarlar → Kurum Bilgileri) for document headers.
+// print-to-PDF flow. Both run entirely client-side with fixed formats (";"
+// CSV, A4 portrait, GG.AA.YYYY dates) and take the document header from
+// Ayarlar → Kurum Bilgileri (name, logo, contact).
 
 import { getActiveSettings } from "@/lib/settings/runtime";
 import { formatCurrency, formatDateDMY, getPaymentMethodLabel } from "@/lib/helpers/finance";
@@ -14,9 +14,15 @@ function escapeCsvCell(value: string | number, delimiter: string): string {
   return s.includes(delimiter) || /["\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Builds the CSV text (with Excel's UTF-8 BOM) using the configured delimiter. */
+/** Semicolon: Turkish Excel uses the comma as its decimal separator, so it
+ *  splits columns on ";". */
+const CSV_DELIMITER = ";";
+
+const RECEIPT_TITLE = "Tahsilat Makbuzu";
+
+/** Builds the CSV text (with Excel's UTF-8 BOM). */
 export function buildCsv(headers: string[], rows: (string | number)[][]): string {
-  const delimiter = getActiveSettings().documents.csvDelimiter;
+  const delimiter = CSV_DELIMITER;
   const lines = [headers, ...rows].map((row) => row.map((cell) => escapeCsvCell(cell, delimiter)).join(delimiter));
   // Leading BOM so Excel opens UTF-8 (Turkish characters) correctly.
   return "﻿" + lines.join("\r\n");
@@ -69,8 +75,8 @@ function safeImageUrl(url: string | null | undefined): string | null {
 
 /** Institution header block shared by reports and receipts. */
 function institutionHeaderHtml(): string {
-  const { institution, documents } = getActiveSettings();
-  const logo = safeImageUrl(documents.documentLogoUrl ?? institution.logoUrl);
+  const { institution } = getActiveSettings();
+  const logo = safeImageUrl(institution.logoUrl);
   const contact = [
     institution.address,
     [institution.district, institution.city].filter(Boolean).join(" / "),
@@ -80,28 +86,18 @@ function institutionHeaderHtml(): string {
     .filter((x) => x && x.trim())
     .map((x) => escapeHtml(x))
     .join(" · ");
-  const tax = [
-    institution.taxOffice && `Vergi Dairesi: ${institution.taxOffice}`,
-    institution.taxNumber && `VKN/TCKN: ${institution.taxNumber}`,
-    institution.mersisNumber && `MERSİS: ${institution.mersisNumber}`,
-  ]
-    .filter(Boolean)
-    .map((x) => escapeHtml(String(x)))
-    .join(" · ");
   return `<div class="inst">
     ${logo ? `<img src="${escapeHtml(logo)}" alt="" class="logo" />` : ""}
     <div>
       <div class="inst-name">${escapeHtml(institution.name)}</div>
       ${contact ? `<div class="inst-meta">${contact}</div>` : ""}
-      ${tax ? `<div class="inst-meta">${tax}</div>` : ""}
     </div>
   </div>`;
 }
 
 function documentStyles(): string {
-  const { pdfPageSize, defaultExportOrientation } = getActiveSettings().documents;
   return `
-  @page { size: ${pdfPageSize} ${defaultExportOrientation}; margin: 14mm; }
+  @page { size: A4 portrait; margin: 14mm; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px; color: #111; }
   h1 { font-size: 18px; margin: 0 0 4px; }
   .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
@@ -116,16 +112,10 @@ function documentStyles(): string {
   .logo { max-height: 48px; max-width: 140px; object-fit: contain; }
   .inst-name { font-size: 15px; font-weight: 700; }
   .inst-meta { font-size: 11px; color: #555; margin-top: 2px; }
-  .footer { margin-top: 28px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 11px; color: #666; text-align: center; }
   .signs { display: flex; justify-content: space-between; gap: 40px; margin-top: 48px; }
   .sign { flex: 1; text-align: center; font-size: 12px; color: #444; }
   .sign .line { border-top: 1px solid #999; margin-top: 56px; padding-top: 6px; }
   @media print { body { padding: 0; } }`;
-}
-
-function footerHtml(): string {
-  const footer = getActiveSettings().documents.pdfFooterText.trim();
-  return footer ? `<div class="footer">${escapeHtml(footer)}</div>` : "";
 }
 
 function openPrintWindow(title: string, bodyHtml: string): void {
@@ -191,21 +181,19 @@ export function printHtmlReport(opts: {
     <thead>${theadHtml}</thead>
     <tbody>${tbodyHtml}</tbody>
   </table>
-  ${footerHtml()}`
+`
   );
 }
 
 /**
- * Prints a collection receipt (Tahsilat Makbuzu) for a student payment using
- * Ayarlar → Belge ve Görünüm (başlık, fatura notu, imza/kaşe alanı, alt bilgi)
- * and the payment's receipt number (Ayarlar → Finans).
+ * Prints a collection receipt (Tahsilat Makbuzu) for a student payment, with
+ * signature and stamp areas and the payment's receipt number.
  */
 export function printPaymentReceipt(opts: {
   payment: Payment;
   studentName: string;
   guardianName?: string;
 }): void {
-  const { documents } = getActiveSettings();
   const { payment } = opts;
   const rows: [string, string][] = [
     ["Makbuz No", payment.receiptNumber ?? "—"],
@@ -215,26 +203,21 @@ export function printPaymentReceipt(opts: {
     ["Ödeme Yöntemi", getPaymentMethodLabel(payment.method)],
     ...(payment.notes ? ([["Açıklama", payment.notes]] as [string, string][]) : []),
   ];
-  const signs =
-    documents.showSignatureArea || documents.showStampArea
-      ? `<div class="signs">
-          ${documents.showSignatureArea ? `<div class="sign"><div class="line">Teslim Alan (İmza)</div></div>` : ""}
-          ${documents.showStampArea ? `<div class="sign"><div class="line">Kurum Kaşesi</div></div>` : ""}
-        </div>`
-      : "";
+  const signs = `<div class="signs">
+      <div class="sign"><div class="line">Teslim Alan (İmza)</div></div>
+      <div class="sign"><div class="line">Kurum Kaşesi</div></div>
+    </div>`;
 
   openPrintWindow(
-    `${documents.receiptTitle} ${payment.receiptNumber ?? ""}`.trim(),
+    `${RECEIPT_TITLE} ${payment.receiptNumber ?? ""}`.trim(),
     `${institutionHeaderHtml()}
-  <h1>${escapeHtml(documents.receiptTitle)}</h1>
+  <h1>${RECEIPT_TITLE}</h1>
   <table>
     <tbody>
       ${rows.map(([k, v]) => `<tr><th style="width:35%">${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
       <tr><th>Tutar</th><td class="amount"><strong>${escapeHtml(formatCurrency(payment.amount))}</strong></td></tr>
     </tbody>
   </table>
-  ${documents.invoiceNote.trim() ? `<p class="subtitle" style="margin-top:16px">${escapeHtml(documents.invoiceNote)}</p>` : ""}
-  ${signs}
-  ${footerHtml()}`
+  ${signs}`
   );
 }

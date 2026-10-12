@@ -1,9 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FileText, Palette } from "lucide-react";
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { useSettingsDirty } from "@/components/settings/settings-dirty-context";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
@@ -16,16 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
-  DocumentSettings,
   AppearanceSettings,
-  CsvDelimiter,
-  PdfPageSize,
-  ExportOrientation,
   UiDensity,
   CardRadiusPreference,
   SidebarDefaultState,
   LandingPage,
-  DocumentDateFormat,
   ThemePreference,
 } from "@/types/settings";
 
@@ -62,108 +54,11 @@ function SelectField<T extends string>({
   );
 }
 
-// ─── Belge ayarları ──────────────────────────────────────────────────────────
-
-function DocumentSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
-  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
-    useSettingsSection("documents");
-
-  useEffect(() => {
-    onDirtyChange(isDirty);
-    return () => onDirtyChange(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty]);
-
-  const set = <K extends keyof DocumentSettings>(key: K, value: DocumentSettings[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }));
-
-  return (
-    <SettingsFormSection
-      title="Belge Ayarları"
-      description="Tahsilat makbuzu, rapor PDF'leri ve CSV dışa aktarımları bu ayarlarla üretilir. Belge başlığında Kurum Bilgileri (ad, adres, vergi bilgileri) kullanılır."
-      isDirty={isDirty}
-      errors={errors}
-      savedMessage={savedMessage}
-      metadata={metadata}
-      onSave={save}
-      onCancel={cancel}
-      onReset={resetToDefaults}
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <SettingsField label="Makbuz Başlığı">
-          <Input value={draft.receiptTitle} onChange={(e) => set("receiptTitle", e.target.value)} />
-        </SettingsField>
-        <SelectField
-          label="Belge ve Rapor Tarih Formatı"
-          value={draft.dateFormat}
-          onChange={(v: DocumentDateFormat) => set("dateFormat", v)}
-          labels={{ "DD.MM.YYYY": "31.12.2026", "DD/MM/YYYY": "31/12/2026", "YYYY-MM-DD": "2026-12-31" }}
-        />
-        <SettingsField
-          label="Belge Logosu (URL)"
-          className="sm:col-span-2"
-          description="Boş bırakılırsa Kurum Bilgileri'ndeki logo kullanılır. https:// ile başlayan bir görsel adresi girin."
-        >
-          <Input
-            value={draft.documentLogoUrl ?? ""}
-            onChange={(e) => set("documentLogoUrl", e.target.value.trim() || null)}
-            placeholder="https://…/logo.png"
-          />
-        </SettingsField>
-        <SettingsField label="Makbuz Notu" className="sm:col-span-2" description="Makbuzun altına yazdırılır.">
-          <Input value={draft.invoiceNote} onChange={(e) => set("invoiceNote", e.target.value)} />
-        </SettingsField>
-        <SettingsField label="PDF Alt Bilgi Metni" className="sm:col-span-2">
-          <Input value={draft.pdfFooterText} onChange={(e) => set("pdfFooterText", e.target.value)} />
-        </SettingsField>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SelectField
-          label="CSV Ayırıcı"
-          value={draft.csvDelimiter}
-          onChange={(v: CsvDelimiter) => set("csvDelimiter", v)}
-          labels={{ ",": "Virgül (,)", ";": "Noktalı Virgül (;)" }}
-        />
-        <SelectField
-          label="PDF Sayfa Boyutu"
-          value={draft.pdfPageSize}
-          onChange={(v: PdfPageSize) => set("pdfPageSize", v)}
-          labels={{ A4: "A4", Letter: "Letter" }}
-        />
-        <SelectField
-          label="Varsayılan Yönlendirme"
-          value={draft.defaultExportOrientation}
-          onChange={(v: ExportOrientation) => set("defaultExportOrientation", v)}
-          labels={{ portrait: "Dikey", landscape: "Yatay" }}
-        />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">İmza alanı göster</p>
-          <Switch checked={draft.showSignatureArea} onCheckedChange={(v) => set("showSignatureArea", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Kaşe alanı göster</p>
-          <Switch checked={draft.showStampArea} onCheckedChange={(v) => set("showStampArea", v)} />
-        </div>
-      </div>
-    </SettingsFormSection>
-  );
-}
-
 // ─── Görünüm ayarları ────────────────────────────────────────────────────────
 
-function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+function AppearanceSettingsContent() {
   const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
     useSettingsSection("appearance");
-
-  useEffect(() => {
-    onDirtyChange(isDirty);
-    return () => onDirtyChange(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty]);
 
   const set = <K extends keyof AppearanceSettings>(key: K, value: AppearanceSettings[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -171,7 +66,7 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
   return (
     <SettingsFormSection
       title="Görünüm Ayarları"
-      description="Kurum genelinde uygulamanın görünümü: renkler, tema, yoğunluk ve açılış davranışı. Değişiklikler kaydedildiği anda tüm kullanıcılara uygulanır."
+      description="Uygulamanın görünümü: renkler, tema, yoğunluk ve açılış sayfası. Belgeler (PDF, CSV, makbuz) standart biçimde ve kurum bilgileriyle çıkar."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -254,43 +149,6 @@ function AppearanceSettingsCard({ onDirtyChange }: { onDirtyChange: (dirty: bool
         </div>
       </div>
     </SettingsFormSection>
-  );
-}
-
-// ─── Page: two independent sections sharing one nav entry ─────────────────────
-// "Belge ve Görünüm Ayarları" is one SettingsSectionKey but edits two distinct
-// InstitutionSettings fields (documents + appearance) — each keeps its own
-// save/cancel/reset via its own useSettingsSection call. Both report dirty
-// state into the shared SettingsDirtyProvider independently; this combiner
-// effect (registered after both cards' own effects) always runs last in the
-// same commit, so the shell's "unsaved changes" warning reflects EITHER card
-// being dirty instead of whichever hook's effect happened to run last.
-function DirtyCombiner({ documentsDirty, appearanceDirty }: { documentsDirty: boolean; appearanceDirty: boolean }) {
-  const { setDirty } = useSettingsDirty();
-  useEffect(() => {
-    setDirty(documentsDirty || appearanceDirty);
-  }, [documentsDirty, appearanceDirty, setDirty]);
-  return null;
-}
-
-function AppearanceSettingsContent() {
-  const [documentsDirty, setDocumentsDirty] = useState(false);
-  const [appearanceDirty, setAppearanceDirty] = useState(false);
-
-  return (
-    <div className="space-y-4">
-      <DirtyCombiner documentsDirty={documentsDirty} appearanceDirty={appearanceDirty} />
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <FileText className="h-3.5 w-3.5" />
-        Belge Ayarları
-      </div>
-      <DocumentSettingsCard onDirtyChange={setDocumentsDirty} />
-      <div className="flex items-center gap-2 pt-2 text-xs font-medium text-muted-foreground">
-        <Palette className="h-3.5 w-3.5" />
-        Görünüm Ayarları
-      </div>
-      <AppearanceSettingsCard onDirtyChange={setAppearanceDirty} />
-    </div>
   );
 }
 

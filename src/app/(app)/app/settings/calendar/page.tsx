@@ -7,22 +7,8 @@ import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type {
-  CalendarSettings,
-  CalendarView,
-  CalendarColorSource,
-  CalendarOverlapDisplay,
-  CalendarMobileView,
-} from "@/types/settings";
+import type { CalendarSettings } from "@/types/settings";
 
 const DAY_LABELS: { value: number; label: string }[] = [
   { value: 1, label: "Pzt" },
@@ -33,60 +19,6 @@ const DAY_LABELS: { value: number; label: string }[] = [
   { value: 6, label: "Cmt" },
   { value: 0, label: "Paz" },
 ];
-
-const VIEW_LABELS: Record<CalendarView, string> = {
-  month: "Aylık",
-  week: "Haftalık",
-  day: "Günlük",
-  agenda: "Ajanda",
-};
-
-const MOBILE_VIEW_LABELS: Record<CalendarMobileView, string> = {
-  agenda: "Ajanda",
-  day: "Günlük",
-};
-
-const COLOR_SOURCE_LABELS: Record<CalendarColorSource, string> = {
-  educationType: "Eğitim Türüne Göre",
-  status: "Duruma Göre",
-  teacher: "Öğretmene Göre",
-};
-
-const OVERLAP_LABELS: Record<CalendarOverlapDisplay, string> = {
-  side_by_side: "Yan Yana",
-  compact: "Sıkıştırılmış",
-};
-
-function SelectField<T extends string>({
-  label,
-  value,
-  onChange,
-  labels,
-  className,
-}: {
-  label: string;
-  value: T;
-  onChange: (v: T) => void;
-  labels: Record<T, string>;
-  className?: string;
-}) {
-  return (
-    <SettingsField label={label} className={className}>
-      <Select value={value} onValueChange={(v) => { if (v) onChange(v as T); }}>
-        <SelectTrigger className="w-full">
-          <SelectValue>{() => labels[value]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {(Object.keys(labels) as T[]).map((key) => (
-            <SelectItem key={key} value={key}>
-              {labels[key]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </SettingsField>
-  );
-}
 
 function CalendarSettingsContent() {
   const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
@@ -174,55 +106,6 @@ function CalendarSettingsContent() {
             onChange={(e) => set("lunchBreakEnd", e.target.value || null)}
           />
         </SettingsField>
-      </div>
-
-      {/* View preferences */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <SelectField label="Varsayılan Görünüm" value={draft.defaultView} onChange={(v) => set("defaultView", v)} labels={VIEW_LABELS} />
-        <SelectField
-          label="Mobilde Varsayılan Görünüm"
-          value={draft.mobileDefaultView}
-          onChange={(v) => set("mobileDefaultView", v)}
-          labels={MOBILE_VIEW_LABELS}
-        />
-        <SelectField
-          label="Haftanın İlk Günü"
-          value={String(draft.weekStartsOn) as "0" | "1"}
-          onChange={(v) => set("weekStartsOn", Number(v) as 0 | 1)}
-          labels={{ "1": "Pazartesi", "0": "Pazar" }}
-        />
-        <SelectField
-          label="Saat Formatı"
-          value={draft.timeFormat}
-          onChange={(v) => set("timeFormat", v)}
-          labels={{ "24h": "24 Saat", "12h": "12 Saat (AM/PM)" }}
-        />
-        <SelectField
-          label="Seans Renklendirme"
-          value={draft.colorSource}
-          onChange={(v) => set("colorSource", v)}
-          labels={COLOR_SOURCE_LABELS}
-        />
-        <SelectField
-          label="Çakışan Seans Görünümü"
-          value={draft.overlapDisplay}
-          onChange={(v) => set("overlapDisplay", v)}
-          labels={OVERLAP_LABELS}
-        />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <p className="text-sm text-foreground">Hafta sonlarını göster</p>
-          <Switch checked={draft.showWeekends} onCheckedChange={(v) => set("showWeekends", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm text-foreground">Boş saatleri gizle</p>
-            <p className="text-xs text-muted-foreground">Haftalık/günlük görünüm yalnızca seans olan saatleri gösterir.</p>
-          </div>
-          <Switch checked={draft.hideEmptyHours} onCheckedChange={(v) => set("hideEmptyHours", v)} />
-        </div>
       </div>
 
       {/* Holidays */}

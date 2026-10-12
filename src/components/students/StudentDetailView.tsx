@@ -12,7 +12,6 @@ import {
   User,
   GraduationCap,
   StickyNote,
-  Check,
   BookOpen,
   Pencil,
   Hash,
@@ -39,19 +38,12 @@ import {
   formatCurrency,
   formatDate,
   formatTime,
-  getPaymentMethodLabel,
   getStudentPlannedSummary,
 } from "@/lib/helpers/finance";
-import {
-  getInstallmentDisplayStatus,
-  getPlanProgress,
-  getIntervalLabel,
-} from "@/lib/helpers/installments";
 import { buildStudentCurrentAccount } from "@/lib/helpers/current-account";
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
-import type { Session, Payment, PaymentMethod, InstallmentPlan, EducationType } from "@/types";
+import type { Session, Payment, PaymentMethod, EducationType } from "@/types";
 import { cn } from "@/lib/utils";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // ─── Column builders ───────────────────────────────────────────────────────────
 
@@ -184,16 +176,7 @@ const paymentColumns: Column<Payment>[] = [
     key: "method",
     header: "Yöntem",
     render: (row) => (
-      <div className="flex flex-col gap-1">
-        <span className="text-muted-foreground text-sm">
-          {PAYMENT_METHOD_LABELS[row.method]}
-        </span>
-        {row.paymentSource === "installment" && (
-          <span className="inline-flex rounded-full bg-indigo-100 border border-indigo-200 px-2 py-0.5 text-[10px] font-medium text-indigo-700 w-fit">
-            Taksit Ödemesi
-          </span>
-        )}
-      </div>
+      <span className="text-muted-foreground text-sm">{PAYMENT_METHOD_LABELS[row.method]}</span>
     ),
     className: "hidden md:table-cell",
     headerClassName: "hidden md:table-cell",
@@ -235,82 +218,6 @@ function InfoRow({
   );
 }
 
-// ─── Installment plan card ─────────────────────────────────────────────────────
-
-function InstallmentPlanCard({
-  plan,
-  today,
-  onMarkPaid,
-}: {
-  plan: InstallmentPlan;
-  today: Date;
-  /** Absent → no "Ödendi" button (needs finance.installments.manage). */
-  onMarkPaid?: (planId: string, instId: string) => void;
-}) {
-  const progress = getPlanProgress(plan, today);
-  const paidFraction = `${progress.paid}/${plan.installmentCount}`;
-
-  return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      {/* Plan header */}
-      <div className="flex items-center justify-between bg-muted/30 px-4 py-3 border-b border-border/60">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground tabular-nums">
-            {formatCurrency(plan.totalAmount)}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {paidFraction} taksit ödendi · {getIntervalLabel(plan.interval, plan.customIntervalDays)} · {getPaymentMethodLabel(plan.method)}
-          </p>
-        </div>
-        <div className="text-right shrink-0 ml-4">
-          {progress.overdue > 0 && (
-            <span className="inline-flex rounded-full bg-red-100 border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-700">
-              {progress.overdue} gecikmiş
-            </span>
-          )}
-        </div>
-      </div>
-      {/* Installment rows */}
-      <div className="divide-y divide-border/60">
-        {plan.installments.map((inst) => {
-          const display = getInstallmentDisplayStatus(inst, today);
-          return (
-            <div
-              key={inst.id}
-              className="flex items-center gap-3 px-4 py-2.5"
-            >
-              <span className="text-xs text-muted-foreground w-5 shrink-0 text-center">
-                {inst.installmentNumber}.
-              </span>
-              <span className="text-xs tabular-nums text-foreground flex-1">
-                {formatDate(inst.dueDate)}
-              </span>
-              <span className="text-sm font-semibold tabular-nums">
-                {formatCurrency(inst.amount)}
-              </span>
-              <StatusBadge status={display} />
-              {onMarkPaid && (display === "pending" || display === "overdue") && (
-                <button
-                  onClick={() => onMarkPaid(plan.id, inst.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0"
-                >
-                  <Check className="h-3 w-3" />
-                  Ödendi
-                </button>
-              )}
-              {display === "paid" && inst.paidDate && (
-                <span className="text-[11px] text-muted-foreground shrink-0">
-                  {formatDate(inst.paidDate)}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main component ────────────────────────────────────────────────────────────
 
 interface StudentDetailViewProps {
@@ -326,7 +233,6 @@ function StudentDetailViewContent({
   studentId,
   store,
 }: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
-  const confirm = useConfirm();
   const [editOpen, setEditOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(
@@ -340,12 +246,8 @@ function StudentDetailViewContent({
     store.openingBalances
   );
 
-  const today = new Date();
-  const studentPlans = store.installmentPlans.filter(
-    (p) => p.studentId === studentId
-  );
-
   // Cari Hesap state
+  const today = new Date();
   const nowYear = today.getFullYear();
   const nowMonth = today.getMonth() + 1;
   const defaultMonthValue = `${nowYear}-${String(nowMonth).padStart(2, "0")}`;
@@ -577,51 +479,13 @@ function StudentDetailViewContent({
   );
 
   const paymentsContent = (
-    <div className="space-y-6">
-      {/* Installment plans */}
-      {studentPlans.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Taksit Planları ({studentPlans.length})
-          </p>
-          {studentPlans.map((plan) => (
-            <InstallmentPlanCard
-              key={plan.id}
-              plan={plan}
-              today={today}
-              onMarkPaid={async (planId: string, installmentId: string) => {
-                if (
-                  await confirm({
-                    kind: "financial",
-                    title: "Taksit ödendi olarak işaretlensin mi?",
-                    description: "Bu işlem öğrencinin hesabına bir ödeme kaydı ekler.",
-                    confirmLabel: "Ödendi İşaretle",
-                  })
-                ) {
-                  store.markInstallmentPaid(planId, installmentId);
-                }
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Single payments */}
-      <div className="space-y-3">
-        {studentPlans.length > 0 && (
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Tek Ödemeler ({detail.payments.length})
-          </p>
-        )}
-        <DataTable
-          data={detail.payments}
-          columns={paymentColumns}
-          keyExtractor={(p) => p.id}
-          emptyTitle="Ödeme bulunamadı"
-          emptyDescription="Bu öğrenciye ait ödeme kaydı bulunmamaktadır."
-        />
-      </div>
-    </div>
+    <DataTable
+      data={detail.payments}
+      columns={paymentColumns}
+      keyExtractor={(p) => p.id}
+      emptyTitle="Ödeme bulunamadı"
+      emptyDescription="Bu öğrenciye ait ödeme kaydı bulunmamaktadır."
+    />
   );
 
   const notesContent = (
@@ -827,7 +691,7 @@ function StudentDetailViewContent({
     {
       key: "payments",
       label: "Ödemeler",
-      badge: detail.payments.length + studentPlans.length,
+      badge: detail.payments.length,
       content: paymentsContent,
     },
     { key: "cari", label: "Cari Hesap", content: cariHesapContent },

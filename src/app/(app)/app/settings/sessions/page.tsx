@@ -14,15 +14,9 @@ import {
 } from "@/components/ui/select";
 import type {
   SessionSettings,
-  SessionConflictBehavior,
   MakeupSessionBillingBehavior,
 } from "@/types/settings";
 import { BREAK_MINUTE_OPTIONS, LESSON_MINUTES, lessonDuration } from "@/lib/helpers/scheduling-rules";
-
-const CONFLICT_BEHAVIOR_LABELS: Record<SessionConflictBehavior, string> = {
-  block_full_and_partial: "Tam ve kısmi çakışmayı engelle",
-  block_full_only: "Yalnızca tam (birebir) çakışmayı engelle",
-};
 
 const MAKEUP_BILLING_LABELS: Record<MakeupSessionBillingBehavior, string> = {
   billable: "Telafi seansı ücretlendirilir",
@@ -39,7 +33,7 @@ function SessionSettingsContent() {
   return (
     <SettingsFormSection
       title="Seans Ayarları"
-      description="Mola, çakışma, iptal ve telafi kuralları. Yeni/Düzenle Seans formu, haftalık plan oluşturma ve otomatik tamamlama bu ayarlara göre çalışır."
+      description="Mola, iptal ve telafi kuralları. Öğrenci ve öğretmen çakışması her zaman engellenir. Yeni/Düzenle Seans formu, haftalık plan oluşturma ve otomatik tamamlama bu ayarlara göre çalışır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -113,44 +107,6 @@ function SessionSettingsContent() {
           />
         </SettingsField>
       )}
-
-      {/* Conflict rules */}
-      <div className="space-y-3 border-t border-border/60 pt-5">
-        <p className="text-sm font-semibold text-foreground">Çakışma Kontrolü</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-            <p className="text-sm text-foreground">Öğrenci çakışmasını engelle</p>
-            <Switch
-              checked={draft.preventStudentConflict}
-              onCheckedChange={(v) => set("preventStudentConflict", v)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-            <p className="text-sm text-foreground">Öğretmen çakışmasını engelle</p>
-            <Switch
-              checked={draft.preventTeacherConflict}
-              onCheckedChange={(v) => set("preventTeacherConflict", v)}
-            />
-          </div>
-        </div>
-        <SettingsField label="Çakışma Davranışı" className="sm:max-w-md">
-          <Select
-            value={draft.conflictBehavior}
-            onValueChange={(val) => { if (val) set("conflictBehavior", val as SessionConflictBehavior); }}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue>{(val: SessionConflictBehavior) => CONFLICT_BEHAVIOR_LABELS[val]}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(CONFLICT_BEHAVIOR_LABELS) as SessionConflictBehavior[]).map((key) => (
-                <SelectItem key={key} value={key}>
-                  {CONFLICT_BEHAVIOR_LABELS[key]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingsField>
-      </div>
 
       {/* Other rules */}
       <div className="space-y-3 border-t border-border/60 pt-5">

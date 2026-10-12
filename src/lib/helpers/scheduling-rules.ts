@@ -133,16 +133,17 @@ export function isLateCancellation(start: Date, sessions: SessionSettings, now: 
   return msUntilStart > 0 && msUntilStart < sessions.cancellationMinNoticeHours * 3_600_000;
 }
 
-/** The conflict options interactive forms derive from Ayarlar → Seans. */
+/** The conflict options interactive forms use: student and teacher
+ *  double-booking (full or partial) is always blocked, plus Ayarlar → Seans →
+ *  Mola between sessions. */
 export function getConflictOptions(
   settings: InstitutionSettings
 ): Pick<CheckSessionConflictParams, "preventStudentConflict" | "preventTeacherConflict" | "blockPartialOverlap" | "breakMinutes"> {
-  const s = settings.sessions;
   return {
-    preventStudentConflict: s.preventStudentConflict,
-    preventTeacherConflict: s.preventTeacherConflict,
-    blockPartialOverlap: s.conflictBehavior === "block_full_and_partial",
-    breakMinutes: s.breakMinutes,
+    preventStudentConflict: true,
+    preventTeacherConflict: true,
+    blockPartialOverlap: true,
+    breakMinutes: settings.sessions.breakMinutes,
   };
 }
 

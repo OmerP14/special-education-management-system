@@ -6,7 +6,6 @@ import type {
   StudentStatus,
   TeacherStatus,
   EarningStatus,
-  InstallmentStatus,
 } from "@/types";
 
 type AnyStatus =
@@ -14,8 +13,7 @@ type AnyStatus =
   | "in_progress"
   | StudentStatus
   | TeacherStatus
-  | EarningStatus
-  | InstallmentStatus;
+  | EarningStatus;
 
 const STATUS_CONFIG: Record<AnyStatus, { label: string; className: string }> = {
   // Session
@@ -60,7 +58,7 @@ const STATUS_CONFIG: Record<AnyStatus, { label: string; className: string }> = {
     label: "Beklemede",
     className: "bg-amber-100 text-amber-700 border-amber-200",
   },
-  // Earning / Installment shared
+  // Earning
   pending: {
     label: "Bekliyor",
     className: "bg-amber-100 text-amber-700 border-amber-200",
@@ -68,11 +66,6 @@ const STATUS_CONFIG: Record<AnyStatus, { label: string; className: string }> = {
   paid: {
     label: "Ödendi",
     className: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  },
-  // Installment-only
-  overdue: {
-    label: "Gecikmiş",
-    className: "bg-red-100 text-red-700 border-red-200",
   },
 };
 
@@ -99,11 +92,9 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 }
 
 // ─── Earning-specific status badge ─────────────────────────────────────────────
-// EarningStatus ("pending"/"paid") shares its raw values with InstallmentStatus,
-// so the generic STATUS_CONFIG above uses the installment-appropriate "Bekliyor"
-// for "pending". A teacher-earning row needs more specific wording ("Bekleyen
-// Hakediş") so it doesn't read like a generic pending state — this never touches
-// the shared config, so installment rows elsewhere are unaffected.
+// The generic STATUS_CONFIG above says "Bekliyor" for "pending". A
+// teacher-earning row needs more specific wording ("Bekleyen Hakediş") so it
+// doesn't read like a generic pending state.
 
 const EARNING_STATUS_CONFIG: Record<EarningStatus, { label: string; className: string }> = {
   pending: {

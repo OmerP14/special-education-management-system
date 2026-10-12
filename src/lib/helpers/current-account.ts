@@ -218,7 +218,7 @@ export function buildGuardianCurrentAccountSummary(
 
 // ─── Monthly movements ─────────────────────────────────────────────────────────
 
-export type MovementType = "session" | "payment" | "installment_payment";
+export type MovementType = "session" | "payment";
 
 export interface CurrentAccountMovement {
   id: string;
@@ -271,12 +271,11 @@ export function buildGuardianCurrentAccountMovements(
     payments
       .filter((p) => p.studentId === studentId && isInMonth(p.date, year, month))
       .forEach((p) => {
-        const isInstallment = p.paymentSource === "installment";
         movements.push({
           id: `payment-${p.id}`,
           date: p.date,
-          type: isInstallment ? "installment_payment" : "payment",
-          description: isInstallment ? "Taksit ödemesi" : "Ödeme",
+          type: "payment",
+          description: "Ödeme",
           amount: -p.amount,
           studentName,
         });

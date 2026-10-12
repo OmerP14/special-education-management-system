@@ -1,10 +1,10 @@
 // ─── Reports module: filter model + generic entity filtering ──────────────────
-// This is the composition layer on top of finance.ts/cash.ts's proven calculations.
+// This is the composition layer on top of finance.ts's proven calculations.
 // It never re-implements a calculation — every report builds its rows/summary by
 // filtering the raw entity arrays here, then handing them to the existing
-// build*/calculate*/get* helpers in finance.ts and cash.ts.
+// build*/calculate*/get* helpers in finance.ts.
 
-import type { Session, Payment, TeacherPayment, CashMovement } from "@/types";
+import type { Session, Payment, TeacherPayment } from "@/types";
 import { parseDateOnly, parseDateOnlyEndOfDay, formatDateOnly } from "@/lib/helpers/finance";
 
 export interface ReportFilters {
@@ -60,13 +60,13 @@ export function resolveReportDateRange(
 }
 
 /** Parses either a full ISO datetime (Session.date) or a date-only "YYYY-MM-DD" string
- *  (Payment/TeacherPayment/CashMovement.date) as a local Date, never UTC-shifted. */
+ *  (Payment/TeacherPayment.date) as a local Date, never UTC-shifted. */
 function parseEntityDate(dateStr: string): Date {
   return dateStr.includes("T") ? new Date(dateStr) : parseDateOnly(dateStr);
 }
 
 /** Generic date-range check for any already-built row that has a `.date` field
- *  (CashMovementRow, TeacherPaymentReportRow, SessionListItem, …). */
+ *  (TeacherPaymentReportRow, SessionListItem, …). */
 export function isWithinReportRange(dateStr: string, filters: ReportFilters): boolean {
   const { start, end } = resolveReportDateRange(filters);
   return isDateWithinRange(dateStr, start, end);
@@ -117,14 +117,6 @@ export function filterTeacherPaymentsByReportFilters(
   });
 }
 
-export function filterCashMovementsByReportFilters(
-  movements: CashMovement[],
-  filters: ReportFilters
-): CashMovement[] {
-  const { start, end } = resolveReportDateRange(filters);
-  return movements.filter((m) => isDateWithinRange(m.date, start, end));
-}
-
 // ─── Report catalog (nav metadata only — no data/calculation here) ────────────
 
 export type ReportCategory = "financial" | "education" | "students" | "teachers";
@@ -145,7 +137,6 @@ export const REPORT_CATALOG: Record<ReportCategory, ReportCatalogEntry[]> = {
   financial: [
     { id: "income", label: "Gelir Raporu" },
     { id: "teacher-payments", label: "Öğretmen Ödeme Raporu" },
-    { id: "daily-cash", label: "Günlük Kasa Raporu" },
   ],
   education: [{ id: "session-status", label: "Seans Durum Raporu" }],
   students: [

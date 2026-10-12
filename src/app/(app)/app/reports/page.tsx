@@ -7,9 +7,7 @@ import {
   BanknoteIcon,
   AlertCircle,
   GraduationCap,
-  Wallet,
   TrendingUp,
-  TrendingDown,
   CheckCircle2,
   CalendarDays,
   Clock,
@@ -44,7 +42,6 @@ import {
   getSessionStatusLabel,
   getTeacherStatusLabel,
 } from "@/lib/helpers/finance";
-import { buildCashMovementRows } from "@/lib/helpers/cash";
 import { buildStudentMonthlyAccountRows } from "@/lib/helpers/current-account";
 import {
   EMPTY_REPORT_FILTERS,
@@ -52,7 +49,6 @@ import {
   filterSessionsByReportFilters,
   filterPaymentsByReportFilters,
   filterTeacherPaymentsByReportFilters,
-  isWithinReportRange,
   REPORT_CATALOG,
   REPORT_CATEGORY_LABELS,
   type ReportFilters,
@@ -63,7 +59,6 @@ import type {
   StudentMonthlyAccountRow,
   PaymentListItem,
   TeacherPaymentReportRow,
-  CashMovementRow,
   SessionListItem,
   StudentAttendanceRow,
   TeacherSessionCountRow,
@@ -73,21 +68,6 @@ import type {
 import { cn } from "@/lib/utils";
 
 // ─── Small local badges (avoid StatusBadge collisions with unrelated status enums) ──
-
-function CashTypeBadge({ type }: { type: "income" | "expense" }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-        type === "income"
-          ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-          : "bg-red-100 text-red-700 border-red-200"
-      )}
-    >
-      {type === "income" ? "Gelir" : "Gider"}
-    </span>
-  );
-}
 
 function PaymentTypeBadge({ label }: { label: string }) {
   return (
@@ -328,44 +308,6 @@ const teacherPaymentColumns: Column<TeacherPaymentReportRow>[] = [
       row.description ?? <span className="text-muted-foreground/40">—</span>,
     className: "hidden md:table-cell",
     headerClassName: "hidden md:table-cell",
-  },
-];
-
-const cashColumns: Column<CashMovementRow>[] = [
-  tarihColumn<CashMovementRow>((row) => row.date),
-  {
-    key: "type",
-    header: "Tür",
-    render: (row) => <CashTypeBadge type={row.type} />,
-  },
-  {
-    key: "description",
-    header: "Açıklama",
-    render: (row) => (
-      <div>
-        <p className="text-sm">{row.description ?? "—"}</p>
-        {row.teacherPaymentTypeLabel && (
-          <PaymentTypeBadge label={row.teacherPaymentTypeLabel} />
-        )}
-      </div>
-    ),
-  },
-  {
-    key: "amount",
-    header: "Tutar",
-    render: (row) => (
-      <span
-        className={cn(
-          "tabular-nums font-semibold text-right block",
-          row.type === "income" ? "text-emerald-600" : "text-destructive"
-        )}
-      >
-        {row.type === "income" ? "+" : "-"}
-        {formatCurrency(row.amount)}
-      </span>
-    ),
-    className: "text-right",
-    headerClassName: "text-right",
   },
 ];
 
@@ -1018,52 +960,6 @@ export default function ReportsPage() {
     );
   }
 
-  function renderDailyCashReport() {
-    const allRows = buildCashMovementRows(
-      store.cashMovements,
-      store.payments,
-      store.students,
-      store.teacherPayments,
-      store.teachers
-    );
-    const rows = allRows.filter((r) => isWithinReportRange(r.date, filters));
-    const income = rows.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
-    const expense = rows.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
-
-    const summaryCards: ReportSummaryCard[] = [
-      { title: "Gelir", value: formatCurrency(income), icon: TrendingUp, variant: "success" },
-      { title: "Gider", value: formatCurrency(expense), icon: TrendingDown, variant: "danger" },
-      { title: "Bakiye", value: formatCurrency(income - expense), icon: Wallet, variant: income - expense >= 0 ? "success" : "danger" },
-    ];
-
-    return (
-      <ReportViewer<CashMovementRow>
-        note={filterSummaryText}
-        summaryCards={summaryCards}
-        columns={cashColumns}
-        rows={rows}
-        keyExtractor={(r) => r.id}
-        emptyTitle="Kasa hareketi bulunamadı"
-        csv={{
-          filename: "gunluk-kasa-raporu.csv",
-          headers: ["Tarih", "Tür", "Açıklama", "Tutar"],
-          rowMapper: (r) => [formatDateDMY(r.date), r.typeLabel, r.description ?? "", r.type === "income" ? r.amount : -r.amount],
-        }}
-        pdf={{
-          title: "Günlük Kasa Raporu",
-          subtitle: filterSummaryText,
-          columns: [{ header: "Tarih" }, { header: "Tür" }, { header: "Açıklama" }, { header: "Tutar", align: "right" }],
-          rowMapper: (r) => [
-            formatDateDMY(r.date),
-            r.typeLabel,
-            r.description ?? "—",
-            `${r.type === "income" ? "+" : "-"}${formatCurrency(r.amount)}`,
-          ],
-        }}
-      />
-    );
-  }
-
   function renderSessionStatusReport() {
     const breakdown = buildSessionStatusBreakdown(filteredSessions);
     const rows = buildSessionListItems(filteredSessions, store.students, store.teachers, store.educationTypes);
@@ -1388,8 +1284,6 @@ export default function ReportsPage() {
         return renderIncomeStyleReport("gelir", "income");
       case "teacher-payments":
         return renderTeacherPaymentReport("finansal");
-      case "daily-cash":
-        return renderDailyCashReport();
       case "session-status":
         return renderSessionStatusReport();
       case "student-debt":

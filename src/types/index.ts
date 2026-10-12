@@ -198,9 +198,8 @@ export interface WeeklySessionPlan {
 
 // ─── Payment ───────────────────────────────────────────────────────────────────
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "other";
-export type InstallmentStatus = "paid" | "pending" | "overdue" | "cancelled";
-export type InstallmentInterval = "monthly" | "weekly" | "custom";
-
+/** "installment" only on payments recorded before installment plans were
+ *  removed — they count as ordinary payments everywhere. */
 export type PaymentSource = "manual" | "installment" | "import";
 
 export interface Payment {
@@ -211,8 +210,6 @@ export interface Payment {
   method: PaymentMethod;
   date: string;
   paymentSource?: PaymentSource;
-  installmentPlanId?: string;
-  installmentNumber?: number;
   notes?: string;
   /** Issued on creation from Ayarlar → Finans (Makbuz Numara Formatı). */
   receiptNumber?: string;
@@ -242,63 +239,6 @@ export interface OpeningBalance {
   createdAt: string;
   updatedAt?: string;
   importBatchId?: string;
-}
-
-// ─── Installment Plan ─────────────────────────────────────────────────────────
-
-export interface InstallmentRecord {
-  id: string;
-  installmentNumber: number;
-  dueDate: string;
-  amount: number;
-  /** Stored as "pending" | "paid" | "cancelled"; "overdue" is computed display-only */
-  status: Exclude<InstallmentStatus, "overdue">;
-  paidDate?: string;
-}
-
-export interface InstallmentPlan {
-  id: string;
-  tenantId: string;
-  studentId: string;
-  totalAmount: number;
-  installmentCount: number;
-  firstDueDate: string;
-  interval: InstallmentInterval;
-  customIntervalDays?: number;
-  method: PaymentMethod;
-  notes?: string;
-  installments: InstallmentRecord[];
-  createdAt: string;
-}
-
-export interface StudentInstallmentSummary {
-  activePlanCount: number;
-  totalPlanned: number;
-  totalPaid: number;
-  totalPending: number;
-  totalOverdue: number;
-  overdueCount: number;
-}
-
-export interface InstallmentRow {
-  planId: string;
-  studentId: string;
-  studentName: string;
-  guardianId: string | null;
-  guardianName: string | null;
-  installmentId: string;
-  installmentNumber: number;
-  totalInstallments: number;
-  dueDate: string;
-  amount: number;
-  totalPlanAmount: number;
-  displayStatus: InstallmentStatus;
-  storedStatus: Exclude<InstallmentStatus, "overdue">;
-  paidDate?: string;
-  method: PaymentMethod;
-  methodLabel: string;
-  interval: InstallmentInterval;
-  notes?: string;
 }
 
 // ─── Teacher Education Type Assignment ──────────────────────────────────────────
@@ -611,8 +551,6 @@ export interface PaymentListItem {
   debtStatus: DebtStatus;
   notes?: string;
   paymentSource?: PaymentSource;
-  installmentPlanId?: string;
-  installmentNumber?: number;
 }
 
 export interface StudentDebtItem {
@@ -814,67 +752,6 @@ export interface StudentCurrentAccount {
   totalBilled: number;
   totalPaid: number;
   remainingDebt: number;
-}
-
-// ─── Cash Register ─────────────────────────────────────────────────────────────
-
-export type CashMovementType = "income" | "expense";
-
-export type CashCategory =
-  | "guardian_payment"
-  | "loan_received"
-  | "rent"
-  | "salary"
-  | "grocery"
-  | "stationery"
-  | "utility"
-  | "other";
-
-export interface CashMovement {
-  id: string;
-  tenantId: string;
-  date: string;
-  type: CashMovementType;
-  category: CashCategory;
-  amount: number;
-  method: PaymentMethod;
-  description?: string;
-  studentId?: string;
-  paymentId?: string;
-  createdAt: string;
-}
-
-export interface CashMovementRow {
-  id: string;
-  date: string;
-  type: CashMovementType;
-  typeLabel: string;
-  category: CashCategory;
-  categoryLabel: string;
-  amount: number;
-  method: PaymentMethod;
-  methodLabel: string;
-  description?: string;
-  studentId?: string;
-  studentName?: string;
-  paymentId?: string;
-  teacherId?: string;
-  teacherName?: string;
-  teacherPaymentId?: string;
-  /** Human-readable payment type (Maaş / Avans / …) — only set for teacher_payment rows. */
-  teacherPaymentTypeLabel?: string;
-  source: "manual" | "payment" | "teacher_payment";
-  isEditable: boolean;
-}
-
-export interface DailyCashSummary {
-  date: string;
-  openingBalance: number;
-  totalIncome: number;
-  totalExpense: number;
-  netMovement: number;
-  closingBalance: number;
-  movementCount: number;
 }
 
 // ─── Guardian / Veli UI models ────────────────────────────────────────────────

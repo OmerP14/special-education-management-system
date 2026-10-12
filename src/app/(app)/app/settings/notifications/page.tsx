@@ -17,14 +17,7 @@ const EVENTS: { key: NotificationEventKey; label: string; description: string; r
   { key: "session_auto_completed", label: "Seans Otomatik Tamamlandı", description: "Otomatik tamamlama bir seansı kapattığında." },
   { key: "session_cancelled", label: "Seans İptali", description: "Bir seans iptal edildiğinde." },
   { key: "student_no_show", label: "Öğrenci Gelmedi", description: "Bir seans 'Gelmedi' olarak işaretlendiğinde." },
-  { key: "payment_received", label: "Ödeme Alındı", description: "Öğrenci ödemesi veya taksit tahsil edildiğinde." },
-  {
-    key: "installment_due",
-    label: "Taksit Vadesi Yaklaşıyor",
-    description: "Ödenmemiş taksitin vadesine belirtilen süre kala.",
-    reminderUnit: "saat",
-  },
-  { key: "installment_overdue", label: "Taksit Gecikti", description: "Taksit, gecikme toleransını da aşınca." },
+  { key: "payment_received", label: "Ödeme Alındı", description: "Öğrenci ödemesi kaydedildiğinde." },
   { key: "teacher_earning_created", label: "Öğretmen Hakedişi Oluştu", description: "Bir seans hakediş doğurduğunda." },
   { key: "teacher_payment_made", label: "Öğretmene Ödeme Yapıldı", description: "Öğretmene ödeme kaydedildiğinde." },
 ];

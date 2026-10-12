@@ -56,20 +56,18 @@ function EventBlock({
   layout,
   hourStart,
   hourEnd,
-  display,
   onClick,
 }: {
   event: CalendarEvent;
   layout: EventLayout;
   hourStart: number;
   hourEnd: number;
-  display: CalendarDisplayOptions;
   onClick: () => void;
 }) {
   const top = getEventTop(event, hourStart, hourEnd);
   const height = getEventHeight(event.durationMinutes);
-  const position = getOverlapPosition(layout, display.overlapDisplay, 4);
-  const appearance = getEventBlockAppearance(event, display.colorSource);
+  const position = getOverlapPosition(layout, 4);
+  const appearance = getEventBlockAppearance(event);
   // Narrow (overlapping) cards still show everything that fits vertically —
   // duration determines available height regardless of how many columns
   // split the width, so the previous totalCols === 1 gate hid teacher/
@@ -243,7 +241,6 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
                 layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
                 hourStart={hourStart}
                 hourEnd={hourEnd}
-                display={display}
                 onClick={() => onEventClick(event.id)}
               />
             ))}

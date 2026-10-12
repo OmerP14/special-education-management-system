@@ -9,7 +9,6 @@ import {
   type CalendarEvent,
 } from "@/lib/helpers/calendar";
 import { cn } from "@/lib/utils";
-import type { CalendarColorSource } from "@/types/settings";
 
 // ─── Day header ─────────────────────────────────────────────────────────────────
 
@@ -56,14 +55,12 @@ function DayGroupHeader({ date }: { date: Date }) {
 
 function AgendaEventRow({
   event,
-  colorSource,
   onClick,
 }: {
   event: CalendarEvent;
-  colorSource: CalendarColorSource;
   onClick: () => void;
 }) {
-  const appearance = getEventBlockAppearance(event, colorSource);
+  const appearance = getEventBlockAppearance(event);
   return (
     <button
       onClick={onClick}
@@ -94,10 +91,9 @@ function AgendaEventRow({
 interface CalendarAgendaViewProps {
   events: CalendarEvent[];
   onEventClick: (eventId: string) => void;
-  colorSource: CalendarColorSource;
 }
 
-export function CalendarAgendaView({ events, onEventClick, colorSource }: CalendarAgendaViewProps) {
+export function CalendarAgendaView({ events, onEventClick }: CalendarAgendaViewProps) {
   if (events.length === 0) {
     return (
       <EmptyState
@@ -128,7 +124,6 @@ export function CalendarAgendaView({ events, onEventClick, colorSource }: Calend
             <AgendaEventRow
               key={event.id}
               event={event}
-              colorSource={colorSource}
               onClick={() => onEventClick(event.id)}
             />
           ))}

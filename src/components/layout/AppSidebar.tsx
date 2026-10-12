@@ -124,18 +124,16 @@ export const AppSidebar = memo(function AppSidebar() {
           <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary">
             {institution.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- user-uploaded data URL from Kurum Bilgileri, not a static asset
-              <img src={institution.logoUrl} alt={institution.shortName} className="h-full w-full object-cover" />
+              <img src={institution.logoUrl} alt={institution.name} className="h-full w-full object-cover" />
             ) : (
               <GraduationCap className="h-4 w-4 text-primary-foreground" />
             )}
           </div>
           <div className="flex flex-col overflow-hidden">
             <span className="truncate text-sm font-semibold leading-none text-sidebar-foreground">
-              {institution.shortName || "ÖzelEğitim"}
+              {institution.name || "ÖzelEğitim"}
             </span>
-            <span className="truncate text-[10px] leading-tight text-sidebar-foreground/70">
-              {institution.name || "Yönetim Sistemi"}
-            </span>
+            <span className="truncate text-[10px] leading-tight text-sidebar-foreground/70">Yönetim Sistemi</span>
           </div>
         </div>
       </SidebarHeader>

@@ -1,7 +1,6 @@
-import type { InstallmentPlan, Payment, Session, Student, Teacher } from "@/types";
+import type { Payment, Session, Student, Teacher } from "@/types";
 import type { NotificationEventKey, NotificationSettings } from "@/types/settings";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
-import { getInstallmentDisplayStatus } from "@/lib/helpers/installments";
 
 // ─── In-app notifications (Ayarlar → Bildirimler) ───────────────────────────
 
@@ -69,19 +68,17 @@ export function buildSessionNotification(
 }
 
 /**
- * Time-based notifications due right now: upcoming-session reminders,
- * installment due-date reminders and overdue installments — each only when
- * its event is enabled, with the configured lead time.
+ * Time-based notifications due right now: upcoming-session reminders, when
+ * the event is enabled, with the configured lead time.
  */
 export function collectTimedNotifications(params: {
   settings: NotificationSettings;
   sessions: Session[];
-  installmentPlans: InstallmentPlan[];
   students: Student[];
   teachers: Teacher[];
   now?: Date;
 }): AppNotification[] {
-  const { settings, sessions, installmentPlans, students, teachers } = params;
+  const { settings, sessions, students, teachers } = params;
   const now = params.now ?? new Date();
   const out: AppNotification[] = [];
 
@@ -97,53 +94,20 @@ export function collectTimedNotifications(params: {
     }
   }
 
-  const due = settings.events.installment_due;
-  const overdue = settings.events.installment_overdue;
-  if (due?.enabled || overdue?.enabled) {
-    const leadMs = (due?.reminderMinutesBefore ?? 1440) * 60_000;
-    for (const plan of installmentPlans) {
-      const studentName = nameOf(students, plan.studentId);
-      for (const inst of plan.installments) {
-        if (inst.status !== "pending") continue;
-        const status = getInstallmentDisplayStatus(inst, now);
-        const base = {
-          studentId: plan.studentId,
-          href: `/app/students/${plan.studentId}`,
-          createdAt: now.toISOString(),
-        };
-        if (status === "overdue" && overdue?.enabled) {
-          out.push({
-            ...base,
-            id: `notif-installment_overdue-${inst.id}`,
-            event: "installment_overdue",
-            title: "Taksit gecikti",
-            message: `${studentName} · ${inst.installmentNumber}. taksit · ${formatCurrency(inst.amount)} · vade ${formatDate(inst.dueDate)}`,
-          });
-        } else if (status === "pending" && due?.enabled) {
-          const dueAt = new Date(`${inst.dueDate.slice(0, 10)}T09:00:00`).getTime();
-          const until = dueAt - now.getTime();
-          if (until > -86_400_000 && until <= leadMs) {
-            out.push({
-              ...base,
-              id: `notif-installment_due-${inst.id}`,
-              event: "installment_due",
-              title: "Taksit vadesi yaklaşıyor",
-              message: `${studentName} · ${inst.installmentNumber}. taksit · ${formatCurrency(inst.amount)} · vade ${formatDate(inst.dueDate)}`,
-            });
-          }
-        }
-      }
-    }
-  }
-
   return out;
 }
 
 /** Brings notifications saved by older versions onto the current shape. */
+/** Events whose feature was removed — their stored notifications are dropped. */
+const REMOVED_EVENTS = ["user_invited", "installment_due", "installment_overdue"];
+
 export function normalizeNotifications(raw: unknown): AppNotification[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((n): n is Record<string, unknown> => !!n && typeof n === "object" && n.event !== "user_invited")
+    .filter(
+      (n): n is Record<string, unknown> =>
+        !!n && typeof n === "object" && !REMOVED_EVENTS.includes(n.event as string)
+    )
     .map((n) => {
       if (typeof n.event === "string") return n as unknown as AppNotification;
       // Old shape: { type: "session_auto_completed", sessionId, studentId, teacherId, sessionDate }
@@ -164,7 +128,7 @@ export function normalizeNotifications(raw: unknown): AppNotification[] {
 /** "Ödeme alındı" notification for a student payment. */
 export function buildPaymentNotification(payment: Payment, students: Student[]): AppNotification {
   return {
-    id: `notif-payment_received-${payment.installmentPlanId ? `${payment.installmentPlanId}-${payment.installmentNumber}` : payment.id}`,
+    id: `notif-payment_received-${payment.id}`,
     event: "payment_received",
     title: "Ödeme alındı",
     message: `${nameOf(students, payment.studentId)} · ${formatCurrency(payment.amount)} · ${formatDate(payment.date)}`,

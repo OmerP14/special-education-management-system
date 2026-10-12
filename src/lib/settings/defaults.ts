@@ -15,8 +15,6 @@ const DEFAULT_NOTIFICATION_EVENTS: Record<NotificationEventKey, NotificationEven
   session_cancelled: eventConfig(true),
   student_no_show: eventConfig(true),
   payment_received: eventConfig(true),
-  installment_due: eventConfig(true, 1440),
-  installment_overdue: eventConfig(true),
   teacher_earning_created: eventConfig(false),
   teacher_payment_made: eventConfig(true),
 };
@@ -24,30 +22,18 @@ const DEFAULT_NOTIFICATION_EVENTS: Record<NotificationEventKey, NotificationEven
 export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
   institution: {
     name: "Özel Eğitim Kurumu",
-    shortName: "ÖzelEğitim",
     logoUrl: null,
     phone: "",
     email: "",
-    website: "",
     address: "",
     city: "",
     district: "",
-    postalCode: "",
-    taxOffice: "",
-    taxNumber: "",
-    mersisNumber: "",
-    contactPersonName: "",
-    contactPersonPhone: "",
-    contactPersonEmail: "",
   },
   sessions: {
     breakMinutes: 10,
     autoCompleteEnabled: true,
     autoCompleteDelayMinutes: 60,
     cancellationMinNoticeHours: 24,
-    preventStudentConflict: true,
-    preventTeacherConflict: true,
-    conflictBehavior: "block_full_and_partial",
     allowPastDateSessions: true,
     allowEditingCompletedSessions: false,
     makeupSessionBehavior: "billable",
@@ -59,31 +45,11 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     lunchBreakStart: null,
     lunchBreakEnd: null,
     holidays: [],
-    defaultView: "week",
-    weekStartsOn: 1,
-    timeFormat: "24h",
-    showWeekends: true,
-    hideEmptyHours: false,
-    colorSource: "status",
-    overlapDisplay: "side_by_side",
-    mobileDefaultView: "agenda",
   },
   finance: {
-    currency: "TRY",
-    currencySymbolPosition: "before",
     defaultPaymentMethod: "cash",
     enabledPaymentMethods: ["cash", "bank_transfer", "credit_card", "other"],
     studentDebtWarningThreshold: 5000,
-    overpaymentPolicy: "credit",
-    allowInstallments: true,
-    defaultInstallmentIntervalDays: 30,
-    latePaymentToleranceDays: 5,
-    highlightOverdueInstallments: true,
-    paymentNumberStart: 1000,
-    receiptNumberFormat: "MKB-{YYYY}-{0000}",
-    collectionDescriptionTemplate: "{ogrenciAdi} - {ay} tahsilatı",
-    cashClosingBehavior: "manual",
-    negativeCashWarning: true,
   },
   teacherEarnings: {
     availableEarningTypes: ["per_session", "monthly_salary", "salary_plus_quota", "percentage"],
@@ -118,18 +84,6 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
   },
   notifications: {
     events: DEFAULT_NOTIFICATION_EVENTS,
-  },
-  documents: {
-    documentLogoUrl: null,
-    receiptTitle: "Tahsilat Makbuzu",
-    invoiceNote: "",
-    pdfFooterText: "",
-    showSignatureArea: true,
-    showStampArea: true,
-    dateFormat: "DD.MM.YYYY",
-    csvDelimiter: ",",
-    pdfPageSize: "A4",
-    defaultExportOrientation: "portrait",
   },
   appearance: {
     primaryBrandColor: "#171717",
@@ -209,16 +163,6 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
       events[key].reminderMinutesBefore = saved.reminderMinutesBefore;
     }
   }
-  // Fields that used to be free text are now fixed choices — anything else
-  // falls back to the default.
-  const fallback = getSettingsDefaults();
-  if (!["DD.MM.YYYY", "DD/MM/YYYY", "YYYY-MM-DD"].includes(defaults.documents.dateFormat)) {
-    defaults.documents.dateFormat = fallback.documents.dateFormat;
-  }
-  if (!["TRY", "USD", "EUR", "GBP"].includes(defaults.finance.currency)) {
-    defaults.finance.currency = fallback.finance.currency;
-  }
-
   // "Seanslar Arası Mola" used to be `defaultBreakMinutes` with no upper
   // bound; it is now "Mola", one of the fixed 0–20 choices.
   const oldSessions = source.sessions as { breakMinutes?: unknown; defaultBreakMinutes?: unknown } | undefined;

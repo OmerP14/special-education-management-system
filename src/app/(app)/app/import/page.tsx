@@ -2639,7 +2639,7 @@ export default function ImportPage() {
   if (impact.teacherPaymentImpact !== 0)
     impactCards.push({ title: "Öğretmene Ödenen Tutar", value: formatCurrency(impact.teacherPaymentImpact), description: "Hakedişten farklı: fiilen ödenen tutar", icon: Banknote, variant: "warning" });
   if (impact.openingBalancesToCreate > 0) impactCards.push({ title: "Yeni Devir Bakiyesi Kaydı", value: impact.openingBalancesToCreate, icon: Scale, variant: "default" });
-  if (impact.cashImpact !== 0) impactCards.push({ title: "Kasa Etkisi", value: formatCurrency(impact.cashImpact), icon: Banknote, variant: impact.cashImpact >= 0 ? "success" : "danger" });
+  if (impact.cashImpact !== 0) impactCards.push({ title: "Net Ödeme Etkisi", value: formatCurrency(impact.cashImpact), icon: Banknote, variant: impact.cashImpact >= 0 ? "success" : "danger" });
   if (impact.remainingBalanceImpact !== 0)
     impactCards.push({ title: "Kalan Bakiye Etkisi", value: formatCurrency(impact.remainingBalanceImpact), icon: Scale, variant: impact.remainingBalanceImpact > 0 ? "warning" : "success" });
 

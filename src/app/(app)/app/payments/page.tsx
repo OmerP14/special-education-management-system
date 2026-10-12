@@ -10,8 +10,6 @@ import {
   Search,
   Plus,
   X,
-  Check,
-  CalendarClock,
   UserSearch,
   History,
 } from "lucide-react";
@@ -20,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/shared/StatCard";
 import { DataTable, type Column } from "@/components/shared/DataTable";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
 import {
@@ -35,14 +32,11 @@ import {
   formatDate,
 } from "@/lib/helpers/finance";
 import { normalizeName } from "@/lib/helpers/import-match";
-import { buildInstallmentRows } from "@/lib/helpers/installments";
 import type {
   Payment,
   PaymentListItem,
   PaymentMethod,
   DebtStatus,
-  InstallmentRow,
-  InstallmentStatus,
   Student,
 } from "@/types";
 import { cn } from "@/lib/utils";
@@ -136,17 +130,10 @@ const columns: Column<PaymentListItem>[] = [
     key: "method",
     header: "Ödeme Yöntemi",
     render: (row) => (
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <span className="text-base leading-none">{METHOD_ICONS[row.method]}</span>
-          {row.methodLabel}
-        </span>
-        {row.paymentSource === "installment" && (
-          <span className="inline-flex items-center rounded-full bg-indigo-100 border border-indigo-200 px-2 py-0.5 text-[10px] font-medium text-indigo-700 w-fit">
-            Taksit Ödemesi
-          </span>
-        )}
-      </div>
+      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <span className="text-base leading-none">{METHOD_ICONS[row.method]}</span>
+        {row.methodLabel}
+      </span>
     ),
     className: "hidden md:table-cell",
     headerClassName: "hidden md:table-cell",
@@ -212,21 +199,6 @@ const columns: Column<PaymentListItem>[] = [
 
 // ─── Filter constants ──────────────────────────────────────────────────────────
 
-type PaymentTypeFilter = "all" | "single" | "installment";
-
-const PAYMENT_TYPE_FILTERS: { value: PaymentTypeFilter; label: string }[] = [
-  { value: "all", label: "Tüm Ödemeler" },
-  { value: "single", label: "Tek Ödeme" },
-  { value: "installment", label: "Taksit Planı" },
-];
-
-const INSTALLMENT_STATUS_FILTERS: { value: InstallmentStatus | "all"; label: string }[] = [
-  { value: "all", label: "Tümü" },
-  { value: "pending", label: "Bekliyor" },
-  { value: "overdue", label: "Gecikmiş" },
-  { value: "paid", label: "Ödendi" },
-];
-
 const DEBT_STATUS_FILTERS: { value: DebtStatus | "all"; label: string }[] = [
   { value: "all", label: "Tümü" },
   { value: "unpaid", label: "Ödenmedi" },
@@ -286,7 +258,7 @@ function DebtProgressBar({
 
 // ─── Zero-activity student result panel ────────────────────────────────────────
 // Shown when a search/dropdown selection resolves to a real student who simply
-// has no payment/debt/installment activity yet (e.g. a historical-only import).
+// has no payment/debt activity yet (e.g. a historical-only import).
 // Never fabricates a payment row — reads the exact same canonical finance
 // helpers (getStudentNetBalance/getStudentDebt) every other card uses, just
 // renders the ₺0 state explicitly instead of letting the student silently
@@ -368,123 +340,6 @@ function ZeroActivityStudentCard({
   );
 }
 
-// ─── Installment table ─────────────────────────────────────────────────────────
-
-function InstallmentTable({
-  rows,
-  onMarkPaid,
-  highlightOverdue,
-}: {
-  rows: InstallmentRow[];
-  onMarkPaid: (planId: string, installmentId: string) => void;
-  /** Ayarlar → Finans's highlightOverdueInstallments. */
-  highlightOverdue: boolean;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-card px-4 py-10 text-center">
-        <CalendarClock className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
-        <p className="text-sm font-medium text-foreground">Taksit kaydı bulunamadı</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Taksit planı oluşturmak için &ldquo;Ödeme Ekle&rdquo; butonunu kullanın.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border/60 bg-muted/30">
-              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Öğrenci
-              </th>
-              <th className="hidden sm:table-cell px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Veli
-              </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Taksit
-              </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Vade Tarihi
-              </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Tutar
-              </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Durum
-              </th>
-              <th className="px-4 py-2.5 w-20" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60">
-            {rows.map((row) => (
-              <tr
-                key={row.installmentId}
-                className={cn(
-                  "hover:bg-muted/20 transition-colors",
-                  highlightOverdue && row.displayStatus === "overdue" && "bg-destructive/5"
-                )}
-              >
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/app/students/${row.studentId}`}
-                    className="font-medium text-foreground hover:text-primary transition-colors"
-                  >
-                    {row.studentName}
-                  </Link>
-                </td>
-                <td className="hidden sm:table-cell px-4 py-3">
-                  {row.guardianId ? (
-                    <Link
-                      href={`/app/guardians/${row.guardianId}`}
-                      className="text-muted-foreground hover:text-primary transition-colors text-sm"
-                    >
-                      {row.guardianName}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground/40">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground tabular-nums">
-                  {row.installmentNumber}/{row.totalInstallments}
-                </td>
-                <td className="px-4 py-3 text-sm tabular-nums">
-                  {formatDate(row.dueDate)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums font-semibold">
-                  {formatCurrency(row.amount)}
-                </td>
-                <td className="px-4 py-3">
-                  <StatusBadge status={row.displayStatus} />
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {(row.displayStatus === "pending" || row.displayStatus === "overdue") && (
-                    <button
-                      onClick={() => onMarkPaid(row.planId, row.installmentId)}
-                      className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
-                    >
-                      <Check className="h-3 w-3" />
-                      Ödendi
-                    </button>
-                  )}
-                  {row.displayStatus === "paid" && row.paidDate && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatDate(row.paidDate)}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
@@ -494,13 +349,11 @@ export default function PaymentsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [preselectedStudentId, setPreselectedStudentId] = useState<string | undefined>(undefined);
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState<PaymentTypeFilter>("all");
   const [search, setSearch] = useState("");
   const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatus | "all">("all");
   const [methodFilter, setMethodFilter] = useState<PaymentMethod | "all">("all");
   const [studentFilter, setStudentFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState("all");
-  const [instStatusFilter, setInstStatusFilter] = useState<InstallmentStatus | "all">("all");
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -549,44 +402,13 @@ export default function PaymentsPage() {
   // student the search must still be able to find (Part 1, requirement 1-2).
   const debtItemStudentIds = useMemo(() => new Set(debtItems.map((d) => d.studentId)), [debtItems]);
 
-  const today = new Date();
-
-  const allInstallmentRows = useMemo(
-    () => buildInstallmentRows(store.installmentPlans, store.students, store.guardians, today),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [store.installmentPlans, store.students, store.guardians]
-  );
-
-  const filteredInstallmentRows = useMemo(() => {
-    const q = normalizeName(search);
-    return allInstallmentRows.filter((row) => {
-      const matchSearch =
-        !q ||
-        normalizeName(row.studentName).includes(q) ||
-        (row.guardianName ? normalizeName(row.guardianName).includes(q) : false);
-      const matchStatus =
-        instStatusFilter === "all" || row.displayStatus === instStatusFilter;
-      const matchStudent =
-        studentFilter === "all" || row.studentId === studentFilter;
-      return matchSearch && matchStatus && matchStudent;
-    });
-  }, [allInstallmentRows, search, instStatusFilter, studentFilter]);
-
-  // A student with an installment plan already has a dedicated place they show up
-  // (the Taksit Planları table below) even if totalBilled/totalPaid/openingBalance
-  // are all still zero — never double-surface them as "zero activity" too.
-  const installmentStudentIds = useMemo(
-    () => new Set(allInstallmentRows.map((r) => r.studentId)),
-    [allInstallmentRows]
-  );
-
   // Full-student-store search (Part 1) — every existing student must be
-  // searchable, not just ones with payment/debt/installment activity. Resolved
-  // separately from `filtered`/`filteredInstallmentRows` above (which only ever
-  // iterate students that already HAVE such activity) so a zero-activity match
+  // searchable, not just ones with payment/debt activity. Resolved separately
+  // from `filtered` above (which only ever iterates students that already
+  // HAVE such activity) so a zero-activity match
   // is surfaced via its own explicit result panel instead of a fabricated row.
   const zeroActivityStudentMatches = useMemo(() => {
-    const hasNoActivity = (id: string) => !debtItemStudentIds.has(id) && !installmentStudentIds.has(id);
+    const hasNoActivity = (id: string) => !debtItemStudentIds.has(id);
     // An explicit dropdown pick is the strongest signal (requirement 3: "selected
     // from the student dropdown/filter") — it wins over free-text search.
     if (studentFilter !== "all") {
@@ -596,7 +418,7 @@ export default function PaymentsPage() {
     const q = normalizeName(search);
     if (!q) return [];
     return store.students.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
-  }, [studentFilter, search, store.students, debtItemStudentIds, installmentStudentIds]);
+  }, [studentFilter, search, store.students, debtItemStudentIds]);
 
   const handleEdit = (row: PaymentListItem) => {
     const payment = store.payments.find((p) => p.id === row.id);
@@ -704,8 +526,7 @@ export default function PaymentsPage() {
     debtStatusFilter !== "all" ||
     methodFilter !== "all" ||
     studentFilter !== "all" ||
-    monthFilter !== "all" ||
-    instStatusFilter !== "all";
+    monthFilter !== "all";
 
   const clearFilters = () => {
     setSearch("");
@@ -713,7 +534,6 @@ export default function PaymentsPage() {
     setMethodFilter("all");
     setStudentFilter("all");
     setMonthFilter("all");
-    setInstStatusFilter("all");
   };
 
   return (
@@ -837,7 +657,7 @@ export default function PaymentsPage() {
         )}
 
         {/* Zero-activity student matches — real students found by search/dropdown
-            that simply have no payment/debt/installment activity yet (Part 1). */}
+            that simply have no payment/debt activity yet (Part 1). */}
         {zeroActivityStudentMatches.length > 0 && (
           <div className="space-y-3">
             {zeroActivityStudentMatches.map((student) => (
@@ -853,24 +673,6 @@ export default function PaymentsPage() {
             ))}
           </div>
         )}
-
-        {/* Payment type toggle */}
-        <div className="flex rounded-lg border border-border p-0.5 bg-muted/30 max-w-sm">
-          {PAYMENT_TYPE_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setPaymentTypeFilter(f.value)}
-              className={cn(
-                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
-                paymentTypeFilter === f.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
 
         {/* Filters */}
         <div className="space-y-3">
@@ -898,41 +700,37 @@ export default function PaymentsPage() {
             </select>
           </div>
 
-          {/* Row 2: debt status pills — single mode only */}
-          {paymentTypeFilter !== "installment" && (
-            <div className="flex flex-wrap gap-1.5">
-              {DEBT_STATUS_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  onClick={() => setDebtStatusFilter(f.value)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
-                    debtStatusFilter === f.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Row 2: debt status pills */}
+          <div className="flex flex-wrap gap-1.5">
+            {DEBT_STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setDebtStatusFilter(f.value)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
+                  debtStatusFilter === f.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
 
           {/* Row 3: entity dropdowns + clear */}
           <div className="flex flex-wrap gap-2">
-            {paymentTypeFilter !== "installment" && (
-              <select
-                value={methodFilter}
-                onChange={(e) => setMethodFilter(e.target.value as PaymentMethod | "all")}
-                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {METHOD_FILTERS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <select
+              value={methodFilter}
+              onChange={(e) => setMethodFilter(e.target.value as PaymentMethod | "all")}
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              {METHOD_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
             <select
               value={studentFilter}
               onChange={(e) => setStudentFilter(e.target.value)}
@@ -957,81 +755,27 @@ export default function PaymentsPage() {
           </div>
         </div>
 
-        {/* Single payments table */}
-        {paymentTypeFilter !== "installment" && (
-          <div className="space-y-3">
-            {paymentTypeFilter === "all" && (
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Tek Ödemeler
-              </p>
-            )}
-            <DataTable
-              data={filtered}
-              columns={columnsWithEdit}
-              keyExtractor={(p) => p.id}
-              emptyTitle={hasActiveFilters ? "Eşleşen ödeme bulunamadı" : "Henüz ödeme yok"}
-              emptyDescription={
-                hasActiveFilters
-                  ? "Arama veya filtre kriterlerini değiştirmeyi deneyin."
-                  : "Ödeme ekleyerek başlayın."
-              }
-            />
-            {filtered.length > 0 && filtered.length !== allItems.length && (
-              <p className="text-xs text-muted-foreground">
-                {allItems.length} kayıt içinde{" "}
-                <span className="font-medium text-foreground">{filtered.length}</span> ödeme
-                gösteriliyor
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Installment plans section */}
-        {paymentTypeFilter !== "single" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Taksit Planları
-              </p>
-              <span className="text-xs text-muted-foreground">
-                {allInstallmentRows.length} taksit kaydı
-              </span>
-            </div>
-            {/* Installment status filter */}
-            <div className="flex flex-wrap gap-1.5">
-              {INSTALLMENT_STATUS_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  onClick={() => setInstStatusFilter(f.value)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
-                    instStatusFilter === f.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <InstallmentTable
-              rows={filteredInstallmentRows}
-              onMarkPaid={async (planId: string, installmentId: string) => {
-                if (
-                  await confirm({
-                    kind: "financial",
-                    title: "Taksit ödendi olarak işaretlensin mi?",
-                    description: "Bu işlem öğrencinin hesabına bir ödeme kaydı ekler.",
-                    confirmLabel: "Ödendi İşaretle",
-                  })
-                ) {
-                  store.markInstallmentPaid(planId, installmentId);
-                }
-              }}
-              highlightOverdue={store.institutionSettings.finance.highlightOverdueInstallments}
-            />
-          </div>
-        )}
+        {/* Payments table */}
+        <div className="space-y-3">
+          <DataTable
+            data={filtered}
+            columns={columnsWithEdit}
+            keyExtractor={(p) => p.id}
+            emptyTitle={hasActiveFilters ? "Eşleşen ödeme bulunamadı" : "Henüz ödeme yok"}
+            emptyDescription={
+              hasActiveFilters
+                ? "Arama veya filtre kriterlerini değiştirmeyi deneyin."
+                : "Ödeme ekleyerek başlayın."
+            }
+          />
+          {filtered.length > 0 && filtered.length !== allItems.length && (
+            <p className="text-xs text-muted-foreground">
+              {allItems.length} kayıt içinde{" "}
+              <span className="font-medium text-foreground">{filtered.length}</span> ödeme
+              gösteriliyor
+            </p>
+          )}
+        </div>
       </div>
 
       <PaymentFormDrawer

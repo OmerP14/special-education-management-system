@@ -47,21 +47,19 @@ function EventBlock({
   layout,
   hourStart,
   hourEnd,
-  display,
   onClick,
 }: {
   event: CalendarEvent;
   layout: EventLayout;
   hourStart: number;
   hourEnd: number;
-  display: CalendarDisplayOptions;
   onClick: () => void;
 }) {
   const top = getEventTop(event, hourStart, hourEnd);
   const height = getEventHeight(event.durationMinutes);
   const { totalCols } = layout;
-  const position = getOverlapPosition(layout, display.overlapDisplay, 2);
-  const appearance = getEventBlockAppearance(event, display.colorSource);
+  const position = getOverlapPosition(layout, 2);
+  const appearance = getEventBlockAppearance(event);
 
   return (
     <button
@@ -83,7 +81,7 @@ function EventBlock({
       <p className="text-[11px] font-semibold leading-tight mt-0.5 truncate">
         {event.studentName}
       </p>
-      {height > 40 && (totalCols === 1 || display.overlapDisplay === "compact") && (
+      {height > 40 && totalCols === 1 && (
         <p className="text-[10px] opacity-70 leading-tight truncate">
           {event.teacherName}
         </p>
@@ -149,7 +147,6 @@ function DayColumn({
             layout={eventLayout.get(event.id) ?? { col: 0, totalCols: 1 }}
             hourStart={hourStart}
             hourEnd={hourEnd}
-            display={display}
             onClick={() => onEventClick(event.id)}
           />
         ))}

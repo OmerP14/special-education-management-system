@@ -7,8 +7,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Turkish mobile/landline, either spaced/dashed or bare digits — normalized
 // (normalizePhone below) strips everything but digits before this ever runs.
 const PHONE_DIGITS_RE = /^0?\d{10}$/;
-const TAX_NUMBER_RE = /^\d{10}$|^\d{11}$/; // 10-digit vergi no or 11-digit TCKN
-const MERSIS_RE = /^\d{16}$/;
 
 export function normalizePhone(raw: string): string {
   return raw.replace(/\D/g, "");
@@ -39,23 +37,8 @@ export function validateInstitutionSettingsSection<K extends InstitutionSettings
     if (v.email && !isValidEmail(v.email)) {
       errors.email = "Geçerli bir e-posta adresi girin.";
     }
-    if (v.contactPersonEmail && !isValidEmail(v.contactPersonEmail)) {
-      errors.contactPersonEmail = "Geçerli bir e-posta adresi girin.";
-    }
     if (v.phone && !isValidPhone(v.phone)) {
       errors.phone = "Telefon numarası 10 haneli olmalıdır (örn. 0532 123 45 67).";
-    }
-    if (v.contactPersonPhone && !isValidPhone(v.contactPersonPhone)) {
-      errors.contactPersonPhone = "Telefon numarası 10 haneli olmalıdır.";
-    }
-    if (v.taxNumber && !TAX_NUMBER_RE.test(v.taxNumber.trim())) {
-      errors.taxNumber = "Vergi numarası 10 haneli, TCKN ise 11 haneli olmalıdır.";
-    }
-    if (v.mersisNumber && !MERSIS_RE.test(v.mersisNumber.trim())) {
-      errors.mersisNumber = "MERSİS numarası 16 haneli olmalıdır.";
-    }
-    if (v.website && !/^https?:\/\/.+\..+/.test(v.website.trim())) {
-      errors.website = "Web sitesi http:// veya https:// ile başlamalıdır.";
     }
   }
 

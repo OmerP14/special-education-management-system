@@ -23,14 +23,15 @@ import { validateInstitutionSettingsSection } from "@/lib/settings/validation";
 import { calculateSessionTotal, calculateSessionTeacherEarning } from "@/lib/helpers/finance";
 import {
   canExceedPendingEarning,
-  fillCollectionTemplate,
+  assignReceiptNumber,
+  describeCollection,
   formatReceiptNumber,
-  getDefaultInstallmentInterval,
   getNextReceiptSequence,
 } from "@/lib/helpers/finance-rules";
 import { checkSessionConflict } from "@/lib/helpers/session-conflict";
 import { backfillStudentNumbers, getGuardianContactLink, validateStudentFields } from "@/lib/helpers/student-rules";
 import { validatePasswordPolicy } from "@/lib/auth/password";
+import { buildCsv } from "@/lib/helpers/export";
 import type { InstitutionSettings } from "@/types/settings";
 import type { Payment, Session, Student } from "@/types";
 
@@ -63,21 +64,21 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
-describe("formatting follows Ayarlar", () => {
-  it("formats money with currency, symbol position and number format", () => {
+describe("fixed formats", () => {
+  it("formats money as Turkish lira with Turkish separators", () => {
     expect(formatCurrency(1234)).toBe("₺1.234");
-    withSettings((s) => {
-      s.finance.currency = "EUR";
-      s.finance.currencySymbolPosition = "after";
-    });
-    expect(formatCurrency(1234.5)).toBe("1.234,5 €");
-    expect(formatCurrency(-50)).toBe("-50 €");
+    expect(formatCurrency(1234.5)).toBe("₺1.234,5");
+    expect(formatCurrency(-50)).toBe("-₺50");
   });
 
-  it("formats document dates in the configured format", () => {
+  it("writes CSV with ';' (Turkish Excel) and quotes cells that need it", () => {
+    const csv = buildCsv(["Ad", "Tutar"], [["Ali; Veli", 1234.5]]).replace(/^\uFEFF/, "");
+    expect(csv).toBe('Ad;Tutar\r\n"Ali; Veli";1234.5');
+  });
+
+  it("formats document dates as GG.AA.YYYY", () => {
     expect(formatDateDMY("2026-03-07")).toBe("07.03.2026");
-    withSettings((s) => (s.documents.dateFormat = "YYYY-MM-DD"));
-    expect(formatDateDMY("2026-03-07")).toBe("2026-03-07");
+    expect(formatDateDMY("2026-03-07T10:00:00")).toBe("07.03.2026");
   });
 });
 
@@ -156,9 +157,14 @@ describe("scheduling rules", () => {
     expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T11:30:00" }).hasConflict).toBe(false);
   });
 
-  it("forms pass the Mola setting to the conflict check", () => {
+  it("forms always block double-booking and pass the Mola setting", () => {
     const s = withSettings((x) => { x.sessions.breakMinutes = 15; });
-    expect(getConflictOptions(s).breakMinutes).toBe(15);
+    expect(getConflictOptions(s)).toEqual({
+      preventStudentConflict: true,
+      preventTeacherConflict: true,
+      blockPartialOverlap: true,
+      breakMinutes: 15,
+    });
   });
 
   it("suggests the next start after the day's last session plus the break", () => {
@@ -218,22 +224,20 @@ describe("teacher earning policy", () => {
 });
 
 describe("finance rules", () => {
-  it("numbers receipts from the configured start and format", () => {
+  it("numbers receipts MKB-<year>-<0000> from 1000 on", () => {
     expect(formatReceiptNumber("MKB-{YYYY}-{0000}", 7, "2026-05-01")).toBe("MKB-2026-0007");
     const paid = [{ receiptSequence: 1003 }, { receiptSequence: 1001 }] as Payment[];
     expect(getNextReceiptSequence(paid, 1000)).toBe(1004);
     expect(getNextReceiptSequence([], 1000)).toBe(1000);
+    const first = assignReceiptNumber({ id: "p", date: "2026-05-01" } as Payment, []);
+    expect(first.receiptNumber).toBe("MKB-2026-1000");
+    expect(assignReceiptNumber({ id: "q", date: "2026-05-02" } as Payment, paid).receiptNumber).toBe("MKB-2026-1004");
   });
 
-  it("fills the collection template", () => {
-    expect(fillCollectionTemplate("{ogrenciAdi} - {ay} tahsilatı", "Ali Veli", "2026-03-05")).toBe("Ali Veli - Mart 2026 tahsilatı");
+  it("describes a new payment as '<öğrenci> - <ay> tahsilatı'", () => {
+    expect(describeCollection("Ali Veli", "2026-03-05")).toBe("Ali Veli - Mart 2026 tahsilatı");
   });
 
-  it("maps the default installment interval", () => {
-    expect(getDefaultInstallmentInterval(30).interval).toBe("monthly");
-    expect(getDefaultInstallmentInterval(7).interval).toBe("weekly");
-    expect(getDefaultInstallmentInterval(15)).toEqual({ interval: "custom", customIntervalDays: 15 });
-  });
 });
 
 describe("student rules", () => {
