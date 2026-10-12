@@ -7,7 +7,6 @@ import { StatCard } from "@/components/shared/StatCard";
 import { CashFlowChart } from "@/components/dashboard/CashFlowChart";
 import { PaymentSummaryCard } from "@/components/dashboard/PaymentSummaryCard";
 import { TeacherEarningsCard } from "@/components/dashboard/TeacherEarningsCard";
-import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { useMockStore } from "@/lib/mock/store";
 import { buildDashboardStats, formatCurrency } from "@/lib/helpers/finance";
 
@@ -29,16 +28,8 @@ export default function FinancePage() {
     store.teacherEducationTypeAssignments
   );
 
-  // The nav link is already hidden for this role (see AppSidebar), but a
-  // direct URL visit should still respect the same boundary rather than
-  // silently render financial figures to a role that shouldn't see them.
   return (
-    <PermissionGuard
-      permission="finance.dashboard.view"
-      title="Bu sayfaya erişim yetkiniz yok"
-      description="Finansal Panel yalnızca yönetici hesapları içindir."
-    >
-      <div className="space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="Finansal Panel"
         description="Kurumunuzun finansal kontrol merkezi — ciro, tahsilat, alacaklar ve ödenecekler tek yerde."
@@ -112,7 +103,6 @@ export default function FinancePage() {
       </div>
 
       <p className="text-xs text-muted-foreground">{currentMonthLabel} verileri gösteriliyor.</p>
-      </div>
-    </PermissionGuard>
+    </div>
   );
 }

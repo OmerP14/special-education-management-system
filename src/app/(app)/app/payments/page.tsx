@@ -23,8 +23,6 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { getScopedGuardians, getScopedInstallments, getScopedPayments, getScopedStudents } from "@/lib/auth/scope";
 import {
   buildPaymentListItems,
   buildStudentDebtItems,
@@ -49,8 +47,6 @@ import type {
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/shared/ConfirmProvider";
-import { useAuth } from "@/lib/auth/AuthProvider";
-import { hasPermission } from "@/lib/auth/permissions";
 import { printPaymentReceipt } from "@/lib/helpers/export";
 
 // ─── Debt status badge (local — avoids collision with EarningStatus "paid") ───
@@ -494,24 +490,6 @@ function InstallmentTable({
 export default function PaymentsPage() {
   const store = useMockStore();
   const confirm = useConfirm();
-  const { permissions } = useAuth();
-  const canEditPayments = hasPermission(permissions, "finance.student_payments.edit");
-  const scope = useUserScope();
-
-  // Guardian: linked children + their payments/installments only. Teacher:
-  // this route isn't reachable at all (no finance.student_payments.view
-  // grant), so scope here only ever narrows for a guardian. Owner/manager:
-  // everyone. See lib/auth/scope.ts.
-  const scopedStudents = useMemo(
-    () => getScopedStudents(store.students, store.sessions, scope),
-    [store.students, store.sessions, scope]
-  );
-  const scopedPayments = useMemo(() => getScopedPayments(store.payments, scope), [store.payments, scope]);
-  const scopedInstallmentPlans = useMemo(
-    () => getScopedInstallments(store.installmentPlans, scope),
-    [store.installmentPlans, scope]
-  );
-  const scopedGuardians = useMemo(() => getScopedGuardians(store.guardians, scope), [store.guardians, scope]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
@@ -539,31 +517,31 @@ export default function PaymentsPage() {
   const allItems = useMemo(
     () =>
       buildPaymentListItems(
-        scopedPayments,
-        scopedStudents,
-        scopedGuardians,
+        store.payments,
+        store.students,
+        store.guardians,
         store.sessions,
         store.openingBalances
       ),
-    [scopedPayments, scopedStudents, scopedGuardians, store.sessions, store.openingBalances]
+    [store.payments, store.students, store.guardians, store.sessions, store.openingBalances]
   );
 
   const stats = useMemo(
     () =>
       buildPaymentPageStats(
-        scopedPayments,
+        store.payments,
         store.sessions,
-        scopedStudents,
+        store.students,
         statsYear,
         statsMonth,
         store.openingBalances
       ),
-    [scopedPayments, store.sessions, scopedStudents, statsYear, statsMonth, store.openingBalances]
+    [store.payments, store.sessions, store.students, statsYear, statsMonth, store.openingBalances]
   );
 
   const debtItems = useMemo(
-    () => buildStudentDebtItems(scopedStudents, scopedGuardians, store.sessions, scopedPayments, store.openingBalances),
-    [scopedStudents, scopedGuardians, store.sessions, scopedPayments, store.openingBalances]
+    () => buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances),
+    [store.students, store.guardians, store.sessions, store.payments, store.openingBalances]
   );
 
   // Students already surfaced by the debt/payment overview (real billed, paid, or
@@ -574,9 +552,9 @@ export default function PaymentsPage() {
   const today = new Date();
 
   const allInstallmentRows = useMemo(
-    () => buildInstallmentRows(scopedInstallmentPlans, scopedStudents, scopedGuardians, today),
+    () => buildInstallmentRows(store.installmentPlans, store.students, store.guardians, today),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scopedInstallmentPlans, scopedStudents, scopedGuardians]
+    [store.installmentPlans, store.students, store.guardians]
   );
 
   const filteredInstallmentRows = useMemo(() => {
@@ -612,16 +590,16 @@ export default function PaymentsPage() {
     // An explicit dropdown pick is the strongest signal (requirement 3: "selected
     // from the student dropdown/filter") — it wins over free-text search.
     if (studentFilter !== "all") {
-      const picked = scopedStudents.find((s) => s.id === studentFilter);
+      const picked = store.students.find((s) => s.id === studentFilter);
       return picked && hasNoActivity(picked.id) ? [picked] : [];
     }
     const q = normalizeName(search);
     if (!q) return [];
-    return scopedStudents.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
-  }, [studentFilter, search, scopedStudents, debtItemStudentIds, installmentStudentIds]);
+    return store.students.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
+  }, [studentFilter, search, store.students, debtItemStudentIds, installmentStudentIds]);
 
   const handleEdit = (row: PaymentListItem) => {
-    const payment = scopedPayments.find((p) => p.id === row.id);
+    const payment = store.payments.find((p) => p.id === row.id);
     if (payment) {
       setPreselectedStudentId(undefined);
       setEditingPayment(payment);
@@ -644,7 +622,7 @@ export default function PaymentsPage() {
   };
 
   const handlePrintReceipt = async (row: PaymentListItem) => {
-    const payment = scopedPayments.find((p) => p.id === row.id);
+    const payment = store.payments.find((p) => p.id === row.id);
     if (!payment) return;
     const ok = await confirm({
       kind: "export",
@@ -672,14 +650,12 @@ export default function PaymentsPage() {
         >
           Makbuz
         </button>
-        {canEditPayments && (
-          <button
-            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-            onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
-          >
-            Düzenle
-          </button>
-        )}
+        <button
+          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+        >
+          Düzenle
+        </button>
       </div>
     ),
     className: "text-right w-32",
@@ -869,8 +845,8 @@ export default function PaymentsPage() {
                 key={student.id}
                 student={student}
                 totalBilled={getStudentTotalBilled(student.id, store.sessions)}
-                totalPaid={getStudentTotalPaid(student.id, scopedPayments)}
-                netBalance={getStudentNetBalance(student.id, store.sessions, scopedPayments, store.openingBalances)}
+                totalPaid={getStudentTotalPaid(student.id, store.payments)}
+                netBalance={getStudentNetBalance(student.id, store.sessions, store.payments, store.openingBalances)}
                 isHistoricalOnly={hasOnlyHistoricalNonBillableSessions(student.id, store.sessions)}
                 onAddPayment={() => handleAddPaymentForStudent(student.id)}
               />
@@ -963,7 +939,7 @@ export default function PaymentsPage() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
-              {scopedStudents.map((s) => (
+              {store.students.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.fullName}
                 </option>

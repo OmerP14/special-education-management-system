@@ -24,8 +24,6 @@ import { DonutChart, type DonutSegment } from "@/components/shared/DonutChart";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { getScopedSessions, getScopedStudents, getScopedTeachers } from "@/lib/auth/scope";
 import {
   buildSessionListItems,
   buildSessionPageStats,
@@ -210,7 +208,6 @@ export default function SessionsPage() {
 
 function SessionsPageContent() {
   const store = useMockStore();
-  const scope = useUserScope();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -223,20 +220,11 @@ function SessionsPageContent() {
   const [studentFilter, setStudentFilter] = useState("all");
   const [edTypeFilter, setEdTypeFilter] = useState("all");
 
-  // Teacher: own sessions only. Guardian: linked children's sessions only.
-  // Owner/manager: everyone. See lib/auth/scope.ts.
-  const scopedSessions = useMemo(() => getScopedSessions(store.sessions, scope), [store.sessions, scope]);
-  const scopedStudents = useMemo(
-    () => getScopedStudents(store.students, store.sessions, scope),
-    [store.students, store.sessions, scope]
-  );
-  const scopedTeachers = useMemo(() => getScopedTeachers(store.teachers, scope), [store.teachers, scope]);
-
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const stats = useMemo(
-    () => buildSessionPageStats(scopedSessions, currentYear, currentMonth),
-    [scopedSessions, currentYear, currentMonth]
+    () => buildSessionPageStats(store.sessions, currentYear, currentMonth),
+    [store.sessions, currentYear, currentMonth]
   );
 
   const statusDonutSegments: DonutSegment[] = useMemo(
@@ -272,17 +260,17 @@ function SessionsPageContent() {
   const allItems = useMemo(
     () =>
       buildSessionListItems(
-        scopedSessions,
-        scopedStudents,
-        scopedTeachers,
+        store.sessions,
+        store.students,
+        store.teachers,
         store.educationTypes,
         store.teacherEducationTypeAssignments
       ),
-    [scopedSessions, scopedStudents, scopedTeachers, store.educationTypes, store.teacherEducationTypeAssignments]
+    [store.sessions, store.students, store.teachers, store.educationTypes, store.teacherEducationTypeAssignments]
   );
 
   const handleEdit = (row: SessionListItem) => {
-    const session = scopedSessions.find((s) => s.id === row.id);
+    const session = store.sessions.find((s) => s.id === row.id);
     if (session) {
       setEditingSession(session);
       setDrawerOpen(true);
@@ -302,7 +290,7 @@ function SessionsPageContent() {
   if (deepLinkSessionId !== handledDeepLinkId) {
     setHandledDeepLinkId(deepLinkSessionId);
     const session = deepLinkSessionId
-      ? scopedSessions.find((s) => s.id === deepLinkSessionId)
+      ? store.sessions.find((s) => s.id === deepLinkSessionId)
       : undefined;
     if (session) {
       setEditingSession(session);
@@ -505,7 +493,7 @@ function SessionsPageContent() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğretmenler</option>
-              {scopedTeachers.map((t) => (
+              {store.teachers.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.fullName}
                 </option>
@@ -517,7 +505,7 @@ function SessionsPageContent() {
               className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
-              {scopedStudents.map((s) => (
+              {store.students.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.fullName}
                 </option>

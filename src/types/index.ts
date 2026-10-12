@@ -17,7 +17,6 @@ export interface EducationType {
   /** Hex color, drawn from EDUCATION_TYPE_COLOR_PALETTE — used consistently for
    *  calendar session cards, the calendar legend, and filter badges. */
   color: string;
-  defaultDurationMinutes: number;
   defaultStudentPrice: number;
   /** "inactive" hides the type from new-record selectors everywhere but never
    *  changes how it renders on historical records/reports — see
@@ -184,6 +183,10 @@ export interface WeeklySessionPlan {
   educationTypeId: string;
   studentPrice: number;
   teacherEarning: number;
+  /** 1 = tek ders, 2 = blok ders — every generated session is lessonCount ×
+   *  40 min with sessionCount = lessonCount. Absent on plans saved before
+   *  block lessons existed (= 1). */
+  lessonCount?: number;
   startDate: string;  // "YYYY-MM-DD"
   endDate: string;    // "YYYY-MM-DD"
   weeklySchedule: WeeklyScheduleSlot[];

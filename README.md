@@ -64,12 +64,11 @@ It centralizes student management, session scheduling, financial tracking, repor
 - Preview
 - Data mapping
 
-### 🔐 Users & Permissions
+### 🔐 Access
 
-- Login, invitations and password reset
-- Roles (Owner, Manager, Teacher, Guardian) and custom roles
-- Permission matrix and per-role dashboards
-- Teachers and guardians only see their own records
+- One shared institution account with full access
+- Several people can be signed in at once, on different devices
+- Login lockout after repeated wrong passwords; a password change signs out every other device
 
 ---
 
@@ -95,16 +94,17 @@ src/
  ├── components/     # Feature components (students, sessions, payments…) and ui/ primitives
  ├── hooks/          # Shared React hooks
  ├── lib/
- │   ├── auth/       # Auth service, roles, permissions, scoping
+ │   ├── auth/       # Single-account auth service and password rules
  │   ├── helpers/    # Business logic (finance, installments, conflicts, import…)
  │   ├── mock/       # Seed data and the localStorage-backed store
  │   └── settings/   # Institution settings defaults and validation
  └── types/          # Shared TypeScript types
 ```
 
-> **Note:** There is no backend yet. All data, including users and passwords,
-> lives in the browser's localStorage, so this build is for demos only and
-> must not be used with real student data.
+> **Note:** There is no backend yet. All data, including the account and its
+> password, lives in the browser's localStorage, so devices do not share data
+> yet and this build is for demos only — it must not be used with real student
+> data.
 
 ---
 
@@ -134,18 +134,11 @@ Open
 http://localhost:3000
 ```
 
-### Demo accounts
+### Demo account
 
-All demo accounts use the password `Demo1234!`.
+Username `admin`, password `1`.
 
-| Role | Email |
-|------|-------|
-| Owner (Sahip) | admin@ornekokul.com |
-| Manager (Yönetici) | mudur@ornekokul.com |
-| Teacher (Öğretmen) | ogretmen@ornekokul.com |
-| Guardian (Veli) | veli@ornekokul.com |
-
-Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets everything back to the demo data.
+Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets all institution data back to the demo data (the login is kept).
 
 ### Scripts
 
@@ -178,8 +171,8 @@ Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets ever
 - [x] Reporting
 - [x] Calendar
 - [x] Excel Import
-- [x] Users, roles and permissions (client-side mock)
-- [ ] Backend, database and server-side authentication
+- [x] Single shared account (client-side mock)
+- [ ] Backend and database — shared data and live sync across devices
 - [ ] Multi-tenant Architecture
 - [ ] Production Deployment
 

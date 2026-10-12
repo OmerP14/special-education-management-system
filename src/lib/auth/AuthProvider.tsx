@@ -10,14 +10,11 @@ import {
 } from "react";
 import { useMockStore } from "@/lib/mock/store";
 import { createLocalAuthService } from "@/lib/auth/local-auth-service";
-import { hasPermission as hasPermissionHelper } from "@/lib/auth/permissions";
-import type { AuthResult, AuthUser, Invitation, PermissionKey, Role } from "@/types/auth";
+import type { AuthResult, AuthUser } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
 
 interface AuthContextValue {
   user: AuthUser | null;
-  role: Role | null;
-  permissions: PermissionKey[];
   isAuthenticated: boolean;
   /** True until the one-time post-mount session-validity check has run — see
    *  the file-level comment below on why this is a single synchronous check,
@@ -27,11 +24,6 @@ interface AuthContextValue {
   signIn: AuthService["signIn"];
   signOut: () => Promise<void>;
   changePassword: AuthService["changePassword"];
-  requestPasswordReset: AuthService["requestPasswordReset"];
-  resetPassword: AuthService["resetPassword"];
-  acceptInvitation: AuthService["acceptInvitation"];
-  getInvitationByToken: (token: string) => Invitation | null;
-  hasPermission: (key: PermissionKey) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -63,54 +55,30 @@ function hasBrowserSessionMark(): boolean {
  * clock), not a real hydration race.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const store = useMockStore();
   const {
-    appUsers,
-    credentials,
-    roles,
+    account,
+    credential,
     authSession,
-    invitations,
-    passwordResets,
-    saveAuthUserState,
+    saveAccountState,
     setCredential,
     setAuthSession,
     setActorName,
-    setInvitation,
-    setPasswordReset,
     logAuditEvent,
-  } = store;
+  } = useMockStore();
   const [isLoading, setIsLoading] = useState(true);
 
   const authService = useMemo(
     () =>
       createLocalAuthService({
-        appUsers,
-        credentials,
-        roles,
-        invitations,
-        passwordResets,
+        account,
+        credential,
         session: authSession,
-        saveAuthUserState,
+        saveAccountState,
         setCredential,
         setAuthSession,
-        setInvitation,
-        setPasswordReset,
         logAuditEvent,
       }),
-    [
-      appUsers,
-      credentials,
-      roles,
-      invitations,
-      passwordResets,
-      authSession,
-      saveAuthUserState,
-      setCredential,
-      setAuthSession,
-      setInvitation,
-      setPasswordReset,
-      logAuditEvent,
-    ]
+    [account, credential, authSession, saveAccountState, setCredential, setAuthSession, logAuditEvent]
   );
 
   // One-time post-mount check — there is no idle timeout (see
@@ -128,9 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const user = authSession ? authService.getCurrentUser() : null;
-  const role = user ? roles.find((r) => r.id === user.roleId) ?? null : null;
-  const permissions = role?.permissions ?? [];
+  const user = authService.getCurrentUser();
 
   // Keeps store.tsx's pre-existing internal audit calls (addEducationType,
   // updateSession, addPayment, ...) attributed to the real signed-in user
@@ -142,8 +108,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     user,
-    role,
-    permissions,
     isAuthenticated: !!user,
     isLoading,
     loginTime: authSession?.loginAt ?? null,
@@ -154,15 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     signOut: () => authService.signOut(),
     changePassword: (input) => authService.changePassword(input),
-    requestPasswordReset: (email) => authService.requestPasswordReset(email),
-    resetPassword: (input) => authService.resetPassword(input),
-    acceptInvitation: async (input) => {
-      const result = await authService.acceptInvitation(input);
-      if (result.success) markBrowserSession();
-      return result;
-    },
-    getInvitationByToken: (token) => authService.getInvitationByToken(token),
-    hasPermission: (key) => hasPermissionHelper(permissions, key),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

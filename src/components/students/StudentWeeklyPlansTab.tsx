@@ -16,7 +16,6 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { ExtendPlanDrawer } from "@/components/sessions/ExtendPlanDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { useAuth } from "@/lib/auth/AuthProvider";
 import { formatDate, formatCurrency } from "@/lib/helpers/finance";
 import {
   computeWeeklyPlanStatus,
@@ -104,7 +103,7 @@ function PlanCard({
   onDelete,
 }: {
   plan: WeeklySessionPlan;
-  /** Each action is shown only when its handler is given (permission). */
+  /** Each action is shown only when its handler is given. */
   onEdit?: () => void;
   onToggleActive?: () => void;
   onCopy?: () => void;
@@ -282,10 +281,6 @@ type DrawerMode = "new" | "edit" | "copy";
 
 export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
   const store = useMockStore();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission("sessions.create");
-  const canEdit = hasPermission("sessions.edit");
-  const canDelete = hasPermission("sessions.delete");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("new");
   const [activePlan, setActivePlan] = useState<WeeklySessionPlan | undefined>(undefined);
@@ -327,12 +322,10 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
               <p className="text-xs text-muted-foreground">{plans.length} plan tanımlı</p>
             )}
           </div>
-          {canCreate && (
-            <Button size="sm" onClick={() => openDrawer("new")}>
-              <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
-              Yeni Plan
-            </Button>
-          )}
+          <Button size="sm" onClick={() => openDrawer("new")}>
+            <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
+            Yeni Plan
+          </Button>
         </div>
 
         {plans.length === 0 ? (
@@ -340,7 +333,7 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
             title="Henüz seans planı yok"
             description="Haftalık seans planı oluşturarak seansları otomatik olarak planlayabilirsiniz."
             icon={CalendarClock}
-            action={canCreate ? { label: "Haftalık Plan Oluştur", onClick: () => openDrawer("new") } : undefined}
+            action={{ label: "Haftalık Plan Oluştur", onClick: () => openDrawer("new") }}
           />
         ) : (
           <div className="space-y-4">
@@ -348,11 +341,11 @@ export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
               <PlanCard
                 key={plan.id}
                 plan={plan}
-                onEdit={canEdit ? () => openDrawer("edit", plan) : undefined}
-                onToggleActive={canEdit ? () => store.updateWeeklySessionPlan({ ...plan, isActive: !plan.isActive }) : undefined}
-                onCopy={canCreate ? () => openDrawer("copy", plan) : undefined}
-                onExtend={canEdit ? () => openExtendDrawer(plan) : undefined}
-                onDelete={canDelete ? () => store.deleteWeeklySessionPlan(plan.id) : undefined}
+                onEdit={() => openDrawer("edit", plan)}
+                onToggleActive={() => store.updateWeeklySessionPlan({ ...plan, isActive: !plan.isActive })}
+                onCopy={() => openDrawer("copy", plan)}
+                onExtend={() => openExtendDrawer(plan)}
+                onDelete={() => store.deleteWeeklySessionPlan(plan.id)}
               />
             ))}
           </div>

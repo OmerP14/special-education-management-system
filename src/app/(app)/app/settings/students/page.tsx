@@ -1,7 +1,6 @@
 "use client";
 
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
@@ -187,9 +186,5 @@ function StudentSettingsContent() {
 }
 
 export default function StudentSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="students">
-      <StudentSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <StudentSettingsContent />;
 }

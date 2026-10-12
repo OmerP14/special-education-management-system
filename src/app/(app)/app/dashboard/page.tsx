@@ -2,10 +2,9 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Users, GraduationCap, CalendarDays, CheckCircle2, Link2Off } from "lucide-react";
+import { Users, GraduationCap, CalendarDays, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
-import { EmptyState } from "@/components/shared/EmptyState";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { RecentSessionsTable } from "@/components/dashboard/RecentSessionsTable";
 import { SessionStatusBreakdown } from "@/components/dashboard/SessionStatusBreakdown";
@@ -13,41 +12,11 @@ import { TodaysScheduleCard } from "@/components/dashboard/TodaysScheduleCard";
 import { UpcomingSessionsCard } from "@/components/dashboard/UpcomingSessionsCard";
 import { TodaysTeachersCard } from "@/components/dashboard/TodaysTeachersCard";
 import { CalendarPreviewCard } from "@/components/dashboard/CalendarPreviewCard";
-import { TeacherDashboard } from "@/components/dashboard/TeacherDashboard";
-import { GuardianDashboard } from "@/components/dashboard/GuardianDashboard";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
 
-// This is the operational, owner/manager dashboard — no revenue, payments,
-// or earnings figures here. Those moved to /app/finance (permission-gated,
-// see lib/auth/permissions.ts). Teacher/guardian accounts render an
-// entirely different, already-scoped dashboard instead (see
-// components/dashboard/{Teacher,Guardian}Dashboard.tsx) — this component
-// only ever renders for an unrestricted (owner/admin) scope.
+// The operational dashboard — no revenue, payments, or earnings figures
+// here. Those live on /app/finance.
 export default function DashboardPage() {
-  const scope = useUserScope();
-  if (scope.teacherId) return <TeacherDashboard />;
-  if (scope.guardianId) return <GuardianDashboard />;
-  // A teacher/guardian-scoped account with no record linked yet sees no
-  // data at all — never the institution-wide dashboard below.
-  if (!scope.isUnrestricted) return <UnlinkedAccountDashboard />;
-  return <OwnerDashboard />;
-}
-
-function UnlinkedAccountDashboard() {
-  return (
-    <div className="space-y-6">
-      <PageHeader title="Panel" />
-      <EmptyState
-        icon={Link2Off}
-        title="Hesabınız henüz bir kayda bağlanmadı"
-        description="Öğrenci, seans ve ödeme bilgilerini görebilmeniz için kurum yöneticinizin hesabınızı bir öğretmen veya veli kaydına bağlaması gerekiyor."
-      />
-    </div>
-  );
-}
-
-function OwnerDashboard() {
   const store = useMockStore();
 
   const today = useMemo(() => new Date(), []);

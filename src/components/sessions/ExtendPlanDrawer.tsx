@@ -17,7 +17,7 @@ import { partitionDatesByConflict } from "@/lib/helpers/session-conflict";
 import { WeeklyPlanConflictWarning, HolidaySkipNotice } from "@/components/sessions/WeeklyPlanConflictWarning";
 import {
   getConflictOptions,
-  getDefaultSessionDuration,
+  lessonDuration,
   partitionDatesByHoliday,
 } from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
@@ -73,11 +73,8 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
-  const planDuration = getDefaultSessionDuration(
-    plan.educationTypeId,
-    store.educationTypes,
-    store.institutionSettings.sessions
-  );
+  const lessonCount = plan.lessonCount ?? 1;
+  const planDuration = lessonDuration(lessonCount);
   const { datesToKeep: datesAfterHolidays, holidaySkips } = useMemo(
     () => partitionDatesByHoliday(datesAfterDuplicates, store.institutionSettings.calendar),
     [datesAfterDuplicates, store.institutionSettings.calendar]
@@ -99,8 +96,8 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
     [datesAfterHolidays, plan.studentId, plan.teacherId, planDuration, store.sessions, store.institutionSettings]
   );
 
-  const totalBilling = datesToCreate.length * plan.studentPrice;
-  const totalTeacherEarning = datesToCreate.length * plan.teacherEarning;
+  const totalBilling = datesToCreate.length * lessonCount * plan.studentPrice;
+  const totalTeacherEarning = datesToCreate.length * lessonCount * plan.teacherEarning;
 
   const canSave = isValidEndDate;
 
@@ -117,7 +114,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
         educationTypeId: plan.educationTypeId,
         date: dateStr,
         durationMinutes: planDuration,
-        sessionCount: 1,
+        sessionCount: lessonCount,
         studentPrice: plan.studentPrice,
         teacherEarning: plan.teacherEarning,
         status: "planned",

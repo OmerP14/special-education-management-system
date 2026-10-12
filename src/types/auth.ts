@@ -1,121 +1,56 @@
-// ─── Auth / Roles / Permissions — canonical model ───────────────────────────
+// ─── Auth — single shared institution account ───────────────────────────────
 //
-// Kept in its own file (not types/index.ts or types/settings.ts) for the same
-// reason settings.ts documents its own separation: a large, self-contained
-// new domain. This is the ONE role/permission system for the whole app —
-// see src/lib/auth/roles.ts (seeded system roles), permission-catalog.ts
-// (the full key catalog), permissions.ts (hasPermission/canAccessRoute/...),
-// local-auth-service.ts (LocalAuthService) and AuthProvider.tsx (useAuth()).
+// The app has exactly ONE login account with full access. Several people may
+// sign in with it at the same time, on different devices — there are no
+// roles, permissions, invitations or per-person accounts. Teacher and
+// guardian records are institution data (Öğretmenler / Veliler), never logins.
 //
-// Replaces both UserRole (formerly types/index.ts) and AppUserRole (formerly
-// types/settings.ts) — there is deliberately only one role list now.
+// See src/lib/auth/local-auth-service.ts (sign-in, lockout, password change)
+// and AuthProvider.tsx (useAuth()).
 
-import type { AppUserStatus } from "@/types/settings";
-
-// ─── Roles ───────────────────────────────────────────────────────────────────
-
-// Phase 3 simplified the system roles down to these 4 (Muhasebe/Danışma/
-// Görüntüleyici removed — see src/lib/auth/roles.ts's migration notes). An
-// institution that needs those roles back creates them as CUSTOM roles via
-// the Roller tab instead — Role.key is `string`, not this union, precisely
-// so a custom role was never blocked by this list even before Phase 3.
-export type RoleKey = "owner" | "admin" | "teacher" | "guardian";
-
-/** Which records a role's users see. "teacher"/"guardian" roles are
- *  per-person: their users see only the records of the teacher/guardian they
- *  are linked to — and nothing at all while unlinked. */
-export type RoleRecordScope = "institution" | "teacher" | "guardian";
-
-export type PermissionModule =
-  | "dashboard"
-  | "students"
-  | "guardians"
-  | "teachers"
-  | "sessions"
-  | "calendar"
-  | "finance"
-  | "reports"
-  | "import"
-  | "data"
-  | "settings"
-  | "notifications"
-  | "profile";
-
-// The full catalog lives in src/lib/auth/permission-catalog.ts (data, not
-// types) — PERMISSION_KEYS there is the single source of truth this type is
-// derived from. Declared here as `string` (not re-imported) to avoid a
-// types->lib->types circular import; the catalog file re-exports the
-// precise literal union it derives from this same list.
-export type PermissionKey = string;
-
-/** Owner-only wildcard — hasPermission() treats this as "every key". */
-export const WILDCARD_PERMISSION: PermissionKey = "*";
-
-export interface PermissionMeta {
-  key: PermissionKey;
-  module: PermissionModule;
-  label: string;
-  description: string;
-  /** Flags a key whose grant should be shown with extra emphasis in a future
-   *  permission editor (financial/security/data-destructive actions). Not
-   *  enforced by any guard today — presentation metadata only. */
-  sensitive?: boolean;
+/** The one account record. The password lives separately in `Credential`
+ *  so nothing that renders the account ever carries a hash. */
+export interface Account {
+  /** Typed on the login screen. Compared case-insensitively. */
+  username: string;
+  /** Shown in the topbar and written into audit entries. */
+  name: string;
+  lastLoginAt?: string;
+  /** Reset to 0 on a successful sign-in; LocalAuthService locks sign-in once
+   *  this reaches MAX_FAILED_LOGIN_ATTEMPTS (lib/auth/security-policy.ts). */
+  failedLoginAttempts?: number;
+  /** Sign-in is refused until this passes; no separate unlock step. */
+  lockedUntil?: string;
+  updatedAt?: string;
 }
 
-export interface Role {
-  id: string;
-  /** RoleKey for the 7 seeded system roles; a generated slug for custom
-   *  roles (Phase 2 Roller tab) — never switched on with `=== "owner"`
-   *  anywhere, see isOwnerRole below and hasPermission/canAccessRoute. */
-  key: string;
-  name: string;
-  description: string;
-  /** System roles (the 7 seeded ones) can't be deleted once a real Role
-   *  management UI exists — not enforced anywhere yet since there's no
-   *  mutator for `roles` in Phase 1 (read-only, seeded once). */
-  isSystemRole: boolean;
-  /** The one bit `isOwner()` reads — never a `role.key === "owner"` string
-   *  check anywhere else in the app. */
-  isOwnerRole: boolean;
-  isActive: boolean;
-  permissions: PermissionKey[];
-  /** Absent on roles saved before this field existed — read it through
-   *  getRoleRecordScope (lib/auth/roles.ts), never directly. */
-  recordScope?: RoleRecordScope;
-  createdAt: string;
+/** Lives ONLY in the store's `credential` slice — read/written exclusively by
+ *  src/lib/auth/local-auth-service.ts. */
+export interface Credential {
+  salt: string;
+  hash: string;
   updatedAt: string;
 }
 
-// ─── Auth identity / session ─────────────────────────────────────────────────
-
-/** The resolved, UI-facing identity useAuth() exposes — never the raw
- *  AppUser record (which may carry lockout/invite bookkeeping the UI has no
- *  reason to see) and never a credential. */
+/** The UI-facing identity useAuth() exposes — never the lockout bookkeeping
+ *  or the credential. */
 export interface AuthUser {
-  id: string;
-  tenantId: string;
+  username: string;
   name: string;
-  email: string;
-  roleId: string;
-  roleKey: string;
-  recordScope: RoleRecordScope;
-  status: AppUserStatus;
-  teacherId?: string;
-  guardianId?: string;
 }
 
+/** One per browser/device. Every device holding a session acts as the same
+ *  account. */
 export interface AuthSession {
-  userId: string;
   loginAt: string;
   remember: boolean;
+  /** The credential's `updatedAt` when this session was opened — a session
+   *  whose version no longer matches (the password was changed on another
+   *  device) is treated as signed out. */
+  credentialVersion: string;
 }
 
-export type AuthErrorCode =
-  | "invalid_credentials"
-  | "account_inactive"
-  | "account_locked"
-  | "account_invited"
-  | "unknown";
+export type AuthErrorCode = "invalid_credentials" | "account_locked" | "unknown";
 
 export interface AuthResult<T = void> {
   success: boolean;
@@ -126,49 +61,4 @@ export interface AuthResult<T = void> {
   errorMessage?: string;
   /** Set with error "account_locked" so the login form can count down. */
   lockedUntil?: string;
-}
-
-/** Lives ONLY in the store's `credentials` slice — read/write exclusively
- *  from src/lib/auth/local-auth-service.ts. Never attached to an AppUser
- *  object that flows through the Users settings UI. */
-export interface Credential {
-  userId: string;
-  salt: string;
-  hash: string;
-  updatedAt: string;
-}
-
-// ─── Invitations (Phase 2) ───────────────────────────────────────────────────
-// Email delivery is mock-only — no provider is connected. inviteAppUser
-// creates the AppUser (status "invited") AND one Invitation row with a
-// single-use token; the Davetler tab surfaces a "copy link" action instead
-// of actually emailing anything. See LocalAuthService.acceptInvitation.
-
-export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
-
-export interface Invitation {
-  id: string;
-  tenantId: string;
-  token: string;
-  userId: string;
-  email: string;
-  roleId: string;
-  status: InvitationStatus;
-  expiresAt: string;
-  acceptedAt?: string;
-  revokedAt?: string;
-  createdAt: string;
-  createdBy: string;
-}
-
-// ─── Password reset tokens (Phase 2) ─────────────────────────────────────────
-// Same mock-delivery reasoning as Invitation above — requestPasswordReset
-// generates a token and the UI shows/copies the link instead of emailing it.
-
-export interface PasswordResetToken {
-  token: string;
-  userId: string;
-  expiresAt: string;
-  usedAt?: string;
-  createdAt: string;
 }

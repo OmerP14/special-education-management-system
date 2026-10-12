@@ -1,7 +1,6 @@
 "use client";
 
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
@@ -248,9 +247,6 @@ function FinanceSettingsContent() {
             <p className="text-sm text-foreground">Negatif kasa bakiyesinde uyar</p>
             <Switch checked={draft.negativeCashWarning} onCheckedChange={(v) => set("negativeCashWarning", v)} />
           </div>
-          <p className="self-center text-xs text-muted-foreground">
-            Finans ekranlarını kimin göreceği Kullanıcılar ve Roller → Yetki Matrisi&apos;nden yönetilir.
-          </p>
         </div>
       </div>
     </SettingsFormSection>
@@ -258,9 +254,5 @@ function FinanceSettingsContent() {
 }
 
 export default function FinanceSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="finance">
-      <FinanceSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <FinanceSettingsContent />;
 }

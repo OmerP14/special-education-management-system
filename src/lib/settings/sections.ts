@@ -7,7 +7,6 @@ import {
   Banknote,
   UsersRound,
   Bell,
-  UserCog,
   Database,
   Palette,
   ShieldCheck,
@@ -16,16 +15,8 @@ import {
 } from "lucide-react";
 import type { InstitutionSettingsKey, SettingsSectionKey } from "@/types/settings";
 
-// ─── Permission-ready section registry ──────────────────────────────────────
-//
-// The full roles/permissions engine doesn't exist yet (see permissions.ts —
-// canAccessSettingsSection is the one, centralized place that reads this
-// metadata today). What's built here is the part that has to exist BEFORE a
-// real engine can be dropped in without a redesign: every section already
-// declares its required permission key, and whether it's owner-only,
-// finance-sensitive, or system-sensitive — so wiring a real role→permission
-// matrix later is a change to canAccessSettingsSection's *implementation*,
-// never to every settings page that calls it.
+// ─── Settings section registry ──────────────────────────────────────────────
+// One entry per Ayarlar page — drives the settings nav and overview cards.
 
 export interface SettingsSectionMeta {
   key: SettingsSectionKey;
@@ -33,11 +24,6 @@ export interface SettingsSectionMeta {
   description: string;
   href: string;
   icon: LucideIcon;
-  /** Not enforced by a real permission engine yet — see canAccessSettingsSection. */
-  permissionKey: string;
-  ownerOnly: boolean;
-  financeSensitive: boolean;
-  systemSensitive: boolean;
 }
 
 export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
@@ -47,10 +33,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Kurum adı, logo, iletişim ve resmi bilgiler",
     href: "/app/settings/institution",
     icon: Building2,
-    permissionKey: "settings.institution.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "educationTypes",
@@ -58,10 +40,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Süre, ücret ve renk ayarlarını yönetin",
     href: "/app/settings/education-types",
     icon: GraduationCap,
-    permissionKey: "settings.education_types.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "sessions",
@@ -69,10 +47,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Süre, çakışma ve otomatik tamamlanma kuralları",
     href: "/app/settings/sessions",
     icon: CalendarClock,
-    permissionKey: "settings.sessions.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "calendar",
@@ -80,10 +54,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Çalışma günleri, saatleri ve takvim görünümü",
     href: "/app/settings/calendar",
     icon: CalendarDays,
-    permissionKey: "settings.calendar.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "finance",
@@ -91,10 +61,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Para birimi, ödeme yöntemleri ve kasa kuralları",
     href: "/app/settings/finance",
     icon: Wallet,
-    permissionKey: "settings.finance.manage",
-    ownerOnly: true,
-    financeSensitive: true,
-    systemSensitive: false,
   },
   {
     key: "teacherEarnings",
@@ -102,10 +68,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Kurum geneli hakediş politikaları ve varsayılanlar",
     href: "/app/settings/teacher-earnings",
     icon: Banknote,
-    permissionKey: "settings.teacher_earnings.manage",
-    ownerOnly: true,
-    financeSensitive: true,
-    systemSensitive: false,
   },
   {
     key: "students",
@@ -113,10 +75,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Kayıt kuralları ve zorunlu alanlar",
     href: "/app/settings/students",
     icon: UsersRound,
-    permissionKey: "settings.students.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "notifications",
@@ -124,21 +82,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Kanal, olay ve hatırlatma tercihleri",
     href: "/app/settings/notifications",
     icon: Bell,
-    permissionKey: "settings.notifications.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
-  },
-  {
-    key: "users",
-    label: "Kullanıcılar ve Roller",
-    description: "Ekip üyeleri, davetler ve rol etiketleri",
-    href: "/app/settings/users",
-    icon: UserCog,
-    permissionKey: "settings.users.manage",
-    ownerOnly: true,
-    financeSensitive: false,
-    systemSensitive: true,
   },
   {
     key: "data",
@@ -146,10 +89,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "İçe aktarım, dışa aktarım, yedekleme ve veri sağlığı",
     href: "/app/settings/data",
     icon: Database,
-    permissionKey: "settings.data.manage",
-    ownerOnly: true,
-    financeSensitive: false,
-    systemSensitive: true,
   },
   {
     key: "appearance",
@@ -157,10 +96,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Marka, belge şablonları ve arayüz yoğunluğu",
     href: "/app/settings/appearance",
     icon: Palette,
-    permissionKey: "settings.appearance.manage",
-    ownerOnly: false,
-    financeSensitive: false,
-    systemSensitive: false,
   },
   {
     key: "security",
@@ -168,10 +103,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Sabit sistem kuralları, işlem geçmişi ve onay kuralları",
     href: "/app/settings/security",
     icon: ShieldCheck,
-    permissionKey: "settings.security.manage",
-    ownerOnly: true,
-    financeSensitive: false,
-    systemSensitive: true,
   },
   {
     key: "audit",
@@ -179,10 +110,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Kurum genelindeki değişikliklerin kaydı",
     href: "/app/settings/audit",
     icon: History,
-    permissionKey: "settings.audit.view",
-    ownerOnly: true,
-    financeSensitive: false,
-    systemSensitive: true,
   },
 ];
 

@@ -24,9 +24,8 @@ interface PersistedEnvelope<T> {
 // ─── Cross-tab safety ───────────────────────────────────────────────────────
 //
 // Every open tab holds the whole store in memory and writes it back on each
-// change. Without coordination a tab left open on an old snapshot (e.g. the
-// admin tab that sent an invite) silently overwrites what another tab just
-// saved (the accepted invite). So: once another tab writes, this tab stops
+// change. Without coordination a tab left open on an old snapshot silently
+// overwrites what another tab just saved. So: once another tab writes, this tab stops
 // writing and reloads to pick the new snapshot up. Writes whose data didn't
 // actually change are skipped, so a reload's first save never bounces back
 // and reloads the other tab in turn.

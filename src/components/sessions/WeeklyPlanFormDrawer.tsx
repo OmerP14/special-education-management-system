@@ -42,8 +42,10 @@ import {
 } from "@/components/sessions/WeeklyPlanConflictWarning";
 import {
   getConflictOptions,
-  getDefaultSessionDuration,
   getWeeklySlotIssues,
+  lessonDuration,
+  LESSON_COUNT_OPTIONS,
+  lessonCountLabel,
   partitionDatesByHoliday,
 } from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
@@ -76,6 +78,8 @@ interface FormState {
   educationTypeId: string;
   studentPrice: number;
   teacherEarning: number;
+  /** 1 = tek ders, 2 = blok ders (applies to every generated session). */
+  lessonCount: number;
   startDate: string;
   endDate: string;
   schedule: DaySchedule[];
@@ -89,6 +93,7 @@ function buildEmptyForm(): FormState {
     educationTypeId: "",
     studentPrice: 0,
     teacherEarning: 0,
+    lessonCount: 1,
     startDate: "",
     endDate: "",
     schedule: ALL_DAYS.map((d) => ({ ...d, enabled: false, time: "09:00" })),
@@ -107,6 +112,7 @@ function buildFromPlan(plan: WeeklySessionPlan): FormState {
     educationTypeId: plan.educationTypeId,
     studentPrice: plan.studentPrice,
     teacherEarning: plan.teacherEarning,
+    lessonCount: plan.lessonCount ?? 1,
     startDate: plan.startDate,
     endDate: plan.endDate,
     schedule,
@@ -260,13 +266,9 @@ export function WeeklyPlanFormDrawer({
   );
   const skippedDuplicateCount = duplicateTimestamps.size;
 
-  // Generated sessions take the education type's duration (or Ayarlar → Seans
-  // default) and skip holidays (Ayarlar → Takvim → Resmi Tatiller).
-  const planDuration = getDefaultSessionDuration(
-    form.educationTypeId,
-    store.educationTypes,
-    store.institutionSettings.sessions
-  );
+  // Generated sessions are 40 min (80 for a block lesson) and skip holidays
+  // (Ayarlar → Takvim → Resmi Tatiller).
+  const planDuration = lessonDuration(form.lessonCount);
   const { datesToKeep: datesAfterHolidays, holidaySkips } = useMemo(
     () =>
       isEditing
@@ -296,8 +298,8 @@ export function WeeklyPlanFormDrawer({
   );
 
   // ── Financial preview ─────────────────────────────────────────────────────
-  const totalBilling = datesToCreate.length * form.studentPrice;
-  const totalTeacherEarning = datesToCreate.length * form.teacherEarning;
+  const totalBilling = datesToCreate.length * form.lessonCount * form.studentPrice;
+  const totalTeacherEarning = datesToCreate.length * form.lessonCount * form.teacherEarning;
   const totalCenterProfit = totalBilling - totalTeacherEarning;
 
   // ── Weekly count validation ────────────────────────────────────────────────
@@ -377,6 +379,7 @@ export function WeeklyPlanFormDrawer({
         educationTypeId: form.educationTypeId,
         studentPrice: form.studentPrice,
         teacherEarning: form.teacherEarning,
+        lessonCount: form.lessonCount,
         startDate: form.startDate,
         endDate: form.endDate,
         weeklySchedule: activeSlots.map((s) => ({ dayOfWeek: s.dayOfWeek, time: s.time })),
@@ -395,6 +398,7 @@ export function WeeklyPlanFormDrawer({
         educationTypeId: form.educationTypeId,
         studentPrice: form.studentPrice,
         teacherEarning: form.teacherEarning,
+        lessonCount: form.lessonCount,
         startDate: form.startDate,
         endDate: form.endDate,
         weeklySchedule: activeSlots.map((s) => ({ dayOfWeek: s.dayOfWeek, time: s.time })),
@@ -415,7 +419,7 @@ export function WeeklyPlanFormDrawer({
           educationTypeId: form.educationTypeId,
           date: dateStr,
           durationMinutes: planDuration,
-          sessionCount: 1,
+          sessionCount: form.lessonCount,
           studentPrice: form.studentPrice,
           teacherEarning: form.teacherEarning,
           status: "planned",
@@ -581,7 +585,7 @@ export function WeeklyPlanFormDrawer({
         {/* Seans Ücreti + Hakediş */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="plan-student-price">Seans Ücreti ({getCurrencySymbol()})</Label>
+            <Label htmlFor="plan-student-price">Ders Ücreti ({getCurrencySymbol()})</Label>
             <NumericInput
               id="plan-student-price"
               min={0}
@@ -600,8 +604,37 @@ export function WeeklyPlanFormDrawer({
           </div>
         </div>
         <p className="text-xs text-muted-foreground -mt-2">
-          Öğretmen anlaşmasına göre otomatik doldurulur. Gerekirse düzenleyin.
+          Ders başı tutarlar; öğretmen anlaşmasına göre otomatik doldurulur. Gerekirse düzenleyin.
+          {form.lessonCount > 1 && ` Blok derste her seans ${form.lessonCount} ders olarak ücretlendirilir.`}
         </p>
+
+        {/* Ders: tek / blok */}
+        <div className="space-y-1.5">
+          <Label>Ders</Label>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Ders">
+            {LESSON_COUNT_OPTIONS.map((count) => (
+              <button
+                key={count}
+                type="button"
+                role="radio"
+                aria-checked={form.lessonCount === count}
+                disabled={isEditing}
+                onClick={() => set("lessonCount", count)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                  form.lessonCount === count
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                )}
+              >
+                {lessonCountLabel(count)}
+              </button>
+            ))}
+          </div>
+          {isEditing && (
+            <p className="text-xs text-muted-foreground">Planın oluşturduğu seanslar değişmez; ders türü yalnızca yeni planda seçilir.</p>
+          )}
+        </div>
 
         <Separator />
 
@@ -660,6 +693,7 @@ export function WeeklyPlanFormDrawer({
                 {day.enabled && (
                   <Input
                     type="time"
+                    step={300}
                     value={day.time}
                     onChange={(e) => setDayTime(day.dayOfWeek, e.target.value)}
                     className="w-28 h-8 text-sm"

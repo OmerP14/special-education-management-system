@@ -2,7 +2,6 @@
 
 import { Lock } from "lucide-react";
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { Switch } from "@/components/ui/switch";
 import type { SecuritySettings } from "@/types/settings";
@@ -71,7 +70,7 @@ function SecuritySettingsContent() {
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
               <div>
                 <p className="text-sm text-foreground">Hassas işlemlerde onay iste</p>
-                <p className="text-xs text-muted-foreground">Silme ve kullanıcı/rol pasifleştirme öncesi.</p>
+                <p className="text-xs text-muted-foreground">Silme ve pasifleştirme işlemlerinden önce.</p>
               </div>
               <Switch
                 checked={draft.confirmSensitiveActions}
@@ -104,9 +103,5 @@ function SecuritySettingsContent() {
 }
 
 export default function SecuritySettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="security">
-      <SecuritySettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <SecuritySettingsContent />;
 }

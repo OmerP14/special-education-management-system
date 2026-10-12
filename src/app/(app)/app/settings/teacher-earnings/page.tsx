@@ -1,7 +1,6 @@
 "use client";
 
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -271,9 +270,5 @@ function TeacherEarningsSettingsContent() {
 }
 
 export default function TeacherEarningsSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="teacherEarnings">
-      <TeacherEarningsSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <TeacherEarningsSettingsContent />;
 }

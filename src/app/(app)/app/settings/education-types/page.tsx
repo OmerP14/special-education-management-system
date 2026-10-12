@@ -133,17 +133,6 @@ export default function EducationTypesSettingsPage() {
       ),
     },
     {
-      key: "duration",
-      header: "Varsayılan Süre",
-      render: (row) => (
-        <span className="tabular-nums text-muted-foreground">
-          {row.defaultDurationMinutes} dk
-        </span>
-      ),
-      className: "hidden sm:table-cell",
-      headerClassName: "hidden sm:table-cell",
-    },
-    {
       key: "price",
       header: "Varsayılan Öğrenci Ücreti",
       render: (row) => (

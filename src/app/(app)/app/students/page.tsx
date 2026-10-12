@@ -12,9 +12,6 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { useAuth } from "@/lib/auth/AuthProvider";
-import { getScopedStudents } from "@/lib/auth/scope";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -40,28 +37,15 @@ const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
 
 export default function StudentsPage() {
   const store = useMockStore();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission("students.create");
-  const canEdit = hasPermission("students.edit");
-  const canSeeFinance = hasPermission("students.view_finance") || hasPermission("finance.student_payments.view");
-  const FINANCE_COLUMNS = new Set(["totalBilled", "totalPaid", "totalDebt"]);
-  const scope = useUserScope();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
-  // Teacher: students reachable through their own sessions/assignments only.
-  // Guardian: linked children only. Owner/manager: everyone. See lib/auth/scope.ts.
-  const scopedStudents = useMemo(
-    () => getScopedStudents(store.students, store.sessions, scope),
-    [store.students, store.sessions, scope]
-  );
-
   const allItems = useMemo(
     () =>
       buildStudentListItems(
-        scopedStudents,
+        store.students,
         store.guardians,
         store.educationTypes,
         store.teachers,
@@ -69,7 +53,7 @@ export default function StudentsPage() {
         store.payments,
         store.openingBalances
       ),
-    [scopedStudents, store.guardians, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
+    [store.students, store.guardians, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
   );
 
   // Ayarlar → Öğrenci ve Veli: inactive students hidden or greyed out; debt
@@ -101,7 +85,7 @@ export default function StudentsPage() {
   const totalDebt = allItems.reduce((sum, s) => sum + s.totalDebt, 0);
 
   const handleEdit = (row: StudentListItem) => {
-    const student = scopedStudents.find((s) => s.id === row.id);
+    const student = store.students.find((s) => s.id === row.id);
     if (student) {
       setEditingStudent(student);
       setDrawerOpen(true);
@@ -113,7 +97,7 @@ export default function StudentsPage() {
     if (!open) setEditingStudent(null);
   };
 
-  const allColumns: Column<StudentListItem>[] = [
+  const columns: Column<StudentListItem>[] = [
     {
       key: "name",
       header: "Öğrenci",
@@ -279,9 +263,6 @@ export default function StudentsPage() {
     },
   ];
 
-  const columns = allColumns.filter(
-    (c) => (canSeeFinance || !FINANCE_COLUMNS.has(c.key)) && (canEdit || c.key !== "edit")
-  );
 
   return (
     <>
@@ -290,12 +271,10 @@ export default function StudentsPage() {
           title="Öğrenciler"
           description={`${activeCount} aktif öğrenci · ${allItems.length} toplam`}
           actions={
-            canCreate ? (
-              <Button size="sm" onClick={() => { setEditingStudent(null); setDrawerOpen(true); }}>
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Öğrenci Ekle
-              </Button>
-            ) : undefined
+            <Button size="sm" onClick={() => { setEditingStudent(null); setDrawerOpen(true); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Öğrenci Ekle
+            </Button>
           }
         />
 
@@ -304,16 +283,12 @@ export default function StudentsPage() {
             { icon: Users, label: "Toplam Öğrenci", value: allItems.length, tone: "primary" },
             { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
             { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" },
-            ...(canSeeFinance
-              ? [
-                  {
-                    icon: AlertCircle,
-                    label: "Toplam Borç",
-                    value: formatCurrency(totalDebt),
-                    tone: totalDebt > 0 ? ("danger" as const) : ("success" as const),
-                  },
-                ]
-              : []),
+            {
+              icon: AlertCircle,
+              label: "Toplam Borç",
+              value: formatCurrency(totalDebt),
+              tone: totalDebt > 0 ? "danger" : "success",
+            },
           ]}
         />
 

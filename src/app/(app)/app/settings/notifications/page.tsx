@@ -1,7 +1,6 @@
 "use client";
 
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Switch } from "@/components/ui/switch";
@@ -28,7 +27,6 @@ const EVENTS: { key: NotificationEventKey; label: string; description: string; r
   { key: "installment_overdue", label: "Taksit Gecikti", description: "Taksit, gecikme toleransını da aşınca." },
   { key: "teacher_earning_created", label: "Öğretmen Hakedişi Oluştu", description: "Bir seans hakediş doğurduğunda." },
   { key: "teacher_payment_made", label: "Öğretmene Ödeme Yapıldı", description: "Öğretmene ödeme kaydedildiğinde." },
-  { key: "user_invited", label: "Kullanıcı Davet Edildi", description: "Yeni kullanıcı davet edildiğinde (yalnızca yöneticiler)." },
 ];
 
 function NotificationSettingsContent() {
@@ -98,9 +96,5 @@ function NotificationSettingsContent() {
 }
 
 export default function NotificationSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="notifications">
-      <NotificationSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <NotificationSettingsContent />;
 }

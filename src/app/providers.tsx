@@ -9,7 +9,7 @@ import { AutoBackupRunner } from "@/components/layout/AutoBackupRunner";
 
 // Wraps the WHOLE app (mounted from the root layout), not just /app/* — both
 // /login and every /app/* route need the same store (LocalAuthService reads
-// appUsers/credentials/roles through it) and the same auth context. Order
+// the account and credential through it) and the same auth context. Order
 // matters: AuthProvider calls useMockStore(), so it must render inside
 // MockDataProvider.
 export function Providers({ children }: { children: ReactNode }) {

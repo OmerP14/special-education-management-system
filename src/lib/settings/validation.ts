@@ -1,4 +1,5 @@
 import type { InstitutionSettingsKey, InstitutionSettings } from "@/types/settings";
+import { BREAK_MINUTE_OPTIONS } from "@/lib/helpers/scheduling-rules";
 
 export type SettingsValidationErrors = Record<string, string>;
 
@@ -60,13 +61,9 @@ export function validateInstitutionSettingsSection<K extends InstitutionSettings
 
   if (key === "sessions") {
     const v = value as InstitutionSettings["sessions"];
-    if (v.minDurationMinutes >= v.maxDurationMinutes) {
-      errors.minDurationMinutes = "Minimum süre, maksimum süreden küçük olmalıdır.";
+    if (!(BREAK_MINUTE_OPTIONS as readonly number[]).includes(v.breakMinutes)) {
+      errors.breakMinutes = "Mola 0 ile 20 dakika arasında, 5'in katı olmalıdır.";
     }
-    if (v.defaultDurationMinutes < v.minDurationMinutes || v.defaultDurationMinutes > v.maxDurationMinutes) {
-      errors.defaultDurationMinutes = "Varsayılan süre, minimum ve maksimum aralığında olmalıdır.";
-    }
-    if (v.defaultDurationMinutes <= 0) errors.defaultDurationMinutes = "Süre 0'dan büyük olmalıdır.";
   }
 
   if (key === "calendar") {

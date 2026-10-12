@@ -1,176 +1,112 @@
-import type { AppUser, AuditLogEntry } from "@/types/settings";
-import type { AuthSession, AuthUser, Credential, Invitation, PasswordResetToken, Role } from "@/types/auth";
+import type { AuditLogEntry } from "@/types/settings";
+import type { Account, AuthSession, AuthUser, Credential } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
 import { validatePasswordPolicy, hashPassword, verifyPassword } from "@/lib/auth/password";
-import { generateToken } from "@/lib/auth/tokens";
-import { getRoleRecordScope } from "@/lib/auth/roles";
 import { LOCKOUT_MINUTES, MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-policy";
-
-const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 // ─── LocalAuthService ────────────────────────────────────────────────────────
 //
 // Today's only AuthService implementation — backed entirely by the mock
-// store (appUsers/credentials/roles) and the fixed rules in
-// lib/auth/security-policy.ts, no
-// network/backend involved. A future SupabaseAuthService implements the same
-// AuthService interface; nothing outside this file (and AuthProvider, which
-// instantiates it) would need to change for that swap.
+// store's single `account` + `credential` and the fixed rules in
+// lib/auth/security-policy.ts, no network involved. A backend-backed service
+// implements the same AuthService interface; nothing outside this file (and
+// AuthProvider, which instantiates it) changes for that swap.
 //
-// A factory (createLocalAuthService), not a class with its own state — it
-// always closes over the CURRENT store snapshot passed in by AuthProvider,
-// matching this codebase's existing ref-based "always read the latest value"
-// pattern in store.tsx (see e.g. appUsersRef there).
+// A factory, not a class with its own state — it always closes over the
+// CURRENT store snapshot passed in by AuthProvider.
+//
+// Several devices may hold a session for the one account at once. A session
+// remembers which password it was opened with (`credentialVersion`), so a
+// password change ends every OTHER device's session while the device that
+// made the change stays signed in.
 
 export interface LocalAuthDeps {
-  appUsers: AppUser[];
-  credentials: Credential[];
-  roles: Role[];
-  invitations: Invitation[];
-  passwordResets: PasswordResetToken[];
+  account: Account;
+  credential: Credential;
   session: AuthSession | null;
-  /** Writes login counters/lockout/activation without a `user_updated`
-   *  audit entry — see the store's saveAuthUserState. */
-  saveAuthUserState: (user: AppUser) => void;
+  /** Writes login counters/lockout without an audit entry. */
+  saveAccountState: (account: Account) => void;
   setCredential: (credential: Credential) => void;
   setAuthSession: (session: AuthSession | null) => void;
-  setInvitation: (invitation: Invitation) => void;
-  setPasswordReset: (token: PasswordResetToken) => void;
   logAuditEvent: (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">) => void;
 }
 
-function resolveRole(deps: LocalAuthDeps, roleId: string): Role | undefined {
-  return deps.roles.find((r) => r.id === roleId);
+const INVALID_MESSAGE = "Kullanıcı adı veya şifre hatalı.";
+
+function toAuthUser(account: Account): AuthUser {
+  return { username: account.username, name: account.name };
 }
 
-function toAuthUser(user: AppUser, role: Role): AuthUser {
-  return {
-    id: user.id,
-    tenantId: user.tenantId,
-    name: user.name,
-    email: user.email,
-    roleId: user.roleId,
-    roleKey: role.key,
-    recordScope: getRoleRecordScope(role),
-    status: user.status,
-    teacherId: user.teacherId,
-    guardianId: user.guardianId,
-  };
+/** Case-insensitive in Turkish and English alike: "ADMIN" lowercases to
+ *  "admın" under tr rules, so dotted and dotless i are folded together. */
+function normalizeUsername(value: string): string {
+  return value.trim().toLocaleLowerCase("tr").replace(/ı/g, "i");
 }
 
 function minutesUntil(iso: string): number {
   return Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000));
 }
 
-function isLockActive(user: AppUser): boolean {
-  return user.status === "locked" && !!user.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now();
+function isLockActive(account: Account): boolean {
+  return !!account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now();
 }
 
-/** Whether an already-open session may keep acting as this user — a
- *  deactivated, re-invited or currently locked account loses it immediately. */
-function canHoldSession(user: AppUser): boolean {
-  return user.status === "active" || (user.status === "locked" && !isLockActive(user));
+function lockedMessage(minutes: number): string {
+  return `Çok sayıda hatalı giriş yapıldı. ${minutes} dakika sonra tekrar deneyin.`;
 }
 
 export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
+  /** Counts one wrong password; `lockedUntil` is set when this one locks. */
+  const registerFailure = (): { attempts: number; lockedUntil?: string } => {
+    const { account } = deps;
+    const expired = !!account.lockedUntil && !isLockActive(account);
+    const attempts = (expired ? 0 : account.failedLoginAttempts ?? 0) + 1;
+    const lockedUntil =
+      attempts >= MAX_FAILED_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString() : undefined;
+    deps.saveAccountState({ ...account, failedLoginAttempts: attempts, lockedUntil, updatedAt: new Date().toISOString() });
+    return { attempts, lockedUntil };
+  };
+
   return {
-    async signIn({ email, password, remember }) {
-      const normalizedEmail = email.trim().toLowerCase();
-      const user = deps.appUsers.find((u) => u.email.toLowerCase() === normalizedEmail);
+    async signIn({ username, password, remember }) {
+      const { account, credential } = deps;
+      const normalized = normalizeUsername(username);
 
-      if (!user) {
-        // Never reveal whether the email exists — same generic message as a
-        // wrong password. recordLabel carries the attempted email (not a
-        // user name, since none resolved) for the audit trail only.
-        deps.logAuditEvent({ userName: email, action: "login_failed", module: "auth", recordLabel: normalizedEmail });
-        return { success: false, error: "invalid_credentials", errorMessage: "E-posta veya şifre hatalı." };
-      }
-
-      // A lock that has already expired unlocks silently on the next attempt
-      // rather than requiring a separate admin "unlock" action.
-      if (isLockActive(user) && user.lockedUntil) {
+      if (isLockActive(account) && account.lockedUntil) {
         return {
           success: false,
           error: "account_locked",
-          lockedUntil: user.lockedUntil,
-          errorMessage: `Hesabınız çok sayıda başarısız girişten sonra kilitlendi. ${minutesUntil(user.lockedUntil)} dakika sonra tekrar deneyin.`,
+          lockedUntil: account.lockedUntil,
+          errorMessage: lockedMessage(minutesUntil(account.lockedUntil)),
         };
       }
-      const isExpiredLock = user.status === "locked" && (!user.lockedUntil || new Date(user.lockedUntil).getTime() <= Date.now());
-      const effectiveStatus = isExpiredLock ? "active" : user.status;
 
-      if (effectiveStatus === "invited") {
-        return { success: false, error: "account_invited", errorMessage: "Hesabınız henüz aktifleştirilmemiş." };
-      }
-      if (effectiveStatus === "inactive") {
-        return { success: false, error: "account_inactive", errorMessage: "Hesabınız pasif durumda. Yöneticinizle iletişime geçin." };
-      }
+      const usernameOk = normalized === normalizeUsername(account.username);
+      // Always verify, so a wrong username and a wrong password take the same path.
+      const passwordOk = await verifyPassword(password, credential);
 
-      const credential = deps.credentials.find((c) => c.userId === user.id);
-      const passwordOk = credential ? await verifyPassword(password, credential) : false;
-
-      if (!passwordOk) {
-        const attempts = (isExpiredLock ? 0 : user.failedLoginAttempts ?? 0) + 1;
-        const willLock = attempts >= MAX_FAILED_LOGIN_ATTEMPTS;
-        const lockedUntil = willLock
-          ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString()
-          : undefined;
-
-        deps.saveAuthUserState({
-          ...user,
-          failedLoginAttempts: attempts,
-          status: willLock ? "locked" : "active",
-          lockedUntil,
-          updatedAt: new Date().toISOString(),
-        });
-
-        if (willLock) {
-          deps.logAuditEvent({ userName: user.name, action: "account_locked", module: "auth", recordLabel: user.email });
-          return {
-            success: false,
-            error: "account_locked",
-            lockedUntil,
-            errorMessage: `Hesabınız çok sayıda başarısız girişten sonra kilitlendi. ${LOCKOUT_MINUTES} dakika sonra tekrar deneyin.`,
-          };
+      if (!usernameOk || !passwordOk) {
+        const { lockedUntil } = registerFailure();
+        if (lockedUntil) {
+          deps.logAuditEvent({ userName: account.name, action: "account_locked", module: "auth", recordLabel: normalized });
+          return { success: false, error: "account_locked", lockedUntil, errorMessage: lockedMessage(LOCKOUT_MINUTES) };
         }
-        deps.logAuditEvent({ userName: user.name, action: "login_failed", module: "auth", recordLabel: user.email });
-        return { success: false, error: "invalid_credentials", errorMessage: "E-posta veya şifre hatalı." };
-      }
-
-      const role = resolveRole(deps, user.roleId);
-      if (!role) {
-        return { success: false, error: "unknown", errorMessage: "Hesabınıza bağlı rol bulunamadı." };
+        deps.logAuditEvent({ userName: account.name, action: "login_failed", module: "auth", recordLabel: normalized });
+        return { success: false, error: "invalid_credentials", errorMessage: INVALID_MESSAGE };
       }
 
       const now = new Date().toISOString();
-      deps.saveAuthUserState({
-        ...user,
-        status: "active",
-        failedLoginAttempts: 0,
-        lockedUntil: undefined,
-        lastLoginAt: now,
-        updatedAt: now,
-      });
-
-      const session: AuthSession = {
-        userId: user.id,
-        loginAt: now,
-        remember: !!remember,
-      };
+      deps.saveAccountState({ ...account, failedLoginAttempts: 0, lockedUntil: undefined, lastLoginAt: now, updatedAt: now });
+      const session: AuthSession = { loginAt: now, remember: !!remember, credentialVersion: credential.updatedAt };
       deps.setAuthSession(session);
-      deps.logAuditEvent({ userName: user.name, action: "login_success", module: "auth", recordLabel: user.email });
-
-      return { success: true, data: { user: toAuthUser(user, role), session } };
+      deps.logAuditEvent({ userName: account.name, action: "login_success", module: "auth" });
+      return { success: true, data: { user: toAuthUser(account), session } };
     },
 
     async signOut() {
-      const userName = deps.session
-        ? deps.appUsers.find((u) => u.id === deps.session!.userId)?.name ?? "Bilinmeyen kullanıcı"
-        : null;
+      const hadSession = !!deps.session;
       deps.setAuthSession(null);
-      if (userName) {
-        deps.logAuditEvent({ userName, action: "logout", module: "auth" });
-      }
+      if (hadSession) deps.logAuditEvent({ userName: deps.account.name, action: "logout", module: "auth" });
     },
 
     getSession() {
@@ -178,45 +114,27 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
     },
 
     getCurrentUser() {
-      if (!deps.session) return null;
-      const user = deps.appUsers.find((u) => u.id === deps.session!.userId);
-      if (!user || !canHoldSession(user)) return null;
-      const role = resolveRole(deps, user.roleId);
-      if (!role) return null;
-      return toAuthUser(user, role);
+      const { session, credential, account } = deps;
+      if (!session || session.credentialVersion !== credential.updatedAt) return null;
+      return toAuthUser(account);
     },
 
-    async changePassword({ userId, currentPassword, newPassword }) {
-      // Only the signed-in user may change their own password.
-      if (!deps.session || deps.session.userId !== userId) {
+    async changePassword({ currentPassword, newPassword }) {
+      const { session, credential, account } = deps;
+      if (!session || session.credentialVersion !== credential.updatedAt) {
         return { success: false, error: "unknown", errorMessage: "Oturum bulunamadı. Lütfen yeniden giriş yapın." };
       }
-      const user = deps.appUsers.find((u) => u.id === userId);
-      const credential = deps.credentials.find((c) => c.userId === userId);
-      if (!user || !credential) {
-        return { success: false, error: "unknown", errorMessage: "Kullanıcı bulunamadı." };
-      }
-      const ok = await verifyPassword(currentPassword, credential);
-      if (!ok) {
+      if (!(await verifyPassword(currentPassword, credential))) {
         // A wrong current password counts like a failed sign-in, so an open
-        // session can't be used to guess the password: the same limit locks
-        // the account and ends the session.
-        const attempts = (user.failedLoginAttempts ?? 0) + 1;
-        const willLock = attempts >= MAX_FAILED_LOGIN_ATTEMPTS;
-        deps.saveAuthUserState({
-          ...user,
-          failedLoginAttempts: attempts,
-          status: willLock ? "locked" : user.status,
-          lockedUntil: willLock ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString() : user.lockedUntil,
-          updatedAt: new Date().toISOString(),
-        });
-        if (willLock) {
-          deps.logAuditEvent({ userName: user.name, action: "account_locked", module: "auth", recordLabel: user.email });
+        // session can't be used to guess the password.
+        const { attempts, lockedUntil } = registerFailure();
+        if (lockedUntil) {
+          deps.logAuditEvent({ userName: account.name, action: "account_locked", module: "auth" });
           deps.setAuthSession(null);
           return {
             success: false,
             error: "account_locked",
-            errorMessage: `Mevcut şifre ${MAX_FAILED_LOGIN_ATTEMPTS} kez hatalı girildi. Hesabınız ${LOCKOUT_MINUTES} dakika kilitlendi.`,
+            errorMessage: `Mevcut şifre ${MAX_FAILED_LOGIN_ATTEMPTS} kez hatalı girildi. Giriş ${LOCKOUT_MINUTES} dakika kilitlendi.`,
           };
         }
         const left = MAX_FAILED_LOGIN_ATTEMPTS - attempts;
@@ -227,105 +145,15 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       }
       const policyError = validatePasswordPolicy(newPassword);
       if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
+
       const { salt, hash } = await hashPassword(newPassword);
       const now = new Date().toISOString();
-      deps.setCredential({ userId, salt, hash, updatedAt: now });
-      if (user.failedLoginAttempts) deps.saveAuthUserState({ ...user, failedLoginAttempts: 0, updatedAt: now });
-      // A reset link requested earlier must not be able to undo this change.
-      deps.passwordResets
-        .filter((t) => t.userId === userId && !t.usedAt)
-        .forEach((t) => deps.setPasswordReset({ ...t, usedAt: now }));
-      deps.logAuditEvent({ userName: user.name, action: "password_changed", module: "auth", recordLabel: user.email });
+      deps.setCredential({ salt, hash, updatedAt: now });
+      // This device stays signed in; every other device's session is now stale.
+      deps.setAuthSession({ ...session, credentialVersion: now });
+      if (account.failedLoginAttempts) deps.saveAccountState({ ...account, failedLoginAttempts: 0, updatedAt: now });
+      deps.logAuditEvent({ userName: account.name, action: "password_changed", module: "auth" });
       return { success: true };
-    },
-
-    async requestPasswordReset(email) {
-      const normalizedEmail = email.trim().toLowerCase();
-      const user = deps.appUsers.find((u) => u.email.toLowerCase() === normalizedEmail);
-      // Always return success — never reveal whether the email exists. If it
-      // does, a token is generated; the /forgot-password page shows a mock
-      // "link" either way so the UI can't be used to enumerate accounts.
-      if (user) {
-        const token: PasswordResetToken = {
-          token: generateToken(),
-          userId: user.id,
-          expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString(),
-          createdAt: new Date().toISOString(),
-        };
-        deps.setPasswordReset(token);
-        return { success: true, data: { token: token.token } };
-      }
-      return { success: true };
-    },
-
-    async resetPassword({ token, newPassword }) {
-      const entry = deps.passwordResets.find((t) => t.token === token);
-      if (!entry || entry.usedAt || new Date(entry.expiresAt).getTime() <= Date.now()) {
-        return { success: false, error: "unknown", errorMessage: "Bağlantının süresi dolmuş veya geçersiz." };
-      }
-      const user = deps.appUsers.find((u) => u.id === entry.userId);
-      if (!user) {
-        return { success: false, error: "unknown", errorMessage: "Kullanıcı bulunamadı." };
-      }
-      const policyError = validatePasswordPolicy(newPassword);
-      if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
-      const { salt, hash } = await hashPassword(newPassword);
-      const now = new Date().toISOString();
-      deps.setCredential({ userId: user.id, salt, hash, updatedAt: now });
-      // Every outstanding link for this user dies with the one just used.
-      deps.passwordResets
-        .filter((t) => t.userId === user.id && !t.usedAt)
-        .forEach((t) => deps.setPasswordReset({ ...t, usedAt: now }));
-      // Proving ownership of the mailbox clears a brute-force lockout too.
-      if (user.status === "locked" || user.failedLoginAttempts) {
-        deps.saveAuthUserState({
-          ...user,
-          status: user.status === "locked" ? "active" : user.status,
-          failedLoginAttempts: 0,
-          lockedUntil: undefined,
-          updatedAt: now,
-        });
-      }
-      deps.logAuditEvent({ userName: user.name, action: "password_changed", module: "auth", recordLabel: user.email });
-      return { success: true };
-    },
-
-    async acceptInvitation({ token, password }) {
-      const invitation = deps.invitations.find((i) => i.token === token);
-      if (!invitation || invitation.status !== "pending" || new Date(invitation.expiresAt).getTime() <= Date.now()) {
-        return { success: false, error: "unknown", errorMessage: "Davet bağlantısının süresi dolmuş veya geçersiz." };
-      }
-      const user = deps.appUsers.find((u) => u.id === invitation.userId);
-      const role = user ? resolveRole(deps, user.roleId) : undefined;
-      if (!user || !role) {
-        return { success: false, error: "unknown", errorMessage: "Kullanıcı bulunamadı." };
-      }
-      if (user.status !== "invited") {
-        return { success: false, error: "unknown", errorMessage: "Davet bağlantısının süresi dolmuş veya geçersiz." };
-      }
-
-      const now = new Date().toISOString();
-      const policyError = validatePasswordPolicy(password);
-      if (policyError) return { success: false, error: "unknown", errorMessage: policyError };
-      const { salt, hash } = await hashPassword(password);
-      deps.setCredential({ userId: user.id, salt, hash, updatedAt: now });
-      const activatedUser: AppUser = { ...user, status: "active", invitationAcceptedAt: now, updatedAt: now };
-      deps.saveAuthUserState(activatedUser);
-      deps.setInvitation({ ...invitation, status: "accepted", acceptedAt: now });
-
-      const session: AuthSession = {
-        userId: user.id,
-        loginAt: now,
-        remember: true,
-      };
-      deps.setAuthSession(session);
-      deps.logAuditEvent({ userName: user.name, action: "login_success", module: "auth", recordLabel: user.email });
-
-      return { success: true, data: { user: toAuthUser(activatedUser, role), session } };
-    },
-
-    getInvitationByToken(token) {
-      return deps.invitations.find((i) => i.token === token) ?? null;
     },
   };
 }

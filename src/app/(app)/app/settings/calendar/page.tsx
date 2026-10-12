@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
@@ -278,9 +277,5 @@ function CalendarSettingsContent() {
 }
 
 export default function CalendarSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="calendar">
-      <CalendarSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <CalendarSettingsContent />;
 }

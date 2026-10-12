@@ -35,8 +35,10 @@ import {
 import { checkSessionConflict } from "@/lib/helpers/session-conflict";
 import {
   getConflictOptions,
-  getDefaultSessionDuration,
-  getDurationError,
+  getNextStartAfterBreak,
+  lessonDuration,
+  LESSON_COUNT_OPTIONS,
+  lessonCountLabel,
   getScheduleIssues,
   isLateCancellation,
   toLocalDateKey,
@@ -94,7 +96,8 @@ interface FormState {
   educationTypeId: string;
   date: string;
   time: string;
-  durationMinutes: number;
+  /** 1 = tek ders, 2 = blok ders — the session is lessonCount × 40 min. */
+  lessonCount: number;
   studentPrice: number;
   teacherEarningPrice: number;
   status: SessionStatus;
@@ -107,7 +110,7 @@ const EMPTY_FORM: FormState = {
   educationTypeId: "",
   date: "",
   time: "",
-  durationMinutes: 50,
+  lessonCount: 1,
   studentPrice: 0,
   teacherEarningPrice: 0,
   status: "planned",
@@ -125,7 +128,7 @@ function buildFromSession(session: Session): FormState {
     educationTypeId: session.educationTypeId,
     date: dateStr,
     time: timeStr,
-    durationMinutes: session.durationMinutes,
+    lessonCount: session.sessionCount,
     studentPrice: session.studentPrice,
     teacherEarningPrice: session.teacherEarning,
     status: session.status,
@@ -153,13 +156,10 @@ export function SessionFormDrawer({
   const store = useMockStore();
   const isEditing = !!initialData;
 
-  // New sessions prefill from Ayarlar → Seans Ayarları's configured default
-  // duration; editing an existing session always keeps its own stored value.
   const buildInitial = (): FormState => {
     if (initialData) return buildFromSession(initialData);
-    const base = { ...EMPTY_FORM, durationMinutes: store.institutionSettings.sessions.defaultDurationMinutes };
-    if (preselectedStudentId) return { ...base, studentId: preselectedStudentId };
-    return base;
+    if (preselectedStudentId) return { ...EMPTY_FORM, studentId: preselectedStudentId };
+    return EMPTY_FORM;
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
@@ -224,11 +224,10 @@ export function SessionFormDrawer({
     setForm((prev) => {
       const teacher = prev.teacherId ? store.teachers.find((t) => t.id === prev.teacherId) : null;
       const defaultStudent = getDefaultStudentPrice(etId, store.educationTypes);
-      // Prefills only — never touches durationMinutes/studentPrice on any
-      // session that already exists, since this only runs from the form's own
-      // Select onChange (see AGENTS §9: changing the EducationType default
-      // later must not retroactively change existing sessions).
-      const defaultDuration = getDefaultSessionDuration(etId, store.educationTypes, store.institutionSettings.sessions);
+      // Prefills only — never touches studentPrice on any session that
+      // already exists, since this only runs from the form's own Select
+      // onChange (see AGENTS §9: changing the EducationType default later
+      // must not retroactively change existing sessions).
       if (teacher && !isTeacherAssignedToEducationType(teacher.id, etId, store.teacherEducationTypeAssignments)) {
         return {
           ...prev,
@@ -236,7 +235,6 @@ export function SessionFormDrawer({
           teacherId: "",
           studentPrice: defaultStudent,
           teacherEarningPrice: 0,
-          durationMinutes: defaultDuration,
         };
       }
       const teacherEarningPrice = teacher
@@ -247,7 +245,6 @@ export function SessionFormDrawer({
         educationTypeId: etId,
         studentPrice: defaultStudent,
         teacherEarningPrice,
-        durationMinutes: defaultDuration,
       };
     });
   };
@@ -274,6 +271,13 @@ export function SessionFormDrawer({
   };
 
   // ── Scheduling / conflict check ─────────────────────────────────────────────
+  // A lesson is 40 min, a block lesson 80. An existing session whose lesson
+  // count is left alone keeps its stored length (older or imported records
+  // may differ from today's fixed lesson).
+  const durationMinutes =
+    initialData && form.lessonCount === initialData.sessionCount
+      ? initialData.durationMinutes
+      : lessonDuration(form.lessonCount);
   const startsAt = form.date
     ? form.time
       ? `${form.date}T${form.time}:00`
@@ -288,7 +292,7 @@ export function SessionFormDrawer({
       studentId: form.studentId,
       teacherId: form.teacherId,
       startsAt,
-      durationMinutes: form.durationMinutes,
+      durationMinutes,
       excludeSessionId: initialData?.id,
       educationTypeId: form.educationTypeId || undefined,
       fee: form.studentPrice,
@@ -300,7 +304,7 @@ export function SessionFormDrawer({
     form.teacherId,
     form.educationTypeId,
     form.studentPrice,
-    form.durationMinutes,
+    durationMinutes,
     store.sessions,
     store.institutionSettings,
     initialData?.id,
@@ -308,14 +312,25 @@ export function SessionFormDrawer({
 
   // ── Institution rules (Ayarlar → Seans / Takvim) ───────────────────────────
   const sessionSettings = store.institutionSettings.sessions;
-  const durationError = getDurationError(form.durationMinutes, sessionSettings);
+  // "Mola": where the next lesson of this teacher/student can start today.
+  const nextStartAfterBreak =
+    form.date && (form.teacherId || form.studentId)
+      ? getNextStartAfterBreak({
+          sessions: store.sessions,
+          dateKey: form.date,
+          teacherId: form.teacherId || undefined,
+          studentId: form.studentId || undefined,
+          breakMinutes: sessionSettings.breakMinutes,
+          excludeSessionId: initialData?.id,
+        })
+      : null;
   // Only judged when the date/time is being set — an untouched historical
   // session isn't re-flagged just because the calendar settings changed since.
   const scheduleChanged =
     !isEditing || !initialData || new Date(initialData.date).getTime() !== new Date(startsAt ?? "").getTime();
   const scheduleIssues =
     startsAt && form.time && scheduleChanged
-      ? getScheduleIssues(new Date(startsAt), form.durationMinutes, store.institutionSettings.calendar)
+      ? getScheduleIssues(new Date(startsAt), durationMinutes, store.institutionSettings.calendar)
       : [];
   const isNewlyCancelled = isEditing && form.status === "cancelled" && initialData?.status !== "cancelled";
   const lateCancellation = isNewlyCancelled && !!startsAt && isLateCancellation(new Date(startsAt), sessionSettings);
@@ -337,7 +352,6 @@ export function SessionFormDrawer({
     if (isLoss && !lossAcknowledged) return;
     if (isIncompatible && !incompatibilityAcknowledged) return;
     if (conflictResult.hasConflict) return;
-    if (durationError) return;
     if (scheduleIssues.length > 0 && !scheduleAcknowledged) return;
     if (lateCancellation && !lateCancelAcknowledged) return;
 
@@ -352,8 +366,8 @@ export function SessionFormDrawer({
       teacherId: form.teacherId,
       educationTypeId: form.educationTypeId,
       date: dateStr,
-      durationMinutes: form.durationMinutes,
-      sessionCount: initialData?.sessionCount ?? 1,
+      durationMinutes,
+      sessionCount: form.lessonCount,
       studentPrice: form.studentPrice,
       teacherEarning: form.teacherEarningPrice,
       status: isEditing ? form.status : "planned",
@@ -404,8 +418,9 @@ export function SessionFormDrawer({
     ? getStudentGuardian(form.studentId, store.students, store.guardians)
     : null;
 
-  const previewTotal = form.studentPrice;
-  const previewTeacherEarning = form.teacherEarningPrice;
+  // Price and earning are per lesson; a block lesson counts twice.
+  const previewTotal = form.studentPrice * form.lessonCount;
+  const previewTeacherEarning = form.teacherEarningPrice * form.lessonCount;
   const previewCenterProfit = previewTotal - previewTeacherEarning;
   const profitPct = previewTotal > 0 ? Math.round((previewCenterProfit / previewTotal) * 100) : 0;
 
@@ -504,7 +519,6 @@ export function SessionFormDrawer({
       saveDisabled={
         conflictResult.hasConflict ||
         isLockedCompleted ||
-        !!durationError ||
         (scheduleIssues.length > 0 && !scheduleAcknowledged) ||
         (lateCancellation && !lateCancelAcknowledged)
       }
@@ -676,26 +690,52 @@ export function SessionFormDrawer({
             <Input
               id="session-time"
               type="time"
-              step={store.institutionSettings.sessions.timeStepMinutes * 60}
+              step={300}
               value={form.time}
               onChange={(e) => set("time", e.target.value)}
             />
           </div>
         </div>
 
-        {/* Süre — prefilled from the education type's default, always overridable */}
+        {/* Ders: tek ders (40 dk) veya blok ders (2 × 40 dk, arka arkaya) */}
         <div className="space-y-1.5">
-          <Label htmlFor="session-duration">Süre (dakika)</Label>
-          <NumericInput
-            id="session-duration"
-            min={sessionSettings.minDurationMinutes}
-            max={sessionSettings.maxDurationMinutes}
-            integer
-            value={form.durationMinutes}
-            onValueChange={(v) => set("durationMinutes", v ?? 0)}
-            className="w-28"
-          />
-          {durationError && <p className="text-xs text-destructive">{durationError}</p>}
+          <Label>Ders</Label>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Ders">
+            {LESSON_COUNT_OPTIONS.map((count) => (
+              <button
+                key={count}
+                type="button"
+                role="radio"
+                aria-checked={form.lessonCount === count}
+                onClick={() => set("lessonCount", count)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                  form.lessonCount === count
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                )}
+              >
+                {lessonCountLabel(count)}
+              </button>
+            ))}
+          </div>
+          {initialData && durationMinutes !== lessonDuration(form.lessonCount) && (
+            <p className="text-xs text-muted-foreground">Bu kaydın süresi {durationMinutes} dk olarak korunuyor.</p>
+          )}
+          {nextStartAfterBreak && nextStartAfterBreak !== form.time && (
+            <p className="text-xs text-muted-foreground">
+              {sessionSettings.breakMinutes > 0
+                ? `Bu günün son seansı ve ${sessionSettings.breakMinutes} dk mola sonrası ilk saat: `
+                : "Bu günün son seansından sonraki ilk saat: "}
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => set("time", nextStartAfterBreak)}
+              >
+                {nextStartAfterBreak} — kullan
+              </button>
+            </p>
+          )}
         </div>
 
         {/* Takvim kuralları */}
@@ -733,14 +773,18 @@ export function SessionFormDrawer({
 
         {/* Seans Ücreti */}
         <div className="space-y-1.5">
-          <Label htmlFor="student-price">Seans Ücreti ({getCurrencySymbol()})</Label>
+          <Label htmlFor="student-price">Ders Ücreti ({getCurrencySymbol()})</Label>
           <NumericInput
             id="student-price"
             min={0}
             value={form.studentPrice}
             onValueChange={(v) => handleStudentPriceChange(v ?? 0)}
           />
-          <p className="text-xs text-muted-foreground">Veliye yansıyacak seans ücreti</p>
+          <p className="text-xs text-muted-foreground">
+            {form.lessonCount > 1
+              ? `Ders başı ücret — blok derste veliye ${form.lessonCount} × ${formatCurrency(form.studentPrice)} = ${formatCurrency(previewTotal)} yansır`
+              : "Veliye yansıyacak ders ücreti"}
+          </p>
         </div>
 
         {/* Öğretmen Hakedişi */}
@@ -781,7 +825,9 @@ export function SessionFormDrawer({
             className={cn(!earningFieldEnabled && "bg-muted/50 cursor-not-allowed opacity-70")}
           />
           {!manualEarningMode && (
-            <p className="text-xs text-muted-foreground">Öğretmen anlaşmasına göre otomatik hesaplanır.</p>
+            <p className="text-xs text-muted-foreground">
+              Öğretmen anlaşmasına göre ders başı otomatik hesaplanır{form.lessonCount > 1 ? ` (blok derste × ${form.lessonCount})` : ""}.
+            </p>
           )}
         </div>
 

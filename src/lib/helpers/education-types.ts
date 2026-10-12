@@ -124,13 +124,11 @@ export const EDUCATION_TYPE_DELETE_BLOCKED_MESSAGE =
 
 export interface EducationTypeFormValues {
   name: string;
-  defaultDurationMinutes: number;
   defaultStudentPrice: number;
 }
 
 export interface EducationTypeFormErrors {
   name?: string;
-  defaultDurationMinutes?: string;
   defaultStudentPrice?: string;
 }
 
@@ -154,10 +152,6 @@ export function validateEducationTypeForm(
     if (duplicate) {
       errors.name = "Bu isimde bir eğitim türü zaten mevcut.";
     }
-  }
-
-  if (!Number.isFinite(values.defaultDurationMinutes) || values.defaultDurationMinutes <= 0) {
-    errors.defaultDurationMinutes = "Varsayılan süre pozitif bir değer olmalıdır.";
   }
 
   if (!Number.isFinite(values.defaultStudentPrice) || values.defaultStudentPrice < 0) {

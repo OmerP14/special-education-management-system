@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
-import { useAuth } from "@/lib/auth/AuthProvider";
 import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansTab";
 import { StatCard } from "@/components/shared/StatCard";
 import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
@@ -35,9 +34,6 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
 import { getGuardianContactLink } from "@/lib/helpers/student-rules";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { canAccessStudent } from "@/lib/auth/scope";
-import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildStudentDetail,
   formatCurrency,
@@ -323,20 +319,6 @@ interface StudentDetailViewProps {
 
 export function StudentDetailView({ studentId }: StudentDetailViewProps) {
   const store = useMockStore();
-  const scope = useUserScope();
-
-  // Direct-URL scope enforcement — a teacher/guardian hitting another
-  // teacher's/guardian's student id by URL gets this instead of the record,
-  // not just a hidden list row. See lib/auth/scope.ts.
-  if (!canAccessStudent(studentId, scope, store.students, store.sessions)) {
-    return (
-      <UnauthorizedState
-        title="Bu öğrenciye erişim yetkiniz yok"
-        description="Bu öğrenci kaydı hesabınızla ilişkili değil."
-      />
-    );
-  }
-
   return <StudentDetailViewContent studentId={studentId} store={store} />;
 }
 
@@ -345,17 +327,8 @@ function StudentDetailViewContent({
   store,
 }: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
   const confirm = useConfirm();
-  const { hasPermission } = useAuth();
-  const canEdit = hasPermission("students.edit");
-  // A guardian sees their own child's payments (finance.student_payments.view,
-  // scoped); a teacher sees none unless the role grants student finance.
-  const canSeeFinance = hasPermission("students.view_finance") || hasPermission("finance.student_payments.view");
-  const canMarkPaid = hasPermission("finance.installments.manage");
-  const canSeeNotes = hasPermission("students.view_private_notes");
   const [editOpen, setEditOpen] = useState(false);
-  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes).filter(
-    (c) => canSeeFinance || (c.key !== "unitPrice" && c.key !== "total")
-  );
+  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(
     studentId,
     store.students,
@@ -616,7 +589,7 @@ function StudentDetailViewContent({
               key={plan.id}
               plan={plan}
               today={today}
-              onMarkPaid={!canMarkPaid ? undefined : async (planId: string, installmentId: string) => {
+              onMarkPaid={async (planId: string, installmentId: string) => {
                 if (
                   await confirm({
                     kind: "financial",
@@ -851,18 +824,14 @@ function StudentDetailViewContent({
       badge: weeklyPlanCount > 0 ? weeklyPlanCount : undefined,
       content: <StudentWeeklyPlansTab studentId={studentId} />,
     },
-    ...(canSeeFinance
-      ? [
-          {
-            key: "payments",
-            label: "Ödemeler",
-            badge: detail.payments.length + studentPlans.length,
-            content: paymentsContent,
-          },
-          { key: "cari", label: "Cari Hesap", content: cariHesapContent },
-        ]
-      : []),
-    ...(canSeeNotes ? [{ key: "notes", label: "Notlar", content: notesContent }] : []),
+    {
+      key: "payments",
+      label: "Ödemeler",
+      badge: detail.payments.length + studentPlans.length,
+      content: paymentsContent,
+    },
+    { key: "cari", label: "Cari Hesap", content: cariHesapContent },
+    { key: "notes", label: "Notlar", content: notesContent },
   ];
 
   const rawStudent = store.students.find((s) => s.id === studentId);
@@ -928,17 +897,15 @@ function StudentDetailViewContent({
                   <DetailHeaderMeta createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
                 </div>
               </div>
-              {canEdit && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditOpen(true)}
-                  className="shrink-0"
-                >
-                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                  Düzenle
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditOpen(true)}
+                className="shrink-0"
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                Düzenle
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -952,36 +919,31 @@ function StudentDetailViewContent({
             icon={CalendarDays}
             variant="default"
           />
-          {canSeeFinance && (
-            <>
-            <StatCard
-              title="Toplam Tutar"
-              value={formatCurrency(detail.totalBilled)}
-              description="Tahakkuk eden"
-              icon={TrendingUp}
-              variant="default"
-            />
-            <StatCard
-              title="Alınan Ödeme"
-              value={formatCurrency(detail.totalPaid)}
-              description="Tahsil edilen"
-              icon={CreditCard}
-              variant="success"
-            />
-            <StatCard
-              title="Kalan Borç"
-              value={formatCurrency(detail.totalDebt)}
-              description="Ödenmemiş"
-              icon={AlertCircle}
-              variant={detail.totalDebt > 0 ? "danger" : "success"}
-            />
-            </>
-          )}
+          <StatCard
+            title="Toplam Tutar"
+            value={formatCurrency(detail.totalBilled)}
+            description="Tahakkuk eden"
+            icon={TrendingUp}
+            variant="default"
+          />
+          <StatCard
+            title="Alınan Ödeme"
+            value={formatCurrency(detail.totalPaid)}
+            description="Tahsil edilen"
+            icon={CreditCard}
+            variant="success"
+          />
+          <StatCard
+            title="Kalan Borç"
+            value={formatCurrency(detail.totalDebt)}
+            description="Ödenmemiş"
+            icon={AlertCircle}
+            variant={detail.totalDebt > 0 ? "danger" : "success"}
+          />
         </div>
 
         {/* Ayarlar → Öğrenci ve Veli → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
-        {canSeeFinance &&
-          store.institutionSettings.students.debtWarningEnabled &&
+        {store.institutionSettings.students.debtWarningEnabled &&
           detail.totalDebt > 0 &&
           detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">

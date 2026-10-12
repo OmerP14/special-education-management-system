@@ -22,12 +22,6 @@ export function getSettingsSectionStatus(key: SettingsSectionKey, store: Store):
       const activeCount = store.educationTypes.filter((et) => et.status === "active").length;
       return activeCount === 0 ? "attention" : "complete";
     }
-    case "users": {
-      const hasActiveOwner = store.appUsers.some(
-        (u) => store.roles.find((r) => r.id === u.roleId)?.isOwnerRole && u.status === "active"
-      );
-      return hasActiveOwner ? "complete" : "attention";
-    }
     case "data": {
       return store.institutionSettings.dataManagement.lastBackupAt ? "complete" : "attention";
     }

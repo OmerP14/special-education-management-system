@@ -1,7 +1,6 @@
 "use client";
 
 import { useSettingsSection } from "@/hooks/use-settings-section";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -15,12 +14,10 @@ import {
 } from "@/components/ui/select";
 import type {
   SessionSettings,
-  SessionTimeStepMinutes,
   SessionConflictBehavior,
   MakeupSessionBillingBehavior,
 } from "@/types/settings";
-
-const TIME_STEP_OPTIONS: SessionTimeStepMinutes[] = [5, 10, 15, 30];
+import { BREAK_MINUTE_OPTIONS, LESSON_MINUTES, lessonDuration } from "@/lib/helpers/scheduling-rules";
 
 const CONFLICT_BEHAVIOR_LABELS: Record<SessionConflictBehavior, string> = {
   block_full_and_partial: "Tam ve kısmi çakışmayı engelle",
@@ -42,7 +39,7 @@ function SessionSettingsContent() {
   return (
     <SettingsFormSection
       title="Seans Ayarları"
-      description="Seans süresi, çakışma, iptal ve telafi kuralları. Yeni/Düzenle Seans formu, haftalık plan oluşturma ve otomatik tamamlama bu ayarlara göre çalışır."
+      description="Mola, çakışma, iptal ve telafi kuralları. Yeni/Düzenle Seans formu, haftalık plan oluşturma ve otomatik tamamlama bu ayarlara göre çalışır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
@@ -51,62 +48,38 @@ function SessionSettingsContent() {
       onCancel={cancel}
       onReset={resetToDefaults}
     >
-      {/* Duration */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Lesson length + break */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <SettingsField
-          label="Varsayılan Süre (dk)"
-          error={errors.defaultDurationMinutes}
-          description="Eğitim türünün kendi süresi yoksa kullanılır."
+          label="Ders Süresi"
+          description={`Sabit. Blok ders iki dersin arka arkaya yapılmasıdır (${lessonDuration(2)} dk); seans ve haftalık plan formunda seçilir.`}
         >
-          <NumericInput
-            min={1}
-            value={draft.defaultDurationMinutes}
-            onValueChange={(v) => set("defaultDurationMinutes", v ?? 0)}
-          />
+          <p className="flex h-9 items-center rounded-lg border border-border/60 bg-muted/40 px-3 text-sm text-foreground">
+            {LESSON_MINUTES} dakika
+          </p>
         </SettingsField>
         <SettingsField
-          label="Seanslar Arası Mola (dk)"
-          description="Bir öğretmenin art arda iki seansı arasında olması gereken en az süre. 0 = kontrol yok."
+          label="Mola (dk)"
+          error={errors.breakMinutes}
+          description="Aynı öğretmenin veya aynı öğrencinin iki seansı arasında bırakılan süre. Sonraki ders bu moladan sonra eklenebilir. Blok dersin içinde mola yoktur."
         >
-          <NumericInput
-            min={0}
-            value={draft.defaultBreakMinutes}
-            onValueChange={(v) => set("defaultBreakMinutes", v ?? 0)}
-          />
-        </SettingsField>
-        <SettingsField label="Minimum Süre (dk)" error={errors.minDurationMinutes}>
-          <NumericInput
-            min={1}
-            value={draft.minDurationMinutes}
-            onValueChange={(v) => set("minDurationMinutes", v ?? 0)}
-          />
-        </SettingsField>
-        <SettingsField label="Maksimum Süre (dk)">
-          <NumericInput
-            min={1}
-            value={draft.maxDurationMinutes}
-            onValueChange={(v) => set("maxDurationMinutes", v ?? 0)}
-          />
+          <Select
+            value={String(draft.breakMinutes)}
+            onValueChange={(val) => { if (val !== null) set("breakMinutes", Number(val)); }}
+          >
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue>{() => (draft.breakMinutes === 0 ? "Mola yok" : `${draft.breakMinutes} dakika`)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {BREAK_MINUTE_OPTIONS.map((m) => (
+                <SelectItem key={m} value={String(m)}>
+                  {m === 0 ? "Mola yok" : `${m} dakika`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingsField>
       </div>
-
-      <SettingsField label="Zaman Adımı" description="Seans formundaki saat seçicide kullanılan aralık.">
-        <Select
-          value={String(draft.timeStepMinutes)}
-          onValueChange={(val) => { if (val) set("timeStepMinutes", Number(val) as SessionTimeStepMinutes); }}
-        >
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue>{() => `${draft.timeStepMinutes} dakika`}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {TIME_STEP_OPTIONS.map((step) => (
-              <SelectItem key={step} value={String(step)}>
-                {step} dakika
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </SettingsField>
 
       {/* Cancellation notice */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -225,9 +198,5 @@ function SessionSettingsContent() {
 }
 
 export default function SessionSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="sessions">
-      <SessionSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <SessionSettingsContent />;
 }

@@ -1,11 +1,44 @@
-import type { EducationType } from "@/types";
+import type { Session } from "@/types";
 import type { CalendarSettings, InstitutionSettings, SessionSettings } from "@/types/settings";
-import type { CheckSessionConflictParams } from "@/lib/helpers/session-conflict";
+import { CONFLICT_BLOCKING_STATUSES, type CheckSessionConflictParams } from "@/lib/helpers/session-conflict";
 
 // ─── Institution scheduling rules (Ayarlar → Seans / Takvim) ─────────────────
 // Pure helpers shared by the session form, weekly plans and plan extension, so
-// working days, holidays, hours and duration limits are judged the same way
+// working days, holidays, hours and lesson lengths are judged the same way
 // everywhere a session can be created.
+
+// ─── Lessons and breaks ──────────────────────────────────────────────────────
+// A lesson is always 40 minutes. A block lesson is two lessons back to back
+// in ONE session (80 minutes, no break inside, sessionCount 2) — price and
+// teacher earning are per lesson, so every total multiplies by sessionCount.
+// Between two separate sessions of the same teacher or student the
+// institution's "Mola" (Ayarlar → Seans, 0–20 min) is kept.
+
+export const LESSON_MINUTES = 40;
+
+/** 1 = tek ders, 2 = blok ders. */
+export const LESSON_COUNT_OPTIONS = [1, 2] as const;
+export type LessonCount = (typeof LESSON_COUNT_OPTIONS)[number];
+
+export const BREAK_MINUTE_OPTIONS = [0, 5, 10, 15, 20] as const;
+
+/** Session length for a number of back-to-back lessons. */
+export function lessonDuration(lessonCount: number): number {
+  return LESSON_MINUTES * lessonCount;
+}
+
+export function lessonCountLabel(lessonCount: number): string {
+  return lessonCount >= 2
+    ? `Blok ders (${lessonCount} × ${LESSON_MINUTES} = ${lessonDuration(lessonCount)} dk)`
+    : `Tek ders (${LESSON_MINUTES} dk)`;
+}
+
+/** Any saved break value → the nearest allowed choice (0–20, step 5). */
+export function normalizeBreakMinutes(value: number): number {
+  if (!Number.isFinite(value)) return 10;
+  const clamped = Math.min(20, Math.max(0, value));
+  return Math.round(clamped / 5) * 5;
+}
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -57,26 +90,35 @@ export function getScheduleIssues(start: Date, durationMinutes: number, calendar
   return issues;
 }
 
-/** Error text when a duration is outside Ayarlar → Seans min/max, else null. */
-export function getDurationError(durationMinutes: number, sessions: SessionSettings): string | null {
-  if (durationMinutes < sessions.minDurationMinutes) {
-    return `Seans süresi en az ${sessions.minDurationMinutes} dakika olmalıdır.`;
+/**
+ * "HH:MM" where the next session can start on `dateKey`: the end of the last
+ * session (of this teacher or this student) that day plus the break. Null
+ * when neither has a session that day. Only slot-holding sessions count
+ * (CONFLICT_BLOCKING_STATUSES); `excludeSessionId` keeps a session being edited out of its own way.
+ */
+export function getNextStartAfterBreak(params: {
+  sessions: Session[];
+  dateKey: string;
+  teacherId?: string;
+  studentId?: string;
+  breakMinutes: number;
+  excludeSessionId?: string;
+}): string | null {
+  const { sessions, dateKey, teacherId, studentId, breakMinutes, excludeSessionId } = params;
+  let lastEnd: number | null = null;
+  for (const s of sessions) {
+    if (s.id === excludeSessionId) continue;
+    if (!CONFLICT_BLOCKING_STATUSES.includes(s.status)) continue;
+    if (!((teacherId && s.teacherId === teacherId) || (studentId && s.studentId === studentId))) continue;
+    const start = new Date(s.date);
+    if (toLocalDateKey(start) !== dateKey) continue;
+    const end = start.getHours() * 60 + start.getMinutes() + (s.durationMinutes || LESSON_MINUTES);
+    if (lastEnd === null || end > lastEnd) lastEnd = end;
   }
-  if (durationMinutes > sessions.maxDurationMinutes) {
-    return `Seans süresi en fazla ${sessions.maxDurationMinutes} dakika olabilir.`;
-  }
-  return null;
-}
-
-/** Duration a new session/plan starts with: the education type's own default
- *  when it has one, otherwise Ayarlar → Seans → Varsayılan Süre. */
-export function getDefaultSessionDuration(
-  educationTypeId: string | undefined,
-  educationTypes: EducationType[],
-  sessions: SessionSettings
-): number {
-  const fromType = educationTypes.find((et) => et.id === educationTypeId)?.defaultDurationMinutes;
-  return fromType && fromType > 0 ? fromType : sessions.defaultDurationMinutes;
+  if (lastEnd === null) return null;
+  const next = lastEnd + breakMinutes;
+  if (next >= 24 * 60) return null;
+  return `${pad(Math.floor(next / 60))}:${pad(next % 60)}`;
 }
 
 /**
@@ -94,13 +136,13 @@ export function isLateCancellation(start: Date, sessions: SessionSettings, now: 
 /** The conflict options interactive forms derive from Ayarlar → Seans. */
 export function getConflictOptions(
   settings: InstitutionSettings
-): Pick<CheckSessionConflictParams, "preventStudentConflict" | "preventTeacherConflict" | "blockPartialOverlap" | "teacherBreakMinutes"> {
+): Pick<CheckSessionConflictParams, "preventStudentConflict" | "preventTeacherConflict" | "blockPartialOverlap" | "breakMinutes"> {
   const s = settings.sessions;
   return {
     preventStudentConflict: s.preventStudentConflict,
     preventTeacherConflict: s.preventTeacherConflict,
     blockPartialOverlap: s.conflictBehavior === "block_full_and_partial",
-    teacherBreakMinutes: s.defaultBreakMinutes,
+    breakMinutes: s.breakMinutes,
   };
 }
 

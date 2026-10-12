@@ -29,7 +29,6 @@ interface FormState {
   name: string;
   description: string;
   color: string;
-  defaultDurationMinutes: number;
   defaultStudentPrice: number;
   status: EducationTypeStatus;
 }
@@ -39,7 +38,6 @@ function buildEmptyForm(existingCount: number): FormState {
     name: "",
     description: "",
     color: getDefaultEducationTypeColor(existingCount),
-    defaultDurationMinutes: 50,
     defaultStudentPrice: 0,
     status: "active",
   };
@@ -50,7 +48,6 @@ function buildFromEducationType(et: EducationType): FormState {
     name: et.name,
     description: et.description ?? "",
     color: et.color,
-    defaultDurationMinutes: et.defaultDurationMinutes,
     defaultStudentPrice: et.defaultStudentPrice,
     status: et.status,
   };
@@ -121,7 +118,6 @@ export function EducationTypeFormDrawer({
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       color: form.color,
-      defaultDurationMinutes: form.defaultDurationMinutes,
       defaultStudentPrice: form.defaultStudentPrice,
       status: form.status,
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
@@ -204,21 +200,6 @@ export function EducationTypeFormDrawer({
           </div>
         </div>
 
-        {/* Varsayılan Seans Süresi */}
-        <div className="space-y-1.5">
-          <Label htmlFor="et-duration">Varsayılan Seans Süresi (dakika)</Label>
-          <NumericInput
-            id="et-duration"
-            min={1}
-            integer
-            value={form.defaultDurationMinutes}
-            onValueChange={(v) => set("defaultDurationMinutes", v ?? 0)}
-            className="w-32"
-          />
-          {errors.defaultDurationMinutes && (
-            <p className="text-xs text-destructive">{errors.defaultDurationMinutes}</p>
-          )}
-        </div>
 
         {/* Varsayılan Öğrenci Ücreti */}
         <div className="space-y-1.5">

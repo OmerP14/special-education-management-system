@@ -37,9 +37,6 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { canAccessTeacher } from "@/lib/auth/scope";
-import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildTeacherDetail,
   calculateTeacherMonthlyPayable,
@@ -338,19 +335,6 @@ interface TeacherDetailViewProps {
 
 export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
   const store = useMockStore();
-  const scope = useUserScope();
-
-  // Direct-URL scope enforcement — a teacher hitting another teacher's id
-  // by URL gets this instead of the record. See lib/auth/scope.ts.
-  if (!canAccessTeacher(teacherId, scope)) {
-    return (
-      <UnauthorizedState
-        title="Bu öğretmene erişim yetkiniz yok"
-        description="Bu öğretmen kaydı hesabınızla ilişkili değil."
-      />
-    );
-  }
-
   return <TeacherDetailViewContent teacherId={teacherId} store={store} />;
 }
 

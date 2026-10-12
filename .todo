@@ -1,3 +1,7 @@
+NOT (2026-10-12): Roller, yetkiler, davetler ve öğretmen/veli girişleri
+kaldırıldı. Artık tek bir tam yetkili kurum hesabı var (admin / 1). Aşağıdaki
+fazlar tarihsel kayıttır; rol/yetki ile ilgili kısımlar artık geçerli değil.
+
 SETTINGS + AUTH/ROLES/PERMISSIONS — PHASED IMPLEMENTATION TRACKER
 ====================================================
 Read this file top to bottom before doing anything. If resuming a fresh

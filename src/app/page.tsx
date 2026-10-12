@@ -14,11 +14,11 @@ import { resolvePostLoginPath } from "@/lib/settings/landing-page";
 export default function RootPage() {
   const router = useRouter();
   const { institutionSettings } = useMockStore();
-  const { isLoading, permissions } = useAuth();
+  const { isLoading } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
-    router.replace(resolvePostLoginPath(null, institutionSettings.appearance.defaultLandingPage, permissions));
+    router.replace(resolvePostLoginPath(null, institutionSettings.appearance.defaultLandingPage));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 

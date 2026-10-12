@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { Search, Download, X, History } from "lucide-react";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { useMockStore } from "@/lib/mock/store";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
@@ -307,9 +306,5 @@ function AuditLogContent() {
 }
 
 export default function AuditLogPage() {
-  return (
-    <SettingsAccessGuard sectionKey="audit">
-      <AuditLogContent />
-    </SettingsAccessGuard>
-  );
+  return <AuditLogContent />;
 }

@@ -11,11 +11,16 @@ import {
   roundEarning,
 } from "@/lib/helpers/finance";
 import {
-  getDurationError,
+  getConflictOptions,
+  getNextStartAfterBreak,
   getScheduleIssues,
   isLateCancellation,
+  lessonDuration,
+  normalizeBreakMinutes,
   partitionDatesByHoliday,
 } from "@/lib/helpers/scheduling-rules";
+import { validateInstitutionSettingsSection } from "@/lib/settings/validation";
+import { calculateSessionTotal, calculateSessionTeacherEarning } from "@/lib/helpers/finance";
 import {
   canExceedPendingEarning,
   fillCollectionTemplate,
@@ -88,11 +93,24 @@ describe("scheduling rules", () => {
     expect(getScheduleIssues(new Date(2026, 2, 2, 10), 40, cal)).toEqual([]);
   });
 
-  it("enforces min/max duration", () => {
+  it("a lesson is 40 minutes and a block lesson 80", () => {
+    expect(lessonDuration(1)).toBe(40);
+    expect(lessonDuration(2)).toBe(80);
+  });
+
+  it("bills a block lesson as two lessons", () => {
+    const block = session({ durationMinutes: 80, sessionCount: 2, studentPrice: 500, teacherEarning: 300 });
+    expect(calculateSessionTotal(block)).toBe(1000);
+    expect(calculateSessionTeacherEarning(block)).toBe(600);
+  });
+
+  it("defaults the break to 10 minutes and only allows 0–20 in steps of 5", () => {
+    expect(getSettingsDefaults().sessions.breakMinutes).toBe(10);
     const sessions = getSettingsDefaults().sessions;
-    expect(getDurationError(10, sessions)).toContain("en az");
-    expect(getDurationError(200, sessions)).toContain("en fazla");
-    expect(getDurationError(50, sessions)).toBeNull();
+    expect(validateInstitutionSettingsSection("sessions", { ...sessions, breakMinutes: 20 }).breakMinutes).toBeUndefined();
+    expect(validateInstitutionSettingsSection("sessions", { ...sessions, breakMinutes: 25 }).breakMinutes).toBeDefined();
+    expect(validateInstitutionSettingsSection("sessions", { ...sessions, breakMinutes: 7 }).breakMinutes).toBeDefined();
+    expect([normalizeBreakMinutes(45), normalizeBreakMinutes(-3), normalizeBreakMinutes(7)]).toEqual([20, 0, 5]);
   });
 
   it("detects late cancellations only for upcoming sessions", () => {
@@ -110,12 +128,52 @@ describe("scheduling rules", () => {
     expect(result.holidaySkips[0]?.label).toBe("Tatil");
   });
 
-  it("requires the teacher break between sessions", () => {
+  it("requires the break between two sessions of the same teacher", () => {
     const existing = [session({ status: "planned" })]; // 10:00–10:40
     const base = { sessions: existing, studentId: "st2", teacherId: "t1", durationMinutes: 40 };
-    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:45:00", teacherBreakMinutes: 10 }).hasConflict).toBe(true);
-    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:50:00", teacherBreakMinutes: 10 }).hasConflict).toBe(false);
+    const tooClose = checkSessionConflict({ ...base, startsAt: "2026-03-02T10:45:00", breakMinutes: 10 });
+    expect(tooClose.hasConflict).toBe(true);
+    expect(tooClose.message).toBe("Öğretmenin seansları arasında en az 10 dakika mola olmalıdır.");
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:50:00", breakMinutes: 10 }).hasConflict).toBe(false);
     expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:45:00" }).hasConflict).toBe(false);
+  });
+
+  it("requires the break between two sessions of the same student too", () => {
+    const existing = [session({ status: "planned" })]; // st1 with t1, 10:00–10:40
+    const base = { sessions: existing, studentId: "st1", teacherId: "t2", durationMinutes: 40 };
+    const tooClose = checkSessionConflict({ ...base, startsAt: "2026-03-02T10:40:00", breakMinutes: 10 });
+    expect(tooClose.message).toBe("Öğrencinin seansları arasında en az 10 dakika mola olmalıdır.");
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:50:00", breakMinutes: 10 }).hasConflict).toBe(false);
+    // With the student check off, the student side's break doesn't apply.
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:40:00", breakMinutes: 10, preventStudentConflict: false }).hasConflict).toBe(false);
+  });
+
+  it("a block lesson occupies 80 minutes, then the break", () => {
+    const existing = [session({ status: "planned", durationMinutes: 80, sessionCount: 2 })]; // 10:00–11:20
+    const base = { sessions: existing, studentId: "st2", teacherId: "t1", durationMinutes: 40, breakMinutes: 10 };
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T10:50:00" }).hasConflict).toBe(true);
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T11:25:00" }).hasConflict).toBe(true);
+    expect(checkSessionConflict({ ...base, startsAt: "2026-03-02T11:30:00" }).hasConflict).toBe(false);
+  });
+
+  it("forms pass the Mola setting to the conflict check", () => {
+    const s = withSettings((x) => { x.sessions.breakMinutes = 15; });
+    expect(getConflictOptions(s).breakMinutes).toBe(15);
+  });
+
+  it("suggests the next start after the day's last session plus the break", () => {
+    const sessions = [
+      session({ id: "a", date: "2026-03-02T09:00:00", status: "planned" }), // 09:00–09:40
+      session({ id: "b", date: "2026-03-02T09:50:00", durationMinutes: 80, sessionCount: 2, status: "planned" }), // –11:10
+      session({ id: "c", date: "2026-03-02T13:00:00", status: "cancelled" }),
+      session({ id: "d", date: "2026-03-03T15:00:00", status: "planned" }),
+    ];
+    const base = { sessions, dateKey: "2026-03-02", breakMinutes: 10 };
+    expect(getNextStartAfterBreak({ ...base, teacherId: "t1" })).toBe("11:20");
+    expect(getNextStartAfterBreak({ ...base, teacherId: "t1", breakMinutes: 0 })).toBe("11:10");
+    expect(getNextStartAfterBreak({ ...base, teacherId: "t1", excludeSessionId: "b" })).toBe("09:50");
+    expect(getNextStartAfterBreak({ ...base, teacherId: "t9", studentId: "st1" })).toBe("11:20");
+    expect(getNextStartAfterBreak({ ...base, teacherId: "t9", studentId: "st9" })).toBeNull();
   });
 });
 
@@ -227,13 +285,17 @@ describe("student rules", () => {
 describe("settings migration and password policy", () => {
   it("drops removed fields, keeps saved ones and fills new ones", () => {
     const old = {
-      sessions: { defaultDurationMinutes: 45, lateToleranceMinutes: 10 },
+      sessions: { defaultDurationMinutes: 45, defaultBreakMinutes: 15, timeStepMinutes: 15, lateToleranceMinutes: 10 },
       appearance: { darkModeReady: true },
       notifications: { events: { session_upcoming: { enabled: false, reminderMinutesBefore: 30, channels: {} }, system_alert: { enabled: true } } },
     };
     const s = normalizeInstitutionSettings(old);
-    expect(s.sessions.defaultDurationMinutes).toBe(45);
+    // The old break carries over as "Mola"; removed duration/step fields drop.
+    expect(s.sessions.breakMinutes).toBe(15);
+    expect("defaultDurationMinutes" in s.sessions).toBe(false);
+    expect("timeStepMinutes" in s.sessions).toBe(false);
     expect("lateToleranceMinutes" in s.sessions).toBe(false);
+    expect(normalizeInstitutionSettings({ sessions: { defaultBreakMinutes: 30 } }).sessions.breakMinutes).toBe(20);
     expect(s.appearance.theme).toBe("dark");
     expect(s.notifications.events.session_upcoming).toEqual({ enabled: false, reminderMinutesBefore: 30 });
     expect("system_alert" in s.notifications.events).toBe(false);

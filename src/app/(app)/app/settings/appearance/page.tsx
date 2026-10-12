@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { FileText, Palette } from "lucide-react";
 import { useSettingsSection } from "@/hooks/use-settings-section";
 import { useSettingsDirty } from "@/components/settings/settings-dirty-context";
-import { SettingsAccessGuard } from "@/components/settings/SettingsAccessGuard";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
@@ -296,9 +295,5 @@ function AppearanceSettingsContent() {
 }
 
 export default function AppearanceSettingsPage() {
-  return (
-    <SettingsAccessGuard sectionKey="appearance">
-      <AppearanceSettingsContent />
-    </SettingsAccessGuard>
-  );
+  return <AppearanceSettingsContent />;
 }

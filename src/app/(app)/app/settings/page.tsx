@@ -4,8 +4,6 @@ import Link from "next/link";
 import {
   Building2,
   GraduationCap,
-  UserCog,
-  Mail,
   Bell,
   Database,
   History,
@@ -28,13 +26,11 @@ interface OverviewCard {
 
 export default function SettingsOverviewPage() {
   const store = useMockStore();
-  const { institutionSettings, educationTypes, appUsers, auditLog } = store;
+  const { institutionSettings, educationTypes, auditLog } = store;
 
   const institutionComplete =
     getSettingsSectionStatus("institution", store) === "complete";
   const activeEducationTypes = educationTypes.filter((et) => et.status === "active").length;
-  const activeUsers = appUsers.filter((u) => u.status === "active").length;
-  const pendingInvites = appUsers.filter((u) => u.status === "invited").length;
 
   const enabledNotificationEvents = Object.values(institutionSettings.notifications.events).filter(
     (e) => e.enabled
@@ -54,9 +50,6 @@ export default function SettingsOverviewPage() {
   if (!institutionSettings.institution.phone.trim()) missing.push("Kurum telefonu girilmemiş");
   if (!institutionSettings.institution.email.trim()) missing.push("Kurum e-postası girilmemiş");
   if (activeEducationTypes === 0) missing.push("Aktif eğitim türü yok");
-  if (!appUsers.some((u) => store.roles.find((r) => r.id === u.roleId)?.isOwnerRole && u.status === "active")) {
-    missing.push("Aktif sahip (owner) kullanıcı yok");
-  }
 
   const cards: OverviewCard[] = [
     {
@@ -72,20 +65,6 @@ export default function SettingsOverviewPage() {
       label: "Eğitim Türleri",
       value: `${activeEducationTypes} aktif`,
       tone: activeEducationTypes > 0 ? "primary" : "warning",
-    },
-    {
-      href: "/app/settings/users",
-      icon: UserCog,
-      label: "Aktif Kullanıcı",
-      value: String(activeUsers),
-      tone: "primary",
-    },
-    {
-      href: "/app/settings/users",
-      icon: Mail,
-      label: "Bekleyen Davet",
-      value: String(pendingInvites),
-      tone: pendingInvites > 0 ? "warning" : "success",
     },
     {
       href: "/app/settings/notifications",

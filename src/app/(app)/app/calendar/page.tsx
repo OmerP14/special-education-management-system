@@ -21,8 +21,6 @@ import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
 import { CalendarDayView } from "@/components/calendar/CalendarDayView";
 import { CalendarAgendaView } from "@/components/calendar/CalendarAgendaView";
 import { useMockStore } from "@/lib/mock/store";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { getScopedSessions, getScopedStudents, getScopedTeachers } from "@/lib/auth/scope";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   buildCalendarEvents,
@@ -161,17 +159,7 @@ function ChipButton({
 
 export default function CalendarPage() {
   const store = useMockStore();
-  const scope = useUserScope();
   const isMobile = useIsMobile();
-
-  // Teacher: own sessions only. Guardian: linked children's sessions only.
-  // Owner/manager: everyone. See lib/auth/scope.ts.
-  const scopedSessions = useMemo(() => getScopedSessions(store.sessions, scope), [store.sessions, scope]);
-  const scopedStudents = useMemo(
-    () => getScopedStudents(store.students, store.sessions, scope),
-    [store.students, store.sessions, scope]
-  );
-  const scopedTeachers = useMemo(() => getScopedTeachers(store.teachers, scope), [store.teachers, scope]);
 
   // View & navigation — initial view comes from Ayarlar → Takvim ve Çalışma
   // Saatleri's configured default (still freely switchable afterward).
@@ -203,8 +191,8 @@ export default function CalendarPage() {
 
   // Build calendar events
   const allEvents = useMemo(
-    () => buildCalendarEvents(scopedSessions, scopedStudents, scopedTeachers, store.educationTypes),
-    [scopedSessions, scopedStudents, scopedTeachers, store.educationTypes]
+    () => buildCalendarEvents(store.sessions, store.students, store.teachers, store.educationTypes),
+    [store.sessions, store.students, store.teachers, store.educationTypes]
   );
 
   // Apply filters
@@ -228,17 +216,15 @@ export default function CalendarPage() {
   // Relations for selected session
   const selectedRelations = useMemo(() => {
     if (!selectedSessionId) return null;
-    // scopedSessions guards this the same way handleEditFromDetail below
-    // does — a session id that isn't in scope simply resolves to nothing.
     return getCalendarEventRelations(
       selectedSessionId,
-      scopedSessions,
-      scopedStudents,
-      scopedTeachers,
+      store.sessions,
+      store.students,
+      store.teachers,
       store.educationTypes,
       store.guardians
     );
-  }, [selectedSessionId, scopedSessions, scopedStudents, scopedTeachers, store.guardians, store.educationTypes]);
+  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.guardians, store.educationTypes]);
 
   // Navigation
   const navigate = useCallback(
@@ -290,12 +276,12 @@ export default function CalendarPage() {
   // Edit from detail drawer
   const handleEditFromDetail = useCallback(() => {
     if (!selectedSessionId) return;
-    const session = scopedSessions.find((s) => s.id === selectedSessionId);
+    const session = store.sessions.find((s) => s.id === selectedSessionId);
     if (session) {
       setEditingSession(session);
       setEditDrawerOpen(true);
     }
-  }, [selectedSessionId, scopedSessions]);
+  }, [selectedSessionId, store.sessions]);
 
   const handleEditDrawerClose = (open: boolean) => {
     setEditDrawerOpen(open);
@@ -330,7 +316,7 @@ export default function CalendarPage() {
     return days.flatMap((d) => getSessionsForDate(filteredEvents, d));
   }, [view, isMobile, currentDate, weekDays, filteredEvents]);
   const { hourStart, hourEnd } = getVisibleHourRange(calendarSettings, visibleGridEvents);
-  const legend = getCalendarLegend(calendarSettings.colorSource, store.educationTypes, scopedTeachers);
+  const legend = getCalendarLegend(calendarSettings.colorSource, store.educationTypes, store.teachers);
 
   return (
     <>
@@ -475,7 +461,7 @@ export default function CalendarPage() {
                 className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Tüm Öğretmenler</option>
-                {scopedTeachers.map((t) => (
+                {store.teachers.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.fullName}
                   </option>
@@ -489,7 +475,7 @@ export default function CalendarPage() {
                 className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Tüm Öğrenciler</option>
-                {scopedStudents.map((s) => (
+                {store.students.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.fullName}
                   </option>

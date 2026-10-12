@@ -35,7 +35,6 @@ import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { StatCard } from "@/components/shared/StatCard";
-import { useAuth } from "@/lib/auth/AuthProvider";
 import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
@@ -44,9 +43,6 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useMockStore } from "@/lib/mock/store";
 import { getGuardianContactLink } from "@/lib/helpers/student-rules";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { canAccessGuardian } from "@/lib/auth/scope";
-import { UnauthorizedState } from "@/components/auth/UnauthorizedState";
 import {
   buildGuardianDetail,
   formatCurrency,
@@ -453,19 +449,6 @@ interface GuardianDetailViewProps {
 
 export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
   const store = useMockStore();
-  const scope = useUserScope();
-
-  // Direct-URL scope enforcement — a guardian hitting another guardian's id
-  // by URL gets this instead of the record. See lib/auth/scope.ts.
-  if (!canAccessGuardian(guardianId, scope)) {
-    return (
-      <UnauthorizedState
-        title="Bu veliye erişim yetkiniz yok"
-        description="Bu veli kaydı hesabınızla ilişkili değil."
-      />
-    );
-  }
-
   return <GuardianDetailViewContent guardianId={guardianId} store={store} />;
 }
 
@@ -473,24 +456,15 @@ function GuardianDetailViewContent({
   guardianId,
   store,
 }: GuardianDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
-  const { hasPermission } = useAuth();
-  const canEdit = hasPermission("guardians.edit");
-  const canSeeFinance = hasPermission("guardians.view_finance");
-  const canCreateStudent = hasPermission("students.create");
-  const canAddPayment = hasPermission("finance.student_payments.create");
-  const canCreateSession = hasPermission("sessions.create");
-
   // ── Column builders ────────────────────────────────────────────────────────
   const studentColumns = buildStudentColumns(
     store.sessions,
     store.payments,
     store.openingBalances,
     store.educationTypes
-  ).filter((c) => canSeeFinance || (c.key !== "totalBilled" && c.key !== "debt"));
-  const paymentColumns = buildPaymentColumns(store.students);
-  const sessionColumns = buildSessionColumns(store.students, store.teachers, store.educationTypes).filter(
-    (c) => canSeeFinance || c.key !== "total"
   );
+  const paymentColumns = buildPaymentColumns(store.students);
+  const sessionColumns = buildSessionColumns(store.students, store.teachers, store.educationTypes);
 
   // ── Core data ──────────────────────────────────────────────────────────────
   const detail = buildGuardianDetail(
@@ -877,17 +851,15 @@ function GuardianDetailViewContent({
                   </span>
                 )}
               </CardTitle>
-              {canCreateStudent && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs text-muted-foreground hover:text-primary"
-                  onClick={() => setStudentDrawerOpen(true)}
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  Ekle
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-primary"
+                onClick={() => setStudentDrawerOpen(true)}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Ekle
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
@@ -962,11 +934,7 @@ function GuardianDetailViewContent({
                   title="Öğrenci bulunamadı"
                   description="Bu veliye bağlı öğrenci kaydı yok. Yeni öğrenci ekleyebilirsiniz."
                   icon={Users}
-                  action={
-                    canCreateStudent
-                      ? { label: "Öğrenci Ekle", onClick: () => setStudentDrawerOpen(true) }
-                      : undefined
-                  }
+                  action={{ label: "Öğrenci Ekle", onClick: () => setStudentDrawerOpen(true) }}
                 />
               </div>
             )}
@@ -974,8 +942,7 @@ function GuardianDetailViewContent({
         </Card>
       </div>
 
-      {/* Cari Hesap summary — finance, guardians.view_finance only */}
-      {canSeeFinance && (
+      {/* Cari Hesap summary */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1106,7 +1073,6 @@ function GuardianDetailViewContent({
           })()}
         </CardContent>
       </Card>
-      )}
     </div>
   );
 
@@ -1114,7 +1080,6 @@ function GuardianDetailViewContent({
   const notesContent = (
     <div className="space-y-4">
       {/* Add note input */}
-      {canEdit && (
       <Card>
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -1148,7 +1113,6 @@ function GuardianDetailViewContent({
           </div>
         </CardContent>
       </Card>
-      )}
 
       {/* Notes list */}
       {notes.length === 0 ? (
@@ -1178,7 +1142,7 @@ function GuardianDetailViewContent({
                           {note.updatedAt && " (düzenlendi)"}
                         </span>
                       </div>
-                      {canEdit && editingNoteId !== note.id && (
+                      {editingNoteId !== note.id && (
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => {
@@ -1299,7 +1263,7 @@ function GuardianDetailViewContent({
         />
       ),
     },
-    ...(canSeeFinance ? [{
+    {
       key: "payments",
       label: "Ödemeler",
       badge: detail.payments.length,
@@ -1312,7 +1276,7 @@ function GuardianDetailViewContent({
           emptyDescription="Bu veliye bağlı öğrenciler için henüz ödeme kaydı bulunmamaktadır."
         />
       ),
-    }] : []),
+    },
     {
       key: "sessions",
       label: "Seanslar",
@@ -1439,30 +1403,22 @@ function GuardianDetailViewContent({
 
               {/* Quick actions */}
               <div className="flex flex-wrap gap-2 shrink-0">
-                {canEdit && (
-                  <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                    Düzenle
-                  </Button>
-                )}
-                {canCreateStudent && (
-                  <Button size="sm" variant="outline" onClick={() => setStudentDrawerOpen(true)}>
-                    <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-                    Öğrenci Ekle
-                  </Button>
-                )}
-                {canAddPayment && (
-                  <Button size="sm" variant="outline" onClick={() => setPaymentDrawerOpen(true)}>
-                    <CreditCard className="h-3.5 w-3.5 mr-1.5" />
-                    Ödeme Ekle
-                  </Button>
-                )}
-                {canCreateSession && (
-                  <Button size="sm" variant="default" onClick={() => setSessionDrawerOpen(true)}>
-                    <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
-                    Seans Oluştur
-                  </Button>
-                )}
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Düzenle
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setStudentDrawerOpen(true)}>
+                  <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                  Öğrenci Ekle
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPaymentDrawerOpen(true)}>
+                  <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                  Ödeme Ekle
+                </Button>
+                <Button size="sm" variant="default" onClick={() => setSessionDrawerOpen(true)}>
+                  <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+                  Seans Oluştur
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -1477,55 +1433,51 @@ function GuardianDetailViewContent({
             icon={Users}
             variant="default"
           />
-          {canSeeFinance && (
-            <>
-            <StatCard
-              title="Toplam Tahakkuk"
-              value={formatCurrency(detail.totalBilled)}
-              description="Bu veliye bağlı öğrenciler"
-              icon={TrendingUp}
-              variant="default"
-            />
-            <StatCard
-              title="Toplam Tahsilat"
-              value={formatCurrency(detail.totalPaid)}
-              description="Bu veliye ait tahsilat"
-              icon={CreditCard}
-              variant="success"
-            />
-            <StatCard
-              title="Kalan Borç"
-              value={formatCurrency(detail.totalDebt)}
-              description="Bu veliye ait kalan borç"
-              icon={AlertCircle}
-              variant={detail.totalDebt > 0 ? "danger" : "success"}
-            />
-            <StatCard
-              title="Son Ödeme"
-              value={detail.lastPaymentDate ? formatDate(detail.lastPaymentDate) : "Ödeme yok"}
-              description={
-                detail.lastPaymentDate
-                  ? "En son tahsilat tarihi"
-                  : "Henüz tahsilat yapılmadı"
-              }
-              icon={CalendarDays}
-              variant={detail.lastPaymentDate ? "success" : "default"}
-              valueClassName="text-base font-bold tracking-tight text-foreground break-words"
-            />
-            <StatCard
-              title="Yaklaşan Taksit"
-              value={nextInstallmentDate ? formatDate(nextInstallmentDate) : "Taksit yok"}
-              description={
-                nextInstallmentDate
-                  ? "En yakın vadeli taksit"
-                  : "Aktif taksit planı yok"
-              }
-              icon={Landmark}
-              variant={nextInstallmentDate ? "warning" : "default"}
-              valueClassName="text-base font-bold tracking-tight text-foreground break-words"
-            />
-            </>
-          )}
+          <StatCard
+            title="Toplam Tahakkuk"
+            value={formatCurrency(detail.totalBilled)}
+            description="Bu veliye bağlı öğrenciler"
+            icon={TrendingUp}
+            variant="default"
+          />
+          <StatCard
+            title="Toplam Tahsilat"
+            value={formatCurrency(detail.totalPaid)}
+            description="Bu veliye ait tahsilat"
+            icon={CreditCard}
+            variant="success"
+          />
+          <StatCard
+            title="Kalan Borç"
+            value={formatCurrency(detail.totalDebt)}
+            description="Bu veliye ait kalan borç"
+            icon={AlertCircle}
+            variant={detail.totalDebt > 0 ? "danger" : "success"}
+          />
+          <StatCard
+            title="Son Ödeme"
+            value={detail.lastPaymentDate ? formatDate(detail.lastPaymentDate) : "Ödeme yok"}
+            description={
+              detail.lastPaymentDate
+                ? "En son tahsilat tarihi"
+                : "Henüz tahsilat yapılmadı"
+            }
+            icon={CalendarDays}
+            variant={detail.lastPaymentDate ? "success" : "default"}
+            valueClassName="text-base font-bold tracking-tight text-foreground break-words"
+          />
+          <StatCard
+            title="Yaklaşan Taksit"
+            value={nextInstallmentDate ? formatDate(nextInstallmentDate) : "Taksit yok"}
+            description={
+              nextInstallmentDate
+                ? "En yakın vadeli taksit"
+                : "Aktif taksit planı yok"
+            }
+            icon={Landmark}
+            variant={nextInstallmentDate ? "warning" : "default"}
+            valueClassName="text-base font-bold tracking-tight text-foreground break-words"
+          />
         </div>
 
         {/* Planned sessions — informational only, never billed */}

@@ -7,15 +7,15 @@
 // are needed, same as any other domain import.
 //
 // See src/lib/settings/defaults.ts for default values and
-// src/lib/settings/sections.ts for the permission-ready section registry
-// that pairs with SettingsSectionKey below.
+// src/lib/settings/sections.ts for the section registry that pairs with
+// SettingsSectionKey below.
 
 import type { PaymentMethod, StudentStatus } from "@/types";
 
 // ─── Section keys ───────────────────────────────────────────────────────────
 // Every settings nav entry, including ones with no literal InstitutionSettings
-// sub-object (educationTypes/users/data/audit are their own store domains or
-// pure action/log screens, but still need permission metadata + nav status).
+// sub-object (educationTypes/data/audit are their own store domains or pure
+// action/log screens, but still need a nav entry + status).
 
 export type SettingsSectionKey =
   | "institution"
@@ -26,7 +26,6 @@ export type SettingsSectionKey =
   | "teacherEarnings"
   | "students"
   | "notifications"
-  | "users"
   | "data"
   | "appearance"
   | "security"
@@ -57,16 +56,15 @@ export interface InstitutionProfileSettings {
 
 // ─── 2. Seans Ayarları ───────────────────────────────────────────────────────
 
-export type SessionTimeStepMinutes = 5 | 10 | 15 | 30;
 export type SessionConflictBehavior = "block_full_and_partial" | "block_full_only";
 export type MakeupSessionBillingBehavior = "billable" | "non_billable";
 
+/** A lesson is always LESSON_MINUTES (40) long; a block lesson is two
+ *  back-to-back lessons in one session. See lib/helpers/scheduling-rules.ts. */
 export interface SessionSettings {
-  defaultDurationMinutes: number;
-  defaultBreakMinutes: number;
-  minDurationMinutes: number;
-  maxDurationMinutes: number;
-  timeStepMinutes: SessionTimeStepMinutes;
+  /** "Mola": the gap kept between two sessions of the same teacher or the
+   *  same student — one of BREAK_MINUTE_OPTIONS (0–20). */
+  breakMinutes: number;
   autoCompleteEnabled: boolean;
   autoCompleteDelayMinutes: number;
   cancellationMinNoticeHours: number;
@@ -192,8 +190,7 @@ export type NotificationEventKey =
   | "installment_due"
   | "installment_overdue"
   | "teacher_earning_created"
-  | "teacher_payment_made"
-  | "user_invited";
+  | "teacher_payment_made";
 
 export interface NotificationEventConfig {
   enabled: boolean;
@@ -332,40 +329,3 @@ export interface AuditLogEntry {
   newValueSummary?: string;
 }
 
-// ─── Kullanıcılar ve Roller ───────────────────────────────────────────────────
-// Role labeling now lives in src/types/auth.ts (RoleKey/Role) — one canonical
-// role system for the whole app, not a settings-only cosmetic list. AppUser
-// references a role by `roleId` (FK into the seeded Role catalog) rather than
-// carrying a role string of its own.
-
-export type AppUserStatus = "active" | "invited" | "inactive" | "locked";
-
-export interface AppUser {
-  id: string;
-  tenantId: string;
-  name: string;
-  email: string;
-  /** FK into the seeded Role[] catalog — see src/lib/auth/roles.ts. Never a
-   *  raw role string; resolve via getRoleById when a label is needed. */
-  roleId: string;
-  status: AppUserStatus;
-  lastLoginAt?: string;
-  /** Reset to 0 on a successful login; incremented on a bad password.
-   *  LocalAuthService locks the account once this reaches
-   *  MAX_FAILED_LOGIN_ATTEMPTS (lib/auth/security-policy.ts). */
-  failedLoginAttempts?: number;
-  /** Set alongside status:"locked" — LocalAuthService rejects sign-in until
-   *  this passes, then treats the account as unlocked without needing a
-   *  separate "unlock" write. */
-  lockedUntil?: string;
-  invitedAt?: string;
-  invitationAcceptedAt?: string;
-  updatedAt?: string;
-  /** Links this account to its operational identity for future resource
-   *  scoping (Phase 2) — set for teacher-role/guardian-role accounts only.
-   *  Deliberately never a passwordHash/credential field here — see
-   *  Credential in types/auth.ts for where that lives instead. */
-  teacherId?: string;
-  guardianId?: string;
-  createdAt: string;
-}

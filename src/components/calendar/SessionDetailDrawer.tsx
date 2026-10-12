@@ -200,8 +200,8 @@ export function SessionDetailDrawer({
               {formatTime(session.date)}
             </InfoRow>
 
-            <InfoRow icon={Hash} label="Seans Sayısı">
-              {session.sessionCount} seans
+            <InfoRow icon={Hash} label="Ders">
+              {session.sessionCount >= 2 ? `Blok ders · ${session.sessionCount} ders` : "Tek ders"} · {session.durationMinutes} dk
             </InfoRow>
           </div>
 

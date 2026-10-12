@@ -1,9 +1,7 @@
-Şifre (hepsi için): 1
+Kullanıcı adı: admin
+Şifre: 1
 
-Yönetici (Sahip): admin
-Müdür: mudur
-Öğretmen (Ayşe Kaya): ayse.kaya@egitim.com
-Veli (Ahmet Yıldırım): ahmet@gmail.com
-
-Not: Öğretmen ve veli hesapları bağlı oldukları kayıttaki e-postayla giriş yapar.
-E-postayı değiştirmek için Öğretmenler / Veliler sayfasından kaydı düzenleyin.
+Sistemde tek bir kurum hesabı var, tam yetkili. Birden fazla kişi aynı anda,
+farklı cihazlardan bu hesapla girebilir. Kullanıcı adı, görünen ad ve şifre
+Profil sayfasından değiştirilir. Şifre değişince diğer cihazlardaki oturumlar
+kapanır.

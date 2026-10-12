@@ -1,8 +1,5 @@
 import type { InstallmentPlan, Payment, Session, Student, Teacher } from "@/types";
 import type { NotificationEventKey, NotificationSettings } from "@/types/settings";
-import type { CurrentUserScope } from "@/lib/auth/scope";
-import type { PermissionKey } from "@/types/auth";
-import { hasAnyPermission, hasPermission } from "@/lib/auth/permissions";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
 import { getInstallmentDisplayStatus } from "@/lib/helpers/installments";
 
@@ -16,12 +13,8 @@ export interface AppNotification {
   message: string;
   /** Where clicking the notification takes the user. */
   href?: string;
-  /** Scoping: teachers see their own, guardians their children's. */
   studentId?: string;
   teacherId?: string;
-  /** Staff-only notifications (e.g. user invitations) are hidden from
-   *  teacher/guardian accounts. */
-  staffOnly?: boolean;
   createdAt: string;
   readAt?: string;
 }
@@ -41,40 +34,6 @@ export function mergeNotifications(prev: AppNotification[], fresh: AppNotificati
   return [...prev, ...added]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, MAX_NOTIFICATIONS);
-}
-
-/** The permission(s) a role needs to receive each event — any one suffices.
- *  A notification about a module the role cannot open is never shown,
- *  whatever the record scope says. */
-const NOTIFICATION_EVENT_PERMISSIONS: Record<NotificationEventKey, PermissionKey[]> = {
-  session_upcoming: ["sessions.view"],
-  session_auto_completed: ["sessions.view"],
-  session_cancelled: ["sessions.view"],
-  student_no_show: ["sessions.view"],
-  payment_received: ["finance.student_payments.view"],
-  installment_due: ["finance.student_payments.view"],
-  installment_overdue: ["finance.student_payments.view"],
-  teacher_earning_created: ["finance.teacher_earnings.view", "teachers.view_earnings"],
-  teacher_payment_made: ["finance.teacher_earnings.view", "teachers.view_earnings"],
-  user_invited: ["settings.users.manage"],
-};
-
-/** Notifications the signed-in user may see: the role must allow the
- *  event (permissions), then the record must be theirs (lib/auth/scope.ts). */
-export function getVisibleNotifications(
-  notifications: AppNotification[],
-  scope: CurrentUserScope,
-  permissions: PermissionKey[]
-): AppNotification[] {
-  if (!hasPermission(permissions, "notifications.view")) return [];
-  const allowed = notifications.filter((n) => hasAnyPermission(permissions, NOTIFICATION_EVENT_PERMISSIONS[n.event] ?? []));
-  if (scope.isUnrestricted) return allowed;
-  return allowed.filter((n) => {
-    if (n.staffOnly) return false;
-    if (scope.teacherId) return n.teacherId === scope.teacherId;
-    if (scope.guardianId) return !!n.studentId && scope.linkedStudentIds.includes(n.studentId);
-    return false;
-  });
 }
 
 function nameOf<T extends { id: string; fullName: string }>(list: T[], id: string | undefined): string {
@@ -184,7 +143,7 @@ export function collectTimedNotifications(params: {
 export function normalizeNotifications(raw: unknown): AppNotification[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((n): n is Record<string, unknown> => !!n && typeof n === "object")
+    .filter((n): n is Record<string, unknown> => !!n && typeof n === "object" && n.event !== "user_invited")
     .map((n) => {
       if (typeof n.event === "string") return n as unknown as AppNotification;
       // Old shape: { type: "session_auto_completed", sessionId, studentId, teacherId, sessionDate }

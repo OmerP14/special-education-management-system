@@ -18,8 +18,6 @@ import { useSidebar } from "@/components/ui/sidebar";
 import { useMockStore } from "@/lib/mock/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useUserScope } from "@/lib/auth/use-scope";
-import { getVisibleNotifications } from "@/lib/helpers/notifications";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name: string): string {
@@ -38,11 +36,8 @@ interface AppTopbarProps {
 // sidebar's active item is already enough wayfinding).
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
   const store = useMockStore();
-  const scope = useUserScope();
-  const { user, signOut, permissions } = useAuth();
-  // Only what this account may see — events its role allows, then teachers
-  // their own sessions, guardians their children (see getVisibleNotifications).
-  const notifications = getVisibleNotifications(store.notifications, scope, permissions);
+  const { user, signOut } = useAuth();
+  const notifications = store.notifications;
   const markAllNotificationsRead = () =>
     store.markNotificationsRead(notifications.filter((n) => !n.readAt).map((n) => n.id));
   const router = useRouter();
@@ -218,7 +213,7 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">{user?.name}</span>
-                  <span className="text-xs text-muted-foreground">{user?.email}</span>
+                  <span className="text-xs text-muted-foreground">{user?.username}</span>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>

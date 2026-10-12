@@ -4,8 +4,6 @@ import { useEffect, type ReactNode, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SETTINGS_SECTIONS } from "@/lib/settings/sections";
-import { useAuth } from "@/lib/auth/AuthProvider";
-import { canAccessSettingsSection } from "@/lib/auth/permissions";
 import { useMockStore } from "@/lib/mock/store";
 import {
   getSettingsSectionStatus,
@@ -20,12 +18,7 @@ const LAST_SECTION_KEY = "settings-last-section";
 function SettingsNav() {
   const pathname = usePathname();
   const store = useMockStore();
-  const { permissions } = useAuth();
   const { isDirty } = useSettingsDirty();
-
-  const visibleSections = SETTINGS_SECTIONS.filter((s) =>
-    canAccessSettingsSection(permissions, s.key)
-  );
 
   useEffect(() => {
     if (pathname && pathname !== "/app/settings") {
@@ -53,7 +46,7 @@ function SettingsNav() {
       {/* Desktop left nav */}
       <nav className="hidden w-64 shrink-0 lg:block" aria-label="Ayarlar bölümleri">
         <div className="space-y-0.5">
-          {visibleSections.map((section) => {
+          {SETTINGS_SECTIONS.map((section) => {
             const active = pathname === section.href;
             const status = getSettingsSectionStatus(section.key, store);
             return (
@@ -86,7 +79,7 @@ function SettingsNav() {
         className="scrollbar-thin -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:hidden"
         aria-label="Ayarlar bölümleri"
       >
-        {visibleSections.map((section) => {
+        {SETTINGS_SECTIONS.map((section) => {
           const active = pathname === section.href;
           return (
             <Link

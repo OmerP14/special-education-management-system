@@ -1,4 +1,5 @@
 import type { InstitutionSettings, NotificationEventConfig, NotificationEventKey } from "@/types/settings";
+import { normalizeBreakMinutes } from "@/lib/helpers/scheduling-rules";
 
 // The one place every default value lives — getSettingsDefaults() and every
 // "Reset to defaults" action read from here, so a field can never drift
@@ -18,7 +19,6 @@ const DEFAULT_NOTIFICATION_EVENTS: Record<NotificationEventKey, NotificationEven
   installment_overdue: eventConfig(true),
   teacher_earning_created: eventConfig(false),
   teacher_payment_made: eventConfig(true),
-  user_invited: eventConfig(true),
 };
 
 export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
@@ -41,11 +41,7 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     contactPersonEmail: "",
   },
   sessions: {
-    defaultDurationMinutes: 50,
-    defaultBreakMinutes: 10,
-    minDurationMinutes: 15,
-    maxDurationMinutes: 180,
-    timeStepMinutes: 15,
+    breakMinutes: 10,
     autoCompleteEnabled: true,
     autoCompleteDelayMinutes: 60,
     cancellationMinNoticeHours: 24,
@@ -222,6 +218,13 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
   if (!["TRY", "USD", "EUR", "GBP"].includes(defaults.finance.currency)) {
     defaults.finance.currency = fallback.finance.currency;
   }
+
+  // "Seanslar Arası Mola" used to be `defaultBreakMinutes` with no upper
+  // bound; it is now "Mola", one of the fixed 0–20 choices.
+  const oldSessions = source.sessions as { breakMinutes?: unknown; defaultBreakMinutes?: unknown } | undefined;
+  const savedBreak = oldSessions?.breakMinutes ?? oldSessions?.defaultBreakMinutes;
+  if (typeof savedBreak === "number") defaults.sessions.breakMinutes = savedBreak;
+  defaults.sessions.breakMinutes = normalizeBreakMinutes(defaults.sessions.breakMinutes);
 
   // Old "darkModeReady" flag maps onto the real theme switch.
   const oldAppearance = source.appearance as { darkModeReady?: unknown } | undefined;

@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useEffect, useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -16,11 +15,11 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
-  const { signIn, isAuthenticated, isLoading, permissions } = useAuth();
+  const { signIn, isAuthenticated, isLoading } = useAuth();
   const { institutionSettings } = useMockStore();
   const landingPage = institutionSettings.appearance.defaultLandingPage;
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -31,12 +30,12 @@ function LoginForm() {
 
   // Already signed in (or just finished signing in) — don't leave an
   // authenticated visitor sitting on the login form. Also the post-login
-  // redirect itself: it runs once the new user's permissions are known.
+  // redirect itself.
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace(resolvePostLoginPath(next, landingPage, permissions));
+      router.replace(resolvePostLoginPath(next, landingPage));
     }
-  }, [isLoading, isAuthenticated, next, router, landingPage, permissions]);
+  }, [isLoading, isAuthenticated, next, router, landingPage]);
 
   // Live lockout countdown — clears itself once the lock has run out.
   useEffect(() => {
@@ -56,18 +55,18 @@ function LoginForm() {
   const countdown = `${Math.floor(remainingMs / 60_000)}:${String(Math.floor((remainingMs % 60_000) / 1000)).padStart(2, "0")}`;
   const displayedError =
     lockedUntil !== null
-      ? `Hesabınız çok sayıda başarısız girişten sonra kilitlendi. ${countdown} sonra tekrar deneyin.`
+      ? `Çok sayıda hatalı giriş yapıldı. ${countdown} sonra tekrar deneyin.`
       : error;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
-      setError("E-posta ve şifre gereklidir.");
+    if (!username.trim() || !password) {
+      setError("Kullanıcı adı ve şifre gereklidir.");
       return;
     }
     setSubmitting(true);
     setError(null);
-    const result = await signIn({ email: email.trim(), password, remember });
+    const result = await signIn({ username: username.trim(), password, remember });
     setSubmitting(false);
     if (!result.success) {
       setError(result.errorMessage ?? "Giriş yapılamadı.");
@@ -96,28 +95,24 @@ function LoginForm() {
           <form onSubmit={handleSubmit}>
             <CardHeader className="pb-4">
               <CardTitle className="text-base">Giriş Yap</CardTitle>
-              <CardDescription>Hesabınıza erişmek için bilgilerinizi girin.</CardDescription>
+              <CardDescription>Kurum hesabının kullanıcı adı ve şifresiyle girin.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email">E-posta veya kullanıcı adı</Label>
+                <Label htmlFor="username">Kullanıcı adı</Label>
                 <Input
-                  id="email"
+                  id="username"
                   type="text"
-                  placeholder="admin@kurumunuz.com"
+                  placeholder="admin"
                   autoComplete="username"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setError(null); setLockedUntil(null); }}
+                  autoCapitalize="none"
+                  value={username}
+                  onChange={(e) => { setUsername(e.target.value); setError(null); setLockedUntil(null); }}
                   autoFocus
                 />
               </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Şifre</Label>
-                  <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground">
-                    Şifremi unuttum
-                  </Link>
-                </div>
+                <Label htmlFor="password">Şifre</Label>
                 <div className="relative">
                   <Input
                     id="password"
