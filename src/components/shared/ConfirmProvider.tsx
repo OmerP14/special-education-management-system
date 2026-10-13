@@ -10,13 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useMockStore } from "@/lib/mock/store";
-
-/** Which Ayarlar → Güvenlik ve Sistem rule gates a confirmation. */
-export type ConfirmKind = "sensitive" | "financial" | "export";
 
 export interface ConfirmOptions {
-  kind: ConfirmKind;
   title: string;
   description?: string;
   confirmLabel?: string;
@@ -28,30 +23,20 @@ type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
 const ConfirmContext = createContext<ConfirmFn | null>(null);
 
 /**
- * App-wide confirmation dialog. `confirm()` resolves true straight away when
- * the matching rule is off — "Hassas işlemlerde onay iste", "Finansal
- * düzenlemede onay iste", "Veri dışa aktarımında onay iste".
+ * App-wide confirmation dialog. Asking is a fixed rule, not a setting:
+ * deletions and edits to recorded payments ask; exports and prints don't.
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
-  const { security } = useMockStore().institutionSettings;
   const [pending, setPending] = useState<ConfirmOptions | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
   const confirm = useCallback<ConfirmFn>((options) => {
-    const rules = security;
-    const required =
-      options.kind === "sensitive"
-        ? rules.confirmSensitiveActions
-        : options.kind === "financial"
-          ? rules.confirmFinancialEdits
-          : rules.confirmDataExport;
-    if (!required) return Promise.resolve(true);
     resolver.current?.(false);
     setPending(options);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
     });
-  }, [security]);
+  }, []);
 
   const settle = (ok: boolean) => {
     resolver.current?.(ok);

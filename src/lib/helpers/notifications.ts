@@ -1,8 +1,11 @@
 import type { Payment, Session, Student, Teacher } from "@/types";
-import type { NotificationEventKey, NotificationSettings } from "@/types/settings";
+import type { NotificationEventKey } from "@/types/settings";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
 
-// ─── In-app notifications (Ayarlar → Bildirimler) ───────────────────────────
+// ─── In-app notifications ────────────────────────────────────────────────────
+// Fixed rules, not settings: every event below always reaches the bell, and
+// a planned session is announced UPCOMING_SESSION_REMINDER_MINUTES before it
+// starts. External channels (e-posta/SMS/WhatsApp) arrive with the backend.
 
 export interface AppNotification {
   /** Deterministic per event+record, so the same event is never notified twice. */
@@ -21,9 +24,7 @@ export interface AppNotification {
 /** Keeps the bell bounded — oldest notifications beyond this drop off. */
 export const MAX_NOTIFICATIONS = 200;
 
-export function isNotificationEnabled(settings: NotificationSettings, event: NotificationEventKey): boolean {
-  return settings.events[event]?.enabled ?? false;
-}
+export const UPCOMING_SESSION_REMINDER_MINUTES = 60;
 
 /** Adds notifications whose ids aren't present yet, newest kept. */
 export function mergeNotifications(prev: AppNotification[], fresh: AppNotification[]): AppNotification[] {
@@ -41,7 +42,7 @@ function nameOf<T extends { id: string; fullName: string }>(list: T[], id: strin
 
 /** Notification for a session-related event. */
 export function buildSessionNotification(
-  event: Extract<NotificationEventKey, "session_upcoming" | "session_auto_completed" | "session_cancelled" | "student_no_show" | "teacher_earning_created">,
+  event: Extract<NotificationEventKey, "session_upcoming" | "session_auto_completed" | "session_cancelled" | "student_no_show">,
   session: Session,
   students: Student[],
   teachers: Teacher[],
@@ -52,7 +53,6 @@ export function buildSessionNotification(
     session_auto_completed: "Seans otomatik tamamlandı",
     session_cancelled: "Seans iptal edildi",
     student_no_show: "Öğrenci seansa gelmedi",
-    teacher_earning_created: "Öğretmen hakedişi oluştu",
   };
   const when = `${formatDate(session.date)} ${formatTime(session.date)}`;
   return {
@@ -67,40 +67,33 @@ export function buildSessionNotification(
   };
 }
 
-/**
- * Time-based notifications due right now: upcoming-session reminders, when
- * the event is enabled, with the configured lead time.
- */
+/** Time-based notifications due right now: upcoming-session reminders. */
 export function collectTimedNotifications(params: {
-  settings: NotificationSettings;
   sessions: Session[];
   students: Student[];
   teachers: Teacher[];
   now?: Date;
 }): AppNotification[] {
-  const { settings, sessions, students, teachers } = params;
+  const { sessions, students, teachers } = params;
   const now = params.now ?? new Date();
   const out: AppNotification[] = [];
 
-  const upcoming = settings.events.session_upcoming;
-  if (upcoming?.enabled) {
-    const leadMs = (upcoming.reminderMinutesBefore ?? 60) * 60_000;
-    for (const s of sessions) {
-      if (s.status !== "planned") continue;
-      const until = new Date(s.date).getTime() - now.getTime();
-      if (until > 0 && until <= leadMs) {
-        out.push(buildSessionNotification("session_upcoming", s, students, teachers));
-      }
+  const leadMs = UPCOMING_SESSION_REMINDER_MINUTES * 60_000;
+  for (const s of sessions) {
+    if (s.status !== "planned") continue;
+    const until = new Date(s.date).getTime() - now.getTime();
+    if (until > 0 && until <= leadMs) {
+      out.push(buildSessionNotification("session_upcoming", s, students, teachers));
     }
   }
 
   return out;
 }
 
-/** Brings notifications saved by older versions onto the current shape. */
-/** Events whose feature was removed — their stored notifications are dropped. */
-const REMOVED_EVENTS = ["user_invited", "installment_due", "installment_overdue"];
+/** Events that no longer notify — their stored notifications are dropped. */
+const REMOVED_EVENTS = ["user_invited", "installment_due", "installment_overdue", "teacher_earning_created"];
 
+/** Brings notifications saved by older versions onto the current shape. */
 export function normalizeNotifications(raw: unknown): AppNotification[] {
   if (!Array.isArray(raw)) return [];
   return raw

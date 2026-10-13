@@ -4,12 +4,16 @@ import { useEffect, useRef } from "react";
 import { useMockStore } from "@/lib/mock/store";
 import { saveDailyAutoBackup } from "@/lib/mock/persistence";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
+import { initBackupFolder, useBackupFolder, writeBackupToFolder } from "@/lib/backup/backup-folder";
 
 /** Ayarlar → Excel ve Veri Yönetimi → Otomatik yedekleme: keeps one backup
- *  per day in this browser (see saveDailyAutoBackup). Renders nothing. */
+ *  per day in this browser (see saveDailyAutoBackup) and, when a folder was
+ *  chosen, writes the day's file there too, refreshing it every 30 minutes
+ *  so it holds the day's latest data. Renders nothing. */
 export function AutoBackupRunner() {
   const store = useMockStore();
   const enabled = store.institutionSettings.dataManagement.autoBackupEnabled;
+  const { status: folderStatus, location: folderLocation } = useBackupFolder();
   const storeRef = useRef(store);
 
   useEffect(() => {
@@ -17,16 +21,23 @@ export function AutoBackupRunner() {
   });
 
   useEffect(() => {
+    void initBackupFolder();
+  }, []);
+
+  useEffect(() => {
     if (!enabled) return;
-    const run = () => {
-      if (saveDailyAutoBackup(storeRef.current.getBackupSnapshot(), toLocalDateKey(new Date()))) {
-        storeRef.current.recordBackup();
-      }
+    const run = async () => {
+      const today = toLocalDateKey(new Date());
+      const snapshot = storeRef.current.getBackupSnapshot();
+      const inBrowser = saveDailyAutoBackup(snapshot, today);
+      const inFolder = await writeBackupToFolder(snapshot, today);
+      if (inBrowser || inFolder === "created") storeRef.current.recordBackup();
     };
-    run();
-    const timer = setInterval(run, 60 * 60_000);
+    void run();
+    const timer = setInterval(() => void run(), 30 * 60_000);
     return () => clearInterval(timer);
-  }, [enabled]);
+    // Re-run as soon as a folder is chosen, moved or allowed again.
+  }, [enabled, folderStatus, folderLocation]);
 
   return null;
 }

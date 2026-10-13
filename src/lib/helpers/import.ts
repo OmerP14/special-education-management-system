@@ -25,7 +25,7 @@ import type {
   EducationType,
   TeacherEducationTypeAssignment,
 } from "@/types";
-import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, type ParsedSheet } from "@/lib/helpers/import-parse";
+import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, sheetRowNumber, type ParsedSheet } from "@/lib/helpers/import-parse";
 import {
   normalizeName,
   matchStudent,
@@ -138,11 +138,11 @@ const SYSTEM_FIELDS: Record<ImportEntityType, ImportSystemField[]> = {
   sessions: [
     { key: "studentName", label: "Öğrenci", required: true },
     { key: "teacherName", label: "Öğretmen", required: true },
-    { key: "educationType", label: "Eğitim Türü", required: true },
+    { key: "educationType", label: "Eğitim Türü", required: false },
     { key: "date", label: "Tarih", required: true },
     { key: "time", label: "Saat", required: false },
     { key: "sessionCount", label: "Seans Sayısı", required: false },
-    { key: "studentPrice", label: "Öğrenci Birim Fiyatı", required: true },
+    { key: "studentPrice", label: "Öğrenci Birim Fiyatı", required: false },
     { key: "teacherEarning", label: "Öğretmen Hakedişi", required: false },
     { key: "status", label: "Durum", required: false },
     { key: "notes", label: "Notlar", required: false },
@@ -166,8 +166,8 @@ const SYSTEM_FIELDS: Record<ImportEntityType, ImportSystemField[]> = {
     { key: "studentName", label: "Öğrenci", required: true },
     { key: "guardianName", label: "Veli", required: false },
     { key: "amount", label: "Tutar", required: true },
-    { key: "balanceType", label: "Borç / Alacak", required: true },
-    { key: "date", label: "Tarih", required: true },
+    { key: "balanceType", label: "Borç / Alacak", required: false },
+    { key: "date", label: "Tarih", required: false },
     { key: "note", label: "Not", required: false },
   ],
 };
@@ -188,19 +188,22 @@ const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
     "veli adı": "guardianName", "veli": "guardianName", "veli adı soyadı": "guardianName",
     "telefon": "guardianPhone", "veli telefonu": "guardianPhone", "veli telefon": "guardianPhone",
     "notlar": "notes", "not": "notes",
+    "öğrencinin adı soyadı": "fullName", "danışan": "fullName", "danışan adı": "fullName",
+    "anne baba": "guardianName", "veli tel": "guardianPhone", "=cep": "guardianPhone",
   },
   guardians: {
     "ad soyad": "fullName", "veli adı": "fullName", "veli adı soyadı": "fullName", "isim": "fullName",
     "telefon": "phone", "telefon no": "phone", "cep telefonu": "phone",
     "e-posta": "email", "email": "email", "eposta": "email",
     "yakınlık": "relationship", "yakinlik": "relationship",
-    "adres": "address",
+    "adres": "address", "veli telefonu": "phone", "=cep": "phone",
   },
   teachers: {
     "ad soyad": "fullName", "öğretmen adı": "fullName", "öğretmen": "fullName", "isim": "fullName",
     "telefon": "phone",
     "e-posta": "email", "email": "email",
     "durum": "status", "aktif/pasif": "status",
+    "eğitmen": "fullName", "terapist": "fullName", "uzman": "fullName",
   },
   sessions: {
     "öğrenci adı": "studentName", "öğrenci": "studentName",
@@ -213,6 +216,10 @@ const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
     "hakediş": "teacherEarning", "hakediş (₺)": "teacherEarning", "öğretmen hakedişi": "teacherEarning",
     "durum": "status",
     "notlar": "notes", "not": "notes",
+    "danışan": "studentName", "ders tarihi": "date", "seans saati": "time", "ders saati": "time",
+    "ders sayısı": "sessionCount", "eğitmen": "teacherName", "terapist": "teacherName", "uzman": "teacherName",
+    "branş": "educationType", "program": "educationType",
+    "ders ücreti": "studentPrice", "seans ücreti": "studentPrice", "birim fiyat": "studentPrice",
   },
   payments: {
     "öğrenci": "studentName", "öğrenci adı": "studentName",
@@ -220,6 +227,8 @@ const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
     "tarih": "date", "ödeme tarihi": "date",
     "ödeme şekli": "method", "ödeme yöntemi": "method", "yöntem": "method",
     "notlar": "notes", "açıklama": "notes",
+    "ödenen": "amount", "ödenen tutar": "amount", "tahsilat": "amount", "alınan": "amount", "=ödeme": "amount",
+    "tahsilat tarihi": "date", "danışan": "studentName",
   },
   teacherPayments: {
     "öğretmen adı": "teacherName", "öğretmen": "teacherName",
@@ -236,17 +245,82 @@ const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
     "borç/alacak": "balanceType", "borç / alacak": "balanceType", "tür": "balanceType",
     "tarih": "date",
     "not": "note", "açıklama": "note",
+    "kalan": "amount", "kalan borç": "amount", "=borç": "amount", "devir": "amount", "devir bakiyesi": "amount",
+    "güncel bakiye": "amount", "danışan": "studentName",
   },
 };
 
+/** Lower-case, Turkish letters folded to ASCII, currency marks and
+ *  punctuation dropped: "Ödenen Tutar (₺)" → "odenen tutar". */
+export function foldHeader(s: string): string {
+  return s
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[çğıöşü]/g, (c) => ({ ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" })[c]!)
+    .replace(/i̇/g, "i")
+    .replace(/₺|\btl\b|\btry\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** How well a header fits an alias: exact first, then every alias word
+ *  matching a header word in order, either one a prefix of the other
+ *  ("Ödeme Tarihi" ~ "tarih", "Veli Ad Soyad" ~ "veli adı soyadı"); longer
+ *  aliases win ties. An alias written "=x" only matches exactly. */
+function aliasScore(header: string, alias: string): number {
+  const exactOnly = alias.startsWith("=");
+  const a = exactOnly ? alias.slice(1).trim() : alias;
+  if (header === a) return 3000 + a.length;
+  if (exactOnly) return 0;
+  const words = a.split(" ");
+  let i = 0;
+  for (const word of header.split(" ")) {
+    const w = words[i];
+    if (w && (word.startsWith(w) || (word.length >= 2 && w.startsWith(word)))) i++;
+  }
+  return i === words.length ? 2000 + a.length : 0;
+}
+
+/** Words naming a different person than the type's own records: a teachers
+ *  table never takes its name from a "Veli …" or "Öğrenci …" column. */
+const FOREIGN_HEADER_WORDS: Partial<Record<ImportEntityType, string[]>> = {
+  students: ["ogretmen", "terapist", "egitmen"],
+  guardians: ["ogrenci", "ogretmen", "danisan", "terapist"],
+  teachers: ["ogrenci", "veli", "danisan"],
+  payments: ["ogretmen", "terapist", "egitmen"],
+  teacherPayments: ["ogrenci", "veli", "danisan"],
+};
+
+/** Pairs each column with the system field its header fits best — every
+ *  field at most once, the best-fitting column winning. */
 export function suggestColumnMappings(sheet: ParsedSheet, type: ImportEntityType): ImportColumnMapping[] {
-  const aliases = HEADER_ALIASES[type];
+  const aliases = Object.entries(HEADER_ALIASES[type]).map(
+    ([alias, field]) => [(alias.startsWith("=") ? "=" : "") + foldHeader(alias), field] as const
+  );
+  const foreign = FOREIGN_HEADER_WORDS[type] ?? [];
+  const candidates: { col: number; field: string; score: number }[] = [];
+  sheet.headers.forEach((header, col) => {
+    const folded = foldHeader(header);
+    if (!folded) return;
+    const foreignWord = foreign.find((w) => folded.split(" ").some((word) => word.startsWith(w)));
+    for (const [alias, field] of aliases) {
+      if (foreignWord && !alias.includes(foreignWord)) continue;
+      const score = aliasScore(folded, alias);
+      if (score > 0) candidates.push({ col, field, score });
+    }
+  });
+  candidates.sort((a, b) => b.score - a.score || a.col - b.col);
+  const fieldOf = new Map<number, string>();
+  const used = new Set<string>();
+  for (const c of candidates) {
+    if (fieldOf.has(c.col) || used.has(c.field)) continue;
+    fieldOf.set(c.col, c.field);
+    used.add(c.field);
+  }
   return sheet.headers.map((header, i) => {
-    const normalized = header.trim().toLocaleLowerCase("tr-TR");
     const sample = sheet.rows.find((r) => cellToDisplayString(r[i]) !== "");
     return {
       excelColumn: header || `Sütun ${i + 1}`,
-      systemField: aliases[normalized] ?? null,
+      systemField: fieldOf.get(i) ?? null,
       sampleData: sample ? cellToDisplayString(sample[i]) : "",
     };
   });
@@ -363,7 +437,7 @@ export function buildStagedStudentRows(
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const fullName = cellAt(raw, iName);
     const guardianPhone = cellAt(raw, iGuardianPhone);
     const guardianName = cellAt(raw, iGuardianName);
@@ -483,7 +557,7 @@ export function buildStagedGuardianRows(sheet: ParsedSheet, mapping: ImportColum
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const fullName = cellAt(raw, iName);
     const phone = cellAt(raw, iPhone);
 
@@ -541,7 +615,7 @@ export function buildStagedTeacherRows(sheet: ParsedSheet, mapping: ImportColumn
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const fullName = cellAt(raw, iName);
     const phone = cellAt(raw, iPhone);
 
@@ -618,7 +692,7 @@ export function buildStagedSessionRows(
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const studentName = cellAt(raw, iStudent);
     const teacherName = cellAt(raw, iTeacher);
     const eduTypeName = cellAt(raw, iEduType);
@@ -631,15 +705,21 @@ export function buildStagedSessionRows(
 
     if (!studentName) errors.push("'Öğrenci' zorunlu alan boş bırakılamaz");
     if (!teacherName) errors.push("'Öğretmen' zorunlu alan boş bırakılamaz");
-    if (!eduTypeName) errors.push("'Eğitim Türü' zorunlu alan boş bırakılamaz");
     if (!dateStr) errors.push(`Geçersiz veya eksik tarih: '${cellAt(raw, iDate)}'`);
-    if (priceRaw === null) errors.push("'Öğrenci Birim Fiyatı' zorunlu alan boş veya geçersiz");
 
     const studentRes = studentName ? resolveStudentByName(studentName, studentIndex) : null;
     const teacherRes = teacherName ? resolveTeacherByName(teacherName, teacherIndex) : null;
+    // No education type in the file → the institution's first active one.
+    const fallbackEduType = !eduTypeName ? educationTypes.find((et) => et.status === "active") ?? educationTypes[0] ?? null : null;
     const eduType = eduTypeName
       ? educationTypes.find((et) => normalizeName(et.name) === normalizeName(eduTypeName)) ?? null
-      : null;
+      : fallbackEduType;
+    if (!eduTypeName && !eduType) errors.push("Eğitim türü yok ve sistemde tanımlı eğitim türü bulunmuyor");
+    // No price in the file → the education type's price.
+    const priceFromType = priceRaw === null && eduType && eduType.defaultStudentPrice > 0 ? eduType.defaultStudentPrice : null;
+    if (priceRaw === null && priceFromType === null) {
+      errors.push("'Öğrenci Birim Fiyatı' boş ve eğitim türünün tanımlı ücreti yok");
+    }
 
     if (studentRes && !studentRes.student) errors.push(`'${studentName}' adlı öğrenci sistemde bulunamadı`);
     if (teacherRes && !teacherRes.teacher) errors.push(`'${teacherName}' adlı öğretmen sistemde bulunamadı`);
@@ -670,6 +750,8 @@ export function buildStagedSessionRows(
     const issues: string[] = [];
     if (studentRes!.ambiguous) issues.push(`'${studentName}' adında birden fazla öğrenci bulundu; ilk eşleşme kullanılacak`);
     if (teacherRes!.ambiguous) issues.push(`'${teacherName}' adında birden fazla öğretmen bulundu; ilk eşleşme kullanılacak`);
+    if (fallbackEduType) issues.push(`Eğitim türü belirtilmemiş → '${fallbackEduType.name}' kullanıldı`);
+    if (priceFromType !== null) issues.push(`Ücret belirtilmemiş → eğitim türünün ücreti (${priceFromType}) kullanıldı`);
 
     const studentId = studentRes!.student!.id;
     const teacherId = teacherRes!.teacher!.id;
@@ -692,9 +774,12 @@ export function buildStagedSessionRows(
     }
     const startsAt = `${dateStr}T${timeStr}:00`;
     const sessionCount = iCount >= 0 ? Math.max(1, parseCellAsNumber(raw[iCount]) ?? 1) : 1;
-    const studentPrice = priceRaw!;
+    const studentPrice = priceRaw ?? priceFromType!;
     const teacherEarningRaw = iEarning >= 0 ? parseCellAsNumber(raw[iEarning]) : null;
-    const { status, recognized } = iStatus >= 0 ? resolveSessionStatusValue(cellAt(raw, iStatus)) : { status: "planned" as SessionStatus, recognized: true };
+    // No status in the file: a lesson already past was held, a future one is planned.
+    const defaultStatus: SessionStatus = new Date(startsAt).getTime() < Date.now() ? "completed" : "planned";
+    const { status, recognized } =
+      iStatus >= 0 && cellAt(raw, iStatus) ? resolveSessionStatusValue(cellAt(raw, iStatus)) : { status: defaultStatus, recognized: true };
 
     if (iStatus >= 0 && !recognized) {
       issues.push(`Bilinmeyen durum değeri: '${cellAt(raw, iStatus)}' → Planlandı olarak içe aktarılacak`);
@@ -796,7 +881,7 @@ export function buildStagedPaymentRows(
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const studentName = cellAt(raw, iStudent);
     const amount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
     const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
@@ -876,7 +961,7 @@ export function buildStagedTeacherPaymentRows(
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const teacherName = cellAt(raw, iTeacher);
     const amount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
     const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
@@ -960,16 +1045,26 @@ export function buildStagedOpeningBalanceRows(
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
-    const rowNumber = idx + 2;
+    const rowNumber = sheetRowNumber(sheet, idx);
     const studentName = cellAt(raw, iStudent);
-    const amount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
-    const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
-    const displayText = `${studentName || "?"} — ${amount ?? "?"}`;
+    const signedAmount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
+    const amount = signedAmount === null ? null : Math.abs(signedAmount);
+    // No date in the file → the import's devir date (filled in by applyDevirDate).
+    const dateStr = cellAt(raw, iDate) === "" ? "" : parseCellAsDateString(raw[iDate]);
+    const displayText = `${studentName || "?"} — ${signedAmount ?? "?"}`;
+
+    if (studentName && signedAmount === 0) {
+      rows.push({
+        preview: { rowNumber, displayText, status: "warning", issues: ["Bakiye 0 — devir gerekmiyor"], entityMatches: [], include: false },
+        staged: [],
+      });
+      return;
+    }
 
     const errors: string[] = [];
     if (!studentName) errors.push("'Öğrenci' zorunlu alan boş bırakılamaz");
-    if (amount === null || amount <= 0) errors.push("'Tutar' zorunlu alan boş veya geçersiz");
-    if (!dateStr) errors.push(`Geçersiz veya eksik tarih: '${cellAt(raw, iDate)}'`);
+    if (amount === null) errors.push("'Tutar' zorunlu alan boş veya geçersiz");
+    if (dateStr === null) errors.push(`Geçersiz tarih: '${cellAt(raw, iDate)}'`);
 
     const studentRes = studentName ? resolveStudentByName(studentName, studentIndex) : null;
     if (studentRes && !studentRes.student) errors.push(`'${studentName}' adlı öğrenci sistemde bulunamadı`);
@@ -984,7 +1079,11 @@ export function buildStagedOpeningBalanceRows(
     }
 
     const studentId = studentRes!.student!.id;
-    const { type: balanceType, recognized } = resolveOpeningBalanceTypeValue(cellAt(raw, iType));
+    // No Borç/Alacak value: the sign decides (negative = the student's credit).
+    const typeCell = cellAt(raw, iType);
+    const { type: balanceType, recognized } = typeCell
+      ? resolveOpeningBalanceTypeValue(typeCell)
+      : { type: signedAmount! < 0 ? ("credit" as const) : ("debt" as const), recognized: true };
 
     const duplicate = findDuplicateOpeningBalance(studentId, dateStr!, balanceType, openingBalanceDuplicateIndex);
     if (duplicate) {
@@ -1234,6 +1333,8 @@ export function buildFinancialImpact(rows: StagedRow[]): ImportFinancialImpact {
         }
         case "payments": {
           impact.paymentsToCreate++;
+          // History only — the devir balance already accounts for it.
+          if (staged.record.historical) break;
           impact.totalTahsilatImpact += staged.record.amount;
           impact.cashImpact += staged.record.amount;
           impact.remainingBalanceImpact -= staged.record.amount;
@@ -1241,6 +1342,7 @@ export function buildFinancialImpact(rows: StagedRow[]): ImportFinancialImpact {
         }
         case "teacherPayments": {
           impact.teacherPaymentsToCreate++;
+          if (staged.record.historical) break;
           impact.teacherPaymentImpact += staged.record.amount;
           if (!isDeductionPaymentType(staged.record.paymentType)) {
             impact.cashImpact -= staged.record.amount;
@@ -1294,6 +1396,7 @@ interface CommitStore {
   addPayment: (p: Payment) => void;
   addTeacherPayment: (p: TeacherPayment) => void;
   addOpeningBalance: (b: OpeningBalance) => void;
+  setTeacherOpeningBalance: (teacherId: string, balance: Teacher["openingBalance"]) => void;
   addImportBatch: (batch: ImportBatch) => void;
 }
 
@@ -1451,7 +1554,11 @@ export function commitImportBatch(
 export function commitMultiImportBatch(
   taskRowSets: { type: ImportEntityType; rows: StagedRow[] }[],
   store: CommitStore,
-  meta: Omit<CommitBatchMeta, "entityTypes">
+  meta: Omit<CommitBatchMeta, "entityTypes"> & {
+    /** Teacher devirs to set, dated `devirDate` (see import-devir.ts). */
+    teacherDevir?: { teacherId: string; amount: number }[];
+    devirDate?: string;
+  }
 ): { result: ImportResult; batch: ImportBatch } {
   const batchId = newId("batch", 0);
   const entityIds = emptyImportBatchEntityIds();
@@ -1521,6 +1628,13 @@ export function commitMultiImportBatch(
     financialSummary: impact,
     fileFingerprint: meta.fileFingerprint,
   };
+  const teacherDevir = (meta.teacherDevir ?? []).filter((d) => d.amount !== 0);
+  if (teacherDevir.length > 0 && meta.devirDate) {
+    for (const d of teacherDevir) {
+      store.setTeacherOpeningBalance(d.teacherId, { amount: d.amount, date: meta.devirDate, importBatchId: batchId });
+    }
+    batch.teacherDevirIds = teacherDevir.map((d) => d.teacherId);
+  }
   store.addImportBatch(batch);
 
   return { result, batch };
@@ -1600,6 +1714,7 @@ interface RollbackStore {
   deletePayments: (ids: string[]) => void;
   deleteTeacherPayments: (ids: string[]) => void;
   deleteOpeningBalances: (ids: string[]) => void;
+  setTeacherOpeningBalance: (teacherId: string, balance: Teacher["openingBalance"]) => void;
   markImportBatchRolledBack: (batchId: string) => void;
 }
 
@@ -1636,6 +1751,10 @@ export function rollbackImportBatch(
   store.deletePayments(safeIds("payments", batch.createdEntityIds.payments));
   store.deleteTeacherPayments(safeIds("teacherPayments", batch.createdEntityIds.teacherPayments));
   store.deleteOpeningBalances(safeIds("openingBalances", batch.createdEntityIds.openingBalances));
+  for (const teacherId of batch.teacherDevirIds ?? []) {
+    const teacher = storeSnapshot.teachers.find((t) => t.id === teacherId);
+    if (teacher?.openingBalance?.importBatchId === batch.id) store.setTeacherOpeningBalance(teacherId, undefined);
+  }
   store.markImportBatchRolledBack(batch.id);
 
   return { skippedEditedRecords: edited };

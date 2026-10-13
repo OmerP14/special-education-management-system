@@ -57,6 +57,11 @@ import {
 
 const BILLABLE_STATUSES: Session["status"][] = ["completed", "no_show", "makeup"];
 
+/** Whether a session's status bills the student, whatever its billingMode. */
+export function isChargeableStatus(status: Session["status"]): boolean {
+  return BILLABLE_STATUSES.includes(status);
+}
+
 // ─── Teacher earning policy (Ayarlar → Öğretmen ve Hakediş) ─────────────────
 
 /** Share of a session's teacherEarning owed for its status under `policy`. */
@@ -98,6 +103,8 @@ export function getSessionEarningFactor(
   session: Session,
   policy: TeacherEarningsSettings = getActiveSettings().teacherEarnings
 ): number {
+  // Imported history: the teacher's devir already covers it.
+  if (session.billingMode === "historical_non_billable") return 0;
   if (isAwaitingEarningApproval(session, policy)) return 0;
   return session.earningFactor ?? computeEarningFactor(session.status, policy);
 }
@@ -1264,6 +1271,18 @@ export function calculateTeacherMonthlyPayable(
   year: number,
   month: number
 ): number {
+  const devir =
+    teacher.openingBalance && isInEarningPeriod(teacher.openingBalance.date, year, month) ? teacher.openingBalance.amount : 0;
+  return devir + calculateTeacherMonthlyWorkPayable(teacher, sessions, year, month);
+}
+
+/** A month's earning from sessions and salary, without the devir. */
+function calculateTeacherMonthlyWorkPayable(
+  teacher: Teacher,
+  sessions: Session[],
+  year: number,
+  month: number
+): number {
   const earningSessions = sessions.filter(
     (s) => s.teacherId === teacher.id && isEarningSession(s) && isInEarningPeriod(s.date, year, month)
   );
@@ -1304,16 +1323,20 @@ export function calculateTeacherMonthlyPayable(
 /** Distinct (year, month) pairs a teacher could owe earnings for — every month with an
  *  earning-eligible session, plus the current month (salary is owed unconditionally). */
 function getTeacherEarningMonths(
-  teacherId: string,
+  teacher: Teacher,
   sessions: Session[]
 ): { year: number; month: number }[] {
   const seen = new Set<string>();
   sessions
-    .filter((s) => s.teacherId === teacherId && isEarningSession(s))
+    .filter((s) => s.teacherId === teacher.id && isEarningSession(s))
     .forEach((s) => {
       const p = getEarningPeriod(s.date);
       seen.add(`${p.year}-${p.month}`);
     });
+  if (teacher.openingBalance) {
+    const p = getEarningPeriod(teacher.openingBalance.date);
+    seen.add(`${p.year}-${p.month}`);
+  }
   const current = getEarningPeriod(new Date());
   seen.add(`${current.year}-${current.month}`);
 
@@ -1330,7 +1353,7 @@ function getTeacherEarningMonths(
  * entitlement are always the source of truth, never student payments or a payment ledger.
  */
 export function calculateTeacherTotalPayable(teacher: Teacher, sessions: Session[]): number {
-  return getTeacherEarningMonths(teacher.id, sessions).reduce(
+  return getTeacherEarningMonths(teacher, sessions).reduce(
     (sum, { year, month }) => sum + calculateTeacherMonthlyPayable(teacher, sessions, year, month),
     0
   );
@@ -1440,7 +1463,7 @@ export function getTeacherMonthEarningTotals(
 ): TeacherEarningTotals {
   const totalEarning = calculateTeacherMonthlyPayable(teacher, sessions, year, month);
 
-  const owedByMonth = getTeacherEarningMonths(teacher.id, sessions)
+  const owedByMonth = getTeacherEarningMonths(teacher, sessions)
     .sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month))
     .map((m) => ({ ...m, remaining: calculateTeacherMonthlyPayable(teacher, sessions, m.year, m.month) }));
 
@@ -1498,7 +1521,7 @@ export function getTeacherMonthAccountSummary(
 
   // Every month strictly before the target one that this teacher could owe for —
   // same month set calculateTeacherTotalPayable/getTeacherEarningTotals already use.
-  const priorMonths = getTeacherEarningMonths(teacher.id, sessions).filter(
+  const priorMonths = getTeacherEarningMonths(teacher, sessions).filter(
     (m) => m.year < year || (m.year === year && m.month < month)
   );
   const priorEarned = priorMonths.reduce(
@@ -1589,6 +1612,14 @@ export function getTeacherEarningTotalsForRange(
       const p = getEarningPeriod(d);
       seen.add(`${p.year}-${p.month}`);
     });
+
+  if (teacher.openingBalance) {
+    const d = parseDateOnly(teacher.openingBalance.date);
+    if ((!start || d >= start) && (!end || d <= end)) {
+      const p = getEarningPeriod(d);
+      seen.add(`${p.year}-${p.month}`);
+    }
+  }
 
   // Every calendar month the range spans, so a salary teacher still shows up even with
   // zero sessions that month (mirrors getTeacherEarningMonths' "unconditional" inclusion).

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/shared/StatCard";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { downloadCsv, printHtmlReport, type PrintReportColumn } from "@/lib/helpers/export";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 export interface ReportSummaryCard {
   title: string;
@@ -55,22 +54,11 @@ export function ReportViewer<T>({
   csv,
   pdf,
 }: ReportViewerProps<T>) {
-  const confirm = useConfirm();
-  const confirmExport = () =>
-    confirm({
-      kind: "export",
-      title: "Rapor dışa aktarılsın mı?",
-      description: `${rows.length} satır kişisel ve finansal veri içerebilir.`,
-      confirmLabel: "Dışa Aktar",
-    });
-
-  const handleExportCsv = async () => {
-    if (!(await confirmExport())) return;
+  const handleExportCsv = () => {
     downloadCsv(csv.filename, csv.headers, rows.map(csv.rowMapper));
   };
 
-  const handleExportPdf = async () => {
-    if (!(await confirmExport())) return;
+  const handleExportPdf = () => {
     printHtmlReport({
       title: pdf.title,
       subtitle: pdf.subtitle,

@@ -32,6 +32,7 @@ import { checkSessionConflict } from "@/lib/helpers/session-conflict";
 import { backfillStudentNumbers, getGuardianContactLink, validateStudentFields } from "@/lib/helpers/student-rules";
 import { validatePasswordPolicy } from "@/lib/auth/password";
 import { buildCsv } from "@/lib/helpers/export";
+import { collectTimedNotifications, normalizeNotifications, UPCOMING_SESSION_REMINDER_MINUTES } from "@/lib/helpers/notifications";
 import type { InstitutionSettings } from "@/types/settings";
 import type { Payment, Session, Student } from "@/types";
 
@@ -301,8 +302,32 @@ describe("settings migration and password policy", () => {
     expect("lateToleranceMinutes" in s.sessions).toBe(false);
     expect(normalizeInstitutionSettings({ sessions: { defaultBreakMinutes: 30 } }).sessions.breakMinutes).toBe(20);
     expect(s.appearance.theme).toBe("dark");
-    expect(s.notifications.events.session_upcoming).toEqual({ enabled: false, reminderMinutesBefore: 30 });
-    expect("system_alert" in s.notifications.events).toBe(false);
+    // Notification, security and appearance cosmetics are no longer settings.
+    expect("notifications" in s).toBe(false);
+    expect("security" in s).toBe(false);
+    expect(Object.keys(normalizeInstitutionSettings({ appearance: { accentColor: "#ff0000", theme: "system" } }).appearance)).toEqual([
+      "theme",
+      "defaultLandingPage",
+    ]);
+  });
+
+  it("notifies upcoming sessions within the fixed lead time and drops removed events", () => {
+    const now = new Date("2026-10-13T10:00:00");
+    const at = (iso: string, status: Session["status"] = "planned") => ({ id: iso, date: iso, status }) as Session;
+    const due = collectTimedNotifications({
+      sessions: [at("2026-10-13T10:30:00"), at("2026-10-13T11:30:00"), at("2026-10-13T10:20:00", "cancelled")],
+      students: [],
+      teachers: [],
+      now,
+    });
+    expect(UPCOMING_SESSION_REMINDER_MINUTES).toBe(60);
+    expect(due.map((n) => n.id)).toEqual(["notif-session_upcoming-2026-10-13T10:30:00"]);
+    expect(
+      normalizeNotifications([
+        { id: "a", event: "teacher_earning_created", createdAt: "" },
+        { id: "b", event: "payment_received", createdAt: "" },
+      ]).map((n) => n.id)
+    ).toEqual(["b"]);
   });
 
   it("validates passwords against the fixed policy (6+, uppercase, number, special)", () => {

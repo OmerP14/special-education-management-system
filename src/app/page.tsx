@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { resolvePostLoginPath } from "@/lib/settings/landing-page";
 
 // Client component (not a server redirect) because the configured landing
-// page — Ayarlar → Belge ve Görünüm's defaultLandingPage — lives in
+// page — Ayarlar → Görünüm's defaultLandingPage — lives in
 // localStorage-backed institutionSettings, which only exists client-side in
 // this mock-store architecture. RouteGuard (mounted inside (app)/layout.tsx)
 // still handles the actual auth check once we get there.

@@ -25,7 +25,6 @@ export type SettingsSectionKey =
   | "finance"
   | "teacherEarnings"
   | "students"
-  | "notifications"
   | "data"
   | "appearance"
   | "security"
@@ -137,7 +136,9 @@ export interface StudentSettings {
   requireEmergencyContact: boolean;
 }
 
-// ─── 7. Bildirim Ayarları ─────────────────────────────────────────────────────
+// ─── 7. Bildirimler ──────────────────────────────────────────────────────────
+// Not a settings section: which events reach the bell and the reminder lead
+// time are fixed (lib/helpers/notifications.ts).
 
 export type NotificationEventKey =
   | "session_upcoming"
@@ -145,54 +146,24 @@ export type NotificationEventKey =
   | "session_cancelled"
   | "student_no_show"
   | "payment_received"
-  | "teacher_earning_created"
   | "teacher_payment_made";
-
-export interface NotificationEventConfig {
-  enabled: boolean;
-  /** Only for reminder events (session_upcoming). */
-  reminderMinutesBefore?: number;
-}
-
-/** In-app notifications only — external channels (e-posta/SMS/WhatsApp)
- *  need a server-side sender and arrive with the backend. */
-export interface NotificationSettings {
-  events: Record<NotificationEventKey, NotificationEventConfig>;
-}
 
 // ─── 8. Görünüm Ayarları ────────────────────────────────────────────
 
-export type UiDensity = "comfortable" | "compact";
-export type CardRadiusPreference = "sm" | "md" | "lg" | "xl";
-export type SidebarDefaultState = "expanded" | "collapsed";
 export type ThemePreference = "light" | "dark" | "system";
 export type LandingPage = "dashboard" | "calendar" | "sessions";
 
+/** Colors, density, corner radius, animations and the sidebar's first state
+ *  are fixed by the theme; only these two are choices. */
 export interface AppearanceSettings {
-  primaryBrandColor: string;
-  accentColor: string;
-  institutionFooterText: string;
-  density: UiDensity;
-  tableRowDensity: UiDensity;
-  cardRadius: CardRadiusPreference;
-  animationsEnabled: boolean;
   theme: ThemePreference;
-  sidebarDefaultState: SidebarDefaultState;
   defaultLandingPage: LandingPage;
 }
 
 // ─── 9. Güvenlik ve Sistem ────────────────────────────────────────────────────
-// Enforced by LocalAuthService/AuthProvider in this client-only build; moves
-// server-side together with authentication when the backend arrives.
-
-/** Password policy, login lockout, session lifetime and number format are
- *  fixed system rules (lib/auth/security-policy.ts), not settings. */
-export interface SecuritySettings {
-  auditLoggingEnabled: boolean;
-  confirmSensitiveActions: boolean;
-  confirmFinancialEdits: boolean;
-  confirmDataExport: boolean;
-}
+// Not a settings object: password policy, login lockout, session lifetime,
+// audit logging (always on) and confirmations are fixed system rules
+// (lib/auth/security-policy.ts, components/shared/ConfirmProvider.tsx).
 
 // ─── 10. Excel ve Veri Yönetimi ──────────────────────────────────────────────
 // Most of this section is actions (backup/restore/export), not persisted
@@ -227,15 +198,13 @@ export interface InstitutionSettings {
   finance: FinanceSettings;
   teacherEarnings: TeacherEarningsSettings;
   students: StudentSettings;
-  notifications: NotificationSettings;
   appearance: AppearanceSettings;
-  security: SecuritySettings;
   dataManagement: DataManagementSettings;
   metadata: SettingsMetadataMap;
 }
 
 /** The subset of SettingsSectionKey that maps to a literal InstitutionSettings
- *  field — excludes educationTypes/users/data/audit, which are their own
+ *  field — excludes educationTypes/security/data/audit, which are their own
  *  store domains or pure action/log screens with no single settings object. */
 export type InstitutionSettingsKey = keyof Omit<InstitutionSettings, "metadata">;
 

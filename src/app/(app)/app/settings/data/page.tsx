@@ -30,7 +30,7 @@ import {
 import { downloadBlob, downloadCsv } from "@/lib/helpers/export";
 import { buildBackupFile, loadAutoBackups, parseBackupFile } from "@/lib/mock/persistence";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
+import { BackupFolderSection } from "@/components/settings/BackupFolderSection";
 
 // ─── Dangerous action confirmation ──────────────────────────────────────────
 
@@ -150,7 +150,6 @@ const EXPORT_LABELS: Record<ExportKind, string> = {
 
 function DataManagementContent() {
   const store = useMockStore();
-  const confirm = useConfirm();
   const { user } = useAuth();
   const actorName = user?.name ?? "Bilinmeyen kullanıcı";
   const { dataManagement } = store.institutionSettings;
@@ -198,14 +197,7 @@ function DataManagementContent() {
     setPendingRestore(null);
   };
 
-  const handleExport = async (kind: ExportKind) => {
-    const ok = await confirm({
-      kind: "export",
-      title: `${EXPORT_LABELS[kind]} dışa aktarılsın mı?`,
-      description: "Dosya kişisel veriler içerir; yalnızca yetkili kişilerle paylaşın.",
-      confirmLabel: "Dışa Aktar",
-    });
-    if (!ok) return;
+  const handleExport = (kind: ExportKind) => {
     const date = toLocalDateKey(new Date());
     const nameOf = <T extends { id: string; fullName: string }>(list: T[], id: string) =>
       list.find((x) => x.id === id)?.fullName ?? "";
@@ -338,7 +330,7 @@ function DataManagementContent() {
         >
           <div className="flex flex-wrap gap-1.5">
             {(Object.keys(EXPORT_LABELS) as ExportKind[]).map((kind) => (
-              <Button key={kind} size="sm" variant="outline" onClick={() => void handleExport(kind)}>
+              <Button key={kind} size="sm" variant="outline" onClick={() => handleExport(kind)}>
                 {EXPORT_LABELS[kind]}
               </Button>
             ))}
@@ -378,10 +370,13 @@ function DataManagementContent() {
           <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
             <div>
               <p className="text-xs text-foreground">Otomatik yedeklemeyi etkinleştir</p>
-              <p className="text-[11px] text-muted-foreground">Bu tarayıcıda günde bir yedek tutulur (son 3 gün).</p>
+              <p className="text-[11px] text-muted-foreground">
+                Her gün yedek alınır: seçilen klasöre ve bu tarayıcıya (son 3 gün).
+              </p>
             </div>
             <Switch checked={dataManagement.autoBackupEnabled} onCheckedChange={toggleAutoBackup} />
           </div>
+          <BackupFolderSection onMessage={showToast} />
           {autoBackups.length > 0 && (
             <div className="mt-2 divide-y divide-border/60 rounded-lg border border-border/60">
               {autoBackups.map((b) => (

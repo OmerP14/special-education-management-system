@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "./EmptyState";
 import { cn } from "@/lib/utils";
-import { getActiveSettings } from "@/lib/settings/runtime";
 
 export interface Column<T> {
   key: string;
@@ -46,8 +45,6 @@ export function DataTable<T>({
   dense,
   rowClassName,
 }: DataTableProps<T>) {
-  // Ayarlar → Belge ve Görünüm → Tablo Satır Yoğunluğu
-  const compactRows = !dense && getActiveSettings().appearance.tableRowDensity === "compact";
   if (data.length === 0) {
     return (
       <EmptyState
@@ -93,7 +90,7 @@ export function DataTable<T>({
                   key={col.key}
                   className={cn(
                     "text-sm",
-                    dense ? "py-2 px-1.5" : compactRows ? "py-2" : "py-3.5",
+                    dense ? "py-2 px-1.5" : "py-3.5",
                     col.className
                   )}
                 >

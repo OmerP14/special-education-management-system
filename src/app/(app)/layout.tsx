@@ -6,16 +6,10 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { useSidebarVisibility } from "@/hooks/use-sidebar-visibility";
 import { RouteGuard } from "@/components/auth/RouteGuard";
 import { StorageFullBanner } from "@/components/layout/StorageFullBanner";
-import { useMockStore } from "@/lib/mock/store";
+import { BackupFolderBanner } from "@/components/layout/BackupFolderBanner";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  // Ayarlar → Belge ve Görünüm's sidebarDefaultState — only wins for a
-  // browser that has never had the sidebar manually toggled; see
-  // useSidebarVisibility's own doc comment.
-  const { institutionSettings } = useMockStore();
-  const { visible, setVisible, toggle } = useSidebarVisibility(
-    institutionSettings.appearance.sidebarDefaultState !== "collapsed"
-  );
+  const { visible, setVisible, toggle } = useSidebarVisibility();
 
   return (
     <RouteGuard>
@@ -23,6 +17,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <AppSidebar />
         <SidebarInset className="flex h-svh flex-col overflow-hidden">
           <StorageFullBanner />
+          <BackupFolderBanner />
           <AppTopbar sidebarVisible={visible} onToggleSidebar={toggle} />
           <div className="flex-1 overflow-y-auto bg-muted/20">
             {/* max-w keeps content at a comfortable reading/table width — wide
@@ -34,12 +29,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 top/bottom whitespace. */}
             <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
               {children}
-              {/* Ayarlar → Belge ve Görünüm → Kurum Alt Bilgi Metni */}
-              {institutionSettings.appearance.institutionFooterText.trim() && (
-                <footer className="mt-8 border-t border-border/60 pt-3 text-center text-xs text-muted-foreground">
-                  {institutionSettings.appearance.institutionFooterText}
-                </footer>
-              )}
             </div>
           </div>
         </SidebarInset>

@@ -104,7 +104,6 @@ export default function EducationTypesSettingsPage() {
   const handleDelete = async (row: EducationTypeRow) => {
     if (!canDeleteEducationType(row.usage)) return;
     const ok = await confirm({
-      kind: "sensitive",
       title: `"${row.name}" silinsin mi?`,
       description: "Bu eğitim türü kalıcı olarak silinir.",
       confirmLabel: "Sil",

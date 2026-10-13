@@ -11,7 +11,6 @@ import { downloadCsv } from "@/lib/helpers/export";
 import { cn } from "@/lib/utils";
 import type { AuditLogEntry, AuditModule } from "@/types/settings";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 const MODULE_LABELS: Record<AuditModule, string> = {
   settings: "Ayarlar",
@@ -131,7 +130,6 @@ function AuditDetailDrawer({ entry, onOpenChange }: { entry: AuditLogEntry | nul
 }
 
 function AuditLogContent() {
-  const confirm = useConfirm();
   const { auditLog } = useMockStore();
   const [filters, setFilters] = useState<AuditFilters>(EMPTY_FILTERS);
   const [selected, setSelected] = useState<AuditLogEntry | null>(null);
@@ -149,13 +147,7 @@ function AuditLogContent() {
   const hasActiveFilters =
     !!filters.search || !!filters.startDate || !!filters.endDate || filters.module !== "all" || filters.userName !== "all";
 
-  const handleExport = async () => {
-    const ok = await confirm({
-      kind: "export",
-      title: "İşlem geçmişi dışa aktarılsın mı?",
-      confirmLabel: "Dışa Aktar",
-    });
-    if (!ok) return;
+  const handleExport = () => {
     downloadCsv(
       `islem-gecmisi-${toLocalDateKey(new Date())}.csv`,
       ["Tarih/Saat", "Kullanıcı", "İşlem", "Modül", "Kayıt", "Önceki Değer", "Yeni Değer"],

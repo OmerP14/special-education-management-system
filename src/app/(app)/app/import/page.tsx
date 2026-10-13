@@ -27,7 +27,6 @@ import {
   BookOpen,
   HelpCircle,
   Filter,
-  Info,
   X,
   TrendingUp,
 } from "lucide-react";
@@ -63,7 +62,6 @@ import type {
   Session,
   Student,
   Teacher,
-  SessionBillingMode,
 } from "@/types";
 import {
   IMPORT_ENTITY_TYPES,
@@ -88,11 +86,26 @@ import {
 import {
   parseSpreadsheetFile,
   isSupportedImportFile,
+  sheetRowNumber,
+  cellToDisplayString,
+  SUPPORTED_IMPORT_ACCEPT,
+  UNSUPPORTED_IMPORT_FILE_MESSAGE,
   parseCellAsDateString,
   parseCellAsTimeString,
   parseCellAsNumber,
   type ParsedSheet,
 } from "@/lib/helpers/import-parse";
+import { normalizeTableSheet, prepareSheetsForImport } from "@/lib/helpers/import-table";
+import {
+  applyDevirDate,
+  buildDevirPlan,
+  dayKeyOf,
+  isDevirIncluded,
+  studentDevirRows,
+  suggestDevirDate,
+} from "@/lib/helpers/import-devir";
+import { DevirReview } from "@/components/import/DevirReview";
+import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import {
   classifyWorkbook,
   convertMatrixSheetToSessionCandidates,
@@ -143,37 +156,11 @@ const ENTITY_DESCRIPTIONS: Record<ImportEntityType, string> = {
  *  cutoff so "resolved here" and "resolved there" never disagree. */
 const CONFIDENCE_THRESHOLD = 0.6;
 
-const MODE_OPTIONS: { value: ImportMode; label: string; description: string }[] = [
-  { value: "historical", label: "Geçmiş Veri Aktarımı", description: "Eski/geçmiş kayıtlar. Çakışan seanslar bilgilendirme amaçlı gösterilir." },
-  { value: "operational", label: "Güncel Veri Aktarımı", description: "Güncel/gelecek kayıtlar. Çakışan seanslar varsayılan olarak hariç tutulur." },
-];
-
 const QUICK_STATUS_FILTERS: { value: ImportRowStatus | "all"; label: string }[] = [
   { value: "all", label: "Tümü" },
   { value: "error", label: "Sadece Hatalılar" },
   { value: "warning", label: "Sadece Uyarılılar" },
   { value: "valid", label: "Sadece Sorunsuzlar" },
-];
-
-const LEDGER_IMPORT_CHOICE_OPTIONS: { value: LedgerImportChoice; title: string; description: string }[] = [
-  {
-    value: "accrual",
-    title: "Seansları tahakkuk olarak aktar",
-    description:
-      "Mevcut davranış. Öğrenci borcu / tahakkuk oluşturur. Ödenmemiş geçmiş seanslar gerçekten alacak (receivable) olarak kalması gerekiyorsa doğru seçenek budur.",
-  },
-  {
-    value: "historyOnly",
-    title: "Sadece ders geçmişi olarak aktar",
-    description:
-      "Seanslar ders geçmişi ve raporlar için oluşturulur ama öğrenci borcu/tahakkuk OLUŞTURMAZ — Ödemeler sayfası bu seansları ödenmemiş borç olarak göstermez. Seanslar yine de öğrenci ders geçmişinde ve devam/seans raporlarında görünür; \"Geçmiş kayıt — borca dahil değil\" olarak işaretlenir.",
-  },
-  {
-    value: "historyWithOpeningBalance",
-    title: "Net devir bakiyesi ile aktar",
-    description:
-      "\"Sadece ders geçmişi\" ile aynı şekilde çalışır (borç oluşturmaz) — farkı, güncel bakiyeyi daha sonra ayrı bir \"Devir Bakiyesi\" aktarımıyla (öğrenci başına net borç/alacak) gireceğinizi varsaymasıdır. Güncel bakiye o devir bakiyesi kaydından gelir, her geçmiş seanstan değil.",
-  },
 ];
 
 type WizardStep = "upload" | "analysis" | "mapping" | "preview";
@@ -203,17 +190,6 @@ const OVERRIDE_OPTIONS: { value: ImportEntityType | "ignore"; label: string }[] 
 ];
 
 type EffectiveAssignment = ImportEntityType | "scheduleMatrix" | "studentLedger" | "ignore" | "unresolved";
-
-/** The 3 migration workflows offered for a historical student-ledger import (see
- *  SessionBillingMode). "historyOnly" and "historyWithOpeningBalance" both stage
- *  sessions as billingMode: "historical_non_billable" — they differ only in
- *  workflow guidance (whether the user is told to follow up with a Devir
- *  Bakiyesi import), never in what gets written to the Session record. */
-type LedgerImportChoice = "accrual" | "historyOnly" | "historyWithOpeningBalance";
-
-function ledgerChoiceToBillingMode(choice: LedgerImportChoice): SessionBillingMode {
-  return choice === "accrual" ? "billable" : "historical_non_billable";
-}
 
 // ─── Interactive Error Repair ────────────────────────────────────────────────
 // Lets the user fix a row's underlying VALUES from inside the wizard, then
@@ -285,8 +261,37 @@ function getRepairFieldsForEntry(type: ImportEntityType, isClassicSource: boolea
 
 interface UploadedSheet {
   sheet: ParsedSheet;
+  /** The sheet as written, before plain-table clean-up — kept so the user can
+   *  pick a different header row. Same object as `sheet` for lesson ledgers. */
+  raw: ParsedSheet;
   sourceFileName: string;
   key: string;
+}
+
+/** "Başlık satırı" picker for a cleaned plain-table sheet: the first rows of
+ *  the sheet as written, one of which is the header. */
+function HeaderRowPicker({ u, onPick }: { u: UploadedSheet; onPick: (index: number) => void }) {
+  if (u.sheet === u.raw) return null;
+  const grid = [u.raw.headers, ...u.raw.rows].slice(0, 15);
+  const rowNumberOf = (i: number) => (i === 0 ? u.raw.headerRowNumber ?? 1 : sheetRowNumber(u.raw, i - 1));
+  const current = grid.findIndex((_, i) => rowNumberOf(i) === u.sheet.headerRowNumber);
+  return (
+    <div>
+      <label className="text-xs font-medium text-foreground">Başlık satırı (sütun adlarının olduğu satır)</label>
+      <select
+        value={current}
+        onChange={(e) => onPick(Number(e.target.value))}
+        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        {grid.map((row, i) => (
+          <option key={i} value={i}>
+            {`Satır ${rowNumberOf(i)}: ${row.map((c) => cellToDisplayString(c)).filter(Boolean).slice(0, 4).join(" · ").slice(0, 80)}`}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 truncate text-[11px] text-muted-foreground">Sütunlar: {u.sheet.headers.join(", ")}</p>
+    </div>
+  );
 }
 
 interface ClassicTask {
@@ -907,7 +912,14 @@ export default function ImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<WizardStep>("upload");
-  const [mode, setMode] = useState<ImportMode>("historical");
+  // Conflicting/past-dated rows are treated as history; what is history for
+  // money is decided by the devir date below.
+  const mode: ImportMode = "historical";
+  const [devirDate, setDevirDate] = useState(() =>
+    suggestDevirDate(store.sessions, store.payments.map((p) => p.date), toLocalDateKey(new Date()))
+  );
+  const [devirEdits, setDevirEdits] = useState<Record<string, number>>({});
+  const [devirIncluded, setDevirIncluded] = useState<Record<string, boolean>>({});
   // Every entity type the analyzer detects is included by default (per the
   // redesigned "intelligent" wizard) — this only ever holds types the user
   // explicitly opted OUT of after seeing what was detected. Never pre-asked
@@ -929,7 +941,6 @@ export default function ImportPage() {
   const [ledgerEducationTypeId, setLedgerEducationTypeId] = useState<string>("");
   // Default "accrual" (Option A, current behavior) per spec — the user must
   // explicitly opt into a non-billable historical import, never the reverse.
-  const [ledgerImportChoice, setLedgerImportChoice] = useState<LedgerImportChoice>("accrual");
 
   const [taskMappings, setTaskMappings] = useState<Record<string, ImportColumnMapping[]>>({});
   const [mappingTaskIndex, setMappingTaskIndex] = useState(0);
@@ -1140,18 +1151,26 @@ export default function ImportPage() {
   async function handleFilesSelected(selected: File[]) {
     const supported = selected.filter((f) => isSupportedImportFile(f.name));
     if (supported.length === 0) {
-      setParseError("Desteklenmeyen dosya türü. Lütfen .xlsx, .xls veya .csv yükleyin.");
+      setParseError(UNSUPPORTED_IMPORT_FILE_MESSAGE);
       return;
     }
     setIsParsing(true);
     setParseError(null);
     try {
-      const parsedByFile = await Promise.all(supported.map(async (f) => ({ file: f, sheets: await parseSpreadsheetFile(f) })));
+      const raws = new Map<ParsedSheet, ParsedSheet>();
+      const parsedByFile = await Promise.all(
+        supported.map(async (f) => {
+          const rawSheets = await parseSpreadsheetFile(f);
+          const prepared = prepareSheetsForImport(rawSheets);
+          prepared.forEach((p, i) => raws.set(p, rawSheets[i]!));
+          return { file: f, sheets: prepared };
+        })
+      );
       const flattened: UploadedSheet[] = [];
       for (const { file: f, sheets } of parsedByFile) {
         for (const s of sheets) {
           if (s.rows.length === 0) continue;
-          flattened.push({ sheet: s, sourceFileName: f.name, key: sheetKeyOf(f.name, s.name) });
+          flattened.push({ sheet: s, raw: raws.get(s) ?? s, sourceFileName: f.name, key: sheetKeyOf(f.name, s.name) });
         }
       }
       if (flattened.length === 0) {
@@ -1173,6 +1192,10 @@ export default function ImportPage() {
     }
   }
 
+  function setHeaderRow(key: string, index: number) {
+    setUploadedSheets((prev) => prev.map((u) => (u.key === key ? { ...u, sheet: normalizeTableSheet(u.raw, index) } : u)));
+  }
+
   function removeFile(fileName: string) {
     setFiles((prev) => prev.filter((f) => f.name !== fileName));
     setUploadedSheets((prev) => prev.filter((u) => u.sourceFileName !== fileName));
@@ -1189,7 +1212,8 @@ export default function ImportPage() {
     setOverrides({});
     setMatrixEducationTypeId({});
     setLedgerEducationTypeId("");
-    setLedgerImportChoice("accrual");
+    setDevirEdits({});
+    setDevirIncluded({});
     setTaskMappings({});
     setMappingTaskIndex(0);
     setPreviewResults([]);
@@ -1242,8 +1266,8 @@ export default function ImportPage() {
     const task = classicTasks.find((t) => t.key === entry.sheetKey);
     if (!task) return null;
     let mapping = mappingForTask(task);
-    const rowIndex = row.preview.rowNumber - 2;
-    if (rowIndex < 0 || rowIndex >= task.sheet.rows.length) return null;
+    const rowIndex = task.sheet.rows.findIndex((_, i) => sheetRowNumber(task.sheet, i) === row.preview.rowNumber);
+    if (rowIndex < 0) return null;
 
     for (const fieldKey of Object.keys(edits)) {
       if (!mapping.some((m) => m.systemField === fieldKey)) {
@@ -1400,7 +1424,7 @@ export default function ImportPage() {
       status: mode === "historical" ? "completed" : "planned",
       notes: `Kaynak: '${entry.sheetLabel}' — elle düzeltildi`,
       createdAt: new Date().toISOString(),
-      billingMode: isFromLedger ? ledgerChoiceToBillingMode(ledgerImportChoice) : undefined,
+      billingMode: dayKeyOf(startsAt) < devirDate ? "historical_non_billable" : "billable",
       teacherEarningStatus: teacherEarningUnknown ? "unknown" : "calculated",
     };
 
@@ -1489,7 +1513,7 @@ export default function ImportPage() {
         mode,
         !disabled.has("teachers"),
         store.teacherEducationTypeAssignments,
-        ledgerChoiceToBillingMode(ledgerImportChoice)
+        "billable"
       );
       skippedRowCount = ledgerImport.sheetResults.reduce((sum, r) => sum + r.skippedRowCount, 0);
 
@@ -1519,7 +1543,8 @@ export default function ImportPage() {
       return { type: r.type, sheetKey: task?.key ?? r.sheet.name, sheetLabel: r.sheet.name, rows: r.rows };
     });
 
-    return { entries: [...classicEntries, ...matrixEntries, ...ledgerEntries], skippedRowCount };
+    const entries = [...classicEntries, ...matrixEntries, ...ledgerEntries].map((e) => ({ ...e, rows: applyDevirDate(e.rows, devirDate) }));
+    return { entries, skippedRowCount };
   }
 
   function buildAndGoToPreview() {
@@ -1541,7 +1566,7 @@ export default function ImportPage() {
     if (uploadedSheets.length === 0) return { entries: [] as PreviewTaskEntry[], skippedRowCount: 0 };
     return buildPreviewTaskEntries(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uploadedSheets, overrides, classificationByKey, mode, ledgerEducationTypeId, ledgerImportChoice, matrixEducationTypeId, taskMappings]);
+  }, [uploadedSheets, overrides, classificationByKey, mode, ledgerEducationTypeId, devirDate, matrixEducationTypeId, taskMappings]);
 
   const detectedTypes = useMemo(() => new Set(detectionPreview.entries.map((e) => e.type)), [detectionPreview]);
 
@@ -1561,12 +1586,80 @@ export default function ImportPage() {
     return Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
+  // ── Devir (see lib/helpers/import-devir.ts) ──────────────────────────────
+
+  const devirPlan = useMemo(
+    () =>
+      buildDevirPlan({
+        rows: previewResults.flatMap((r) => r.rows),
+        devirDate,
+        students: store.students,
+        teachers: store.teachers,
+        openingBalances: store.openingBalances,
+        policy: store.institutionSettings.teacherEarnings,
+      }),
+    [previewResults, devirDate, store.students, store.teachers, store.openingBalances, store.institutionSettings.teacherEarnings]
+  );
+  const devirAmountOf = (id: string, suggested: number) => devirEdits[id] ?? suggested;
+
+  /** A new devir date re-sorts already-built preview rows into history and
+   *  live without rebuilding them, so the user's include toggles stay. */
+  function changeDevirDate(next: string) {
+    if (!next) return;
+    setDevirDate(next);
+    setDevirEdits({});
+    setPreviewResults((prev) => prev.map((e) => ({ ...e, rows: applyDevirDate(e.rows, next) })));
+  }
+
+  const devirDateCard = (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">Devir tarihi</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Bu tarihten önceki dersler ve ödemeler <span className="font-medium text-foreground">geçmiş kayıt</span> olarak eklenir: listelerde
+            görünür ama borca, hakedişe ve raporlara katılmaz. Her öğrencinin ve öğretmenin o günkü bakiyesi tek bir{" "}
+            <span className="font-medium text-foreground">devir</span> tutarıyla girer (önizlemede kontrol edip düzeltebilirsiniz). Bu tarihten
+            sonraki kayıtlar normal sayılır.
+          </p>
+        </div>
+        <label className="text-xs font-medium text-foreground">
+          <input
+            type="date"
+            value={devirDate}
+            onChange={(e) => changeDevirDate(e.target.value)}
+            className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-sm"
+            aria-label="Devir tarihi"
+          />
+        </label>
+      </div>
+    </div>
+  );
+
   async function handleConfirmImport() {
     const fileFingerprint = await computeCombinedFingerprint(files);
     const { result, batch } = commitMultiImportBatch(
-      previewResults.map((r) => ({ type: r.type, rows: r.rows })),
+      [
+        ...previewResults.map((r) => ({ type: r.type, rows: r.rows })),
+        {
+          type: "openingBalances" as const,
+          rows: studentDevirRows(
+            devirPlan.students.filter((l) => isDevirIncluded(devirIncluded, l.studentId, l)),
+            devirAmountOf,
+            devirDate
+          ),
+        },
+      ],
       store,
-      { fileName: files.map((f) => f.name).join(", ") || "—", importMode: mode, fileFingerprint }
+      {
+        fileName: files.map((f) => f.name).join(", ") || "—",
+        importMode: mode,
+        fileFingerprint,
+        devirDate,
+        teacherDevir: devirPlan.teachers
+          .filter((t) => isDevirIncluded(devirIncluded, t.teacherId, t))
+          .map((t) => ({ teacherId: t.teacherId, amount: devirAmountOf(t.teacherId, t.suggested) })),
+      }
     );
     setResultState({ result, batch });
   }
@@ -1879,16 +1972,6 @@ export default function ImportPage() {
       count: batch.createdEntityIds[t].length,
     }));
 
-    // See item 11: a historical batch that books sessions but records neither
-    // payments nor opening balances is mathematically correct (nothing has been
-    // collected yet) but reads as "every student owes everything" until the rest
-    // of the migration is done — flag it here rather than let the reports look
-    // silently wrong.
-    const sessionsCreated = batch.createdEntityIds.sessions.length;
-    const paymentsCreated = batch.createdEntityIds.payments.length;
-    const openingBalancesCreated = batch.createdEntityIds.openingBalances.length;
-    const showDebtGuidance = batch.importMode === "historical" && sessionsCreated > 0 && paymentsCreated === 0 && openingBalancesCreated === 0;
-
     return (
       <div className="space-y-6">
         <PageHeader title="Excel Aktarımı" description="Mevcut Excel verilerinizi sisteme aktarın" />
@@ -1935,22 +2018,6 @@ export default function ImportPage() {
           </div>
         </div>
 
-        {showDebtGuidance && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-            <Info className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-            <div className="space-y-1.5">
-              <p className="text-sm font-semibold text-amber-900">Borç raporları şu anda tüm öğrencileri borçlu gösterecek</p>
-              <p className="text-xs text-amber-800">
-                Bu aktarım {sessionsCreated} geçmiş seans oluşturdu ancak herhangi bir ödeme veya devir bakiyesi kaydı içermiyor. Bu, hesaplama
-                hatası değildir — sistem yalnızca gördüğü verileri toplar, ve şu an için sadece tahakkuk (seans) verisi var. Öğrenci Borç
-                Raporu ve Cari Hesap ekranları, siz <span className="font-medium">Ödemeler</span> veya <span className="font-medium">Devir
-                Bakiyeleri</span>&apos;ni de aktarana kadar gerçek durumu yansıtmayacaktır. Aynı Excel dosyasında ödeme geçmişi varsa, onu ayrı
-                bir &quot;Ödemeler&quot; içe aktarımı olarak da yükleyin; yalnızca güncel bakiyeyi biliyorsanız &quot;Devir Bakiyesi&quot; olarak
-                tek satır girmeniz yeterlidir.
-              </p>
-            </div>
-          </div>
-        )}
 
         {(errorRowsList.length > 0 || duplicateRowsList.length > 0 || warningRowsList.length > 0) && (
           <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -1979,41 +2046,7 @@ export default function ImportPage() {
 
   const uploadStep = (
     <div className="space-y-5">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <p className="mb-3 text-sm font-semibold text-foreground">Aktarım Modu</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {MODE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setMode(opt.value)}
-              className={cn(
-                "flex flex-col items-start gap-1 rounded-lg border p-3.5 text-left transition-colors",
-                mode === opt.value ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"
-              )}
-            >
-              <span className="text-sm font-medium text-foreground">{opt.label}</span>
-              <span className="text-xs text-muted-foreground">{opt.description}</span>
-            </button>
-          ))}
-        </div>
-
-        {mode === "historical" && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-            <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-amber-900">Doğru sıra, doğru raporlar demektir</p>
-              <p className="text-xs text-amber-800">
-                Geçmiş verinizi doğru raporlar üretecek şekilde aktarmak için önerilen sıra: <span className="font-medium">1) Veliler/Öğrenciler/Öğretmenler</span> →{" "}
-                <span className="font-medium">2) Devir Bakiyeleri veya Ödemeler</span> → <span className="font-medium">3) Seanslar</span>. Yalnızca{" "}
-                <span className="font-medium">Seanslar</span> aktarılıp ödeme/devir bakiyesi hiç aktarılmazsa, sistem tahsilat görmediği için tüm
-                öğrenciler Borç Raporu&apos;nda tamamını borçlu gösterir — bu bir hata değildir, sadece eksik bir aktarım adımıdır. Kaynak
-                dosyanızda ödeme geçmişi de varsa onu ayrı bir &quot;Ödemeler&quot; aktarımı olarak yükleyin; yalnızca güncel bakiyeyi
-                biliyorsanız &quot;Devir Bakiyesi&quot; türünü kullanın.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+      {devirDateCard}
 
       <div className="rounded-xl border border-border bg-card p-5">
         <p className="mb-3 text-sm font-semibold text-foreground">Dosya(lar) Seçin</p>
@@ -2025,7 +2058,7 @@ export default function ImportPage() {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".xlsx,.xls,.csv"
+          accept={SUPPORTED_IMPORT_ACCEPT}
           className="hidden"
           onChange={(e) => {
             const list = e.target.files;
@@ -2077,7 +2110,7 @@ export default function ImportPage() {
           </div>
           <div>
             <p className="text-sm font-medium text-foreground">{isParsing ? "Dosyalar okunuyor…" : "Dosya seçmek için tıklayın veya sürükleyip bırakın"}</p>
-            <p className="mt-1 text-xs text-muted-foreground">.xlsx, .xls ve .csv — birden fazla dosya seçebilirsiniz</p>
+            <p className="mt-1 text-xs text-muted-foreground">Excel, LibreOffice (.ods), Numbers, CSV veya TXT — birden fazla dosya seçebilirsiniz</p>
           </div>
         </div>
 
@@ -2112,13 +2145,6 @@ export default function ImportPage() {
   );
 
   // ── Step: analysis ───────────────────────────────────────────────────────
-
-  /** A type is actually going into the import only when the analyzer found it
-   *  AND the user hasn't unchecked it — used both for the ledger warning banner
-   *  and for deciding whether "Devam" can be pressed. */
-  function isTypeIncluded(type: ImportEntityType): boolean {
-    return detectedTypes.has(type) && !disabledTypes.has(type);
-  }
 
   const analysisCounts = {
     matrix: uploadedSheets.filter((u) => classificationByKey.get(u.key)?.resultType === "scheduleMatrix").length,
@@ -2245,6 +2271,7 @@ export default function ImportPage() {
                       </option>
                     ))}
                   </select>
+                  <HeaderRowPicker u={u} onPick={(i) => setHeaderRow(u.key, i)} />
                 </div>
               );
             })}
@@ -2326,6 +2353,7 @@ export default function ImportPage() {
                       ))}
                     </select>
                   </div>
+                  <HeaderRowPicker u={u} onPick={(i) => setHeaderRow(u.key, i)} />
 
                   {effective === "scheduleMatrix" && (
                     <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 space-y-2">
@@ -2383,50 +2411,6 @@ export default function ImportPage() {
             </select>
           </div>
 
-          {mode === "historical" && (
-            <div className="space-y-3 border-t border-border/60 pt-5">
-              {!isTypeIncluded("payments") && !isTypeIncluded("openingBalances") && (
-                <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-sm text-amber-900">
-                    Bu dosya geçmiş seans/tahakkuk bilgisi içeriyor ancak ödeme veya devir bakiyesi içermiyor. Aktarımdan sonra öğrenciler
-                    borçlu görünebilir. Doğru cari hesap için geçmiş ödemeleri veya net devir bakiyelerini ayrıca aktarın.
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <p className="mb-1 text-sm font-semibold text-foreground">Bu geçmiş seansları nasıl aktarmak istersiniz?</p>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Seçiminiz yalnızca bu aktarımdaki seansların borç/tahakkuk oluşturup oluşturmayacağını belirler — sahte ödeme kaydı asla
-                  otomatik oluşturulmaz.
-                </p>
-                <div className="space-y-2">
-                  {LEDGER_IMPORT_CHOICE_OPTIONS.map((opt) => (
-                    <label
-                      key={opt.value}
-                      className={cn(
-                        "flex items-start gap-3 rounded-lg border p-3.5 cursor-pointer transition-colors",
-                        ledgerImportChoice === opt.value ? "border-primary bg-primary/5" : "border-border bg-background hover:border-primary/40 hover:bg-muted/30"
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="ledgerImportChoice"
-                        checked={ledgerImportChoice === opt.value}
-                        onChange={() => setLedgerImportChoice(opt.value)}
-                        className="mt-1 h-4 w-4 accent-primary shrink-0"
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{opt.title}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{opt.description}</p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -2940,6 +2924,17 @@ export default function ImportPage() {
           &quot;İçe Aktarmayı Geri Al&quot; ile tamamını geri alabilirsiniz.
         </p>
       </div>
+
+      {devirDateCard}
+
+      <DevirReview
+        plan={devirPlan}
+        devirDate={devirDate}
+        amountOf={devirAmountOf}
+        onAmountChange={(id, amount) => setDevirEdits((prev) => ({ ...prev, [id]: amount }))}
+        included={devirIncluded}
+        onIncludedChange={(id, value) => setDevirIncluded((prev) => ({ ...prev, [id]: value }))}
+      />
 
       <div className="rounded-xl border border-border bg-card p-5">
         <label className="flex items-start gap-3 cursor-pointer">

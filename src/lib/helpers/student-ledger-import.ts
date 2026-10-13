@@ -114,7 +114,7 @@ function scoreStudentLedgerShape(sheet: ParsedSheet): { score: number; reasons: 
 
 const STUDENT_LEDGER_MIN_SCORE = 4;
 
-function isLikelyStudentLedgerSheet(sheet: ParsedSheet): { qualifies: boolean; score: number; reasons: string[] } {
+export function isLikelyStudentLedgerSheet(sheet: ParsedSheet): { qualifies: boolean; score: number; reasons: string[] } {
   if (isBlankTemplateSheetName(sheet.name) || isRosterSheetName(sheet.name)) return { qualifies: false, score: 0, reasons: [] };
 
   const { score, reasons } = scoreStudentLedgerShape(sheet);
@@ -245,6 +245,12 @@ function looksLikePlausibleUnlabeledName(s: string): boolean {
   const normalized = normalizeForTokenMatch(trimmed);
   if (METADATA_LABEL_GUARD_WORDS.some((w) => normalized.includes(w))) return false;
   return /[a-zçğıiöşüA-ZÇĞİİÖŞÜ]/.test(trimmed);
+}
+
+/** The student name written above a sheet's lesson table, if any — what
+ *  tells a per-student ledger sheet apart from a plain lesson list. */
+export function ledgerSheetStudentName(sheet: ParsedSheet): string | null {
+  return extractLedgerSheetMetadata(sheet).studentName;
 }
 
 /** Shared by extraction AND roster collection so the "where's the student name"

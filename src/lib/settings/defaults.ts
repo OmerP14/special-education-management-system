@@ -1,23 +1,9 @@
-import type { InstitutionSettings, NotificationEventConfig, NotificationEventKey } from "@/types/settings";
+import type { InstitutionSettings } from "@/types/settings";
 import { normalizeBreakMinutes } from "@/lib/helpers/scheduling-rules";
 
 // The one place every default value lives — getSettingsDefaults() and every
 // "Reset to defaults" action read from here, so a field can never drift
 // between what a fresh install starts with and what "Reset" restores.
-
-function eventConfig(enabled: boolean, reminderMinutesBefore?: number): NotificationEventConfig {
-  return reminderMinutesBefore === undefined ? { enabled } : { enabled, reminderMinutesBefore };
-}
-
-const DEFAULT_NOTIFICATION_EVENTS: Record<NotificationEventKey, NotificationEventConfig> = {
-  session_upcoming: eventConfig(true, 60),
-  session_auto_completed: eventConfig(true),
-  session_cancelled: eventConfig(true),
-  student_no_show: eventConfig(true),
-  payment_received: eventConfig(true),
-  teacher_earning_created: eventConfig(false),
-  teacher_payment_made: eventConfig(true),
-};
 
 export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
   institution: {
@@ -82,31 +68,14 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     requireHealthInfo: false,
     requireEmergencyContact: false,
   },
-  notifications: {
-    events: DEFAULT_NOTIFICATION_EVENTS,
-  },
   appearance: {
-    primaryBrandColor: "#171717",
-    accentColor: "#2563eb",
-    institutionFooterText: "",
-    density: "comfortable",
-    tableRowDensity: "comfortable",
-    cardRadius: "lg",
-    animationsEnabled: true,
     theme: "light",
-    sidebarDefaultState: "expanded",
     defaultLandingPage: "dashboard",
-  },
-  security: {
-    auditLoggingEnabled: true,
-    confirmSensitiveActions: true,
-    confirmFinancialEdits: true,
-    confirmDataExport: false,
   },
   dataManagement: {
     lastBackupAt: null,
     backupCount: 0,
-    autoBackupEnabled: false,
+    autoBackupEnabled: true,
   },
   metadata: {},
 };
@@ -137,8 +106,6 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
       if (source.metadata && typeof source.metadata === "object") result.metadata = source.metadata;
       continue;
     }
-    // Notification events are merged per event below.
-    if (key === "notifications") continue;
     const saved = source[key];
     if (!saved || typeof saved !== "object") continue;
     const section = result[key] as Record<string, unknown>;
@@ -151,18 +118,6 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
     }
   }
 
-  // Notification events are a keyed record — merge per event, ignoring
-  // events that no longer exist and old per-channel flags.
-  const savedEvents = (source.notifications as { events?: Record<string, { enabled?: unknown; reminderMinutesBefore?: unknown }> } | undefined)?.events;
-  const events = defaults.notifications.events;
-  for (const key of Object.keys(events) as NotificationEventKey[]) {
-    const saved = savedEvents?.[key];
-    if (!saved) continue;
-    if (typeof saved.enabled === "boolean") events[key].enabled = saved.enabled;
-    if (typeof saved.reminderMinutesBefore === "number" && events[key].reminderMinutesBefore !== undefined) {
-      events[key].reminderMinutesBefore = saved.reminderMinutesBefore;
-    }
-  }
   // "Seanslar Arası Mola" used to be `defaultBreakMinutes` with no upper
   // bound; it is now "Mola", one of the fixed 0–20 choices.
   const oldSessions = source.sessions as { breakMinutes?: unknown; defaultBreakMinutes?: unknown } | undefined;

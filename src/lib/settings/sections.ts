@@ -6,7 +6,6 @@ import {
   Wallet,
   Banknote,
   UsersRound,
-  Bell,
   Database,
   Palette,
   ShieldCheck,
@@ -77,13 +76,6 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     icon: UsersRound,
   },
   {
-    key: "notifications",
-    label: "Bildirim Ayarları",
-    description: "Kanal, olay ve hatırlatma tercihleri",
-    href: "/app/settings/notifications",
-    icon: Bell,
-  },
-  {
     key: "data",
     label: "Excel ve Veri Yönetimi",
     description: "İçe aktarım, dışa aktarım, yedekleme ve veri sağlığı",
@@ -93,14 +85,14 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     key: "appearance",
     label: "Görünüm Ayarları",
-    description: "Renkler, tema, yoğunluk ve açılış sayfası",
+    description: "Tema ve açılış sayfası",
     href: "/app/settings/appearance",
     icon: Palette,
   },
   {
     key: "security",
     label: "Güvenlik ve Sistem",
-    description: "Sabit sistem kuralları, işlem geçmişi ve onay kuralları",
+    description: "Parola, giriş, işlem geçmişi, onay ve bildirim kuralları",
     href: "/app/settings/security",
     icon: ShieldCheck,
   },
@@ -130,8 +122,6 @@ export const INSTITUTION_SETTINGS_FIELD_LABELS: Record<InstitutionSettingsKey, s
   finance: "Finans Ayarları",
   teacherEarnings: "Öğretmen ve Hakediş Ayarları",
   students: "Öğrenci ve Veli Ayarları",
-  notifications: "Bildirim Ayarları",
   appearance: "Görünüm Ayarları",
-  security: "Güvenlik ve Sistem",
   dataManagement: "Veri Yönetimi",
 };

@@ -52,7 +52,6 @@ import {
   buildPaymentNotification,
   buildSessionNotification,
   collectTimedNotifications,
-  isNotificationEnabled,
   mergeNotifications,
   normalizeNotifications,
   type AppNotification,
@@ -159,9 +158,14 @@ interface MockStore {
   teachers: Teacher[];
   educationTypes: EducationType[];
   sessions: Session[];
+  /** Payments that count — never the ones imported as history only. */
   payments: Payment[];
+  /** Payments imported as history only (before the import's devir date):
+   *  shown in the student's history, never in a balance, total or report. */
+  historicalPayments: Payment[];
   teacherEarnings: TeacherEarning[];
   teacherPayments: TeacherPayment[];
+  historicalTeacherPayments: TeacherPayment[];
   teacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
   openingBalances: OpeningBalance[];
   importBatches: ImportBatch[];
@@ -174,6 +178,9 @@ interface MockStore {
   deleteGuardians: (ids: string[]) => void;
   addTeacher: (t: Teacher) => void;
   updateTeacher: (t: Teacher) => void;
+  /** Sets (or with undefined clears) a teacher's devir — used by Excel import
+   *  and its rollback; leaves updatedAt alone. */
+  setTeacherOpeningBalance: (teacherId: string, balance: Teacher["openingBalance"]) => void;
   deleteTeachers: (ids: string[]) => void;
   addEducationType: (et: EducationType) => void;
   updateEducationType: (et: EducationType) => void;
@@ -349,13 +356,21 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     )
   );
   const sessionsRef = useRef(sessions);
-  const [payments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? mockPayments);
+  // Payments imported as history only ("historical") are kept with the rest
+  // — backups, rollback and deletes see every record — but every consumer
+  // gets `payments` without them, so no balance, total or report counts them.
+  const [allPayments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? mockPayments);
+  const payments = useMemo(() => allPayments.filter((p) => !p.historical), [allPayments]);
+  const historicalPayments = useMemo(() => allPayments.filter((p) => p.historical), [allPayments]);
   const [teacherEarnings, setTeacherEarnings] = useState<TeacherEarning[]>(
     () => persisted?.teacherEarnings ?? mockTeacherEarnings
   );
-  const [teacherPayments, setTeacherPayments] = useState<TeacherPayment[]>(
+  const [allTeacherPayments, setTeacherPayments] = useState<TeacherPayment[]>(
     () => persisted?.teacherPayments ?? mockTeacherPayments
   );
+  const teacherPayments = useMemo(() => allTeacherPayments.filter((p) => !p.historical), [allTeacherPayments]);
+  const historicalTeacherPayments = useMemo(() => allTeacherPayments.filter((p) => p.historical), [allTeacherPayments]);
+  const allTeacherPaymentsRef = useRef(allTeacherPayments);
   // Refs so addTeacherPayment always validates against the latest pending balance,
   // even when called from a memoised handler holding a stale closure.
   const teachersRef = useRef(teachers);
@@ -383,11 +398,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>(() =>
     normalizeNotifications(persisted?.notifications)
   );
-  /** Adds in-app notifications for the events enabled in Ayarlar → Bildirimler. */
   const notify = useCallback((items: AppNotification[]) => {
-    const settings = getActiveSettings().notifications;
-    const enabled = items.filter((n) => isNotificationEnabled(settings, n.event));
-    if (enabled.length > 0) setNotifications((prev) => mergeNotifications(prev, enabled));
+    if (items.length > 0) setNotifications((prev) => mergeNotifications(prev, items));
   }, []);
 
   const [institutionSettings, setInstitutionSettings] = useState<InstitutionSettings>(
@@ -396,14 +408,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // Published during render (not in an effect) so every descendant rendering
   // in this same pass already formats/calculates with the new values.
   setActiveSettings(institutionSettings);
-  const [auditLog, setAuditLogState] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
-  // Every append goes through a functional update; with Ayarlar → Güvenlik →
-  // "İşlem geçmişi kaydını etkinleştir" off those are dropped. Plain array
-  // writes (reset to demo) always apply.
-  const setAuditLog = useCallback<typeof setAuditLogState>((update) => {
-    if (typeof update === "function" && !getActiveSettings().security.auditLoggingEnabled) return;
-    setAuditLogState(update);
-  }, []);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
 
   // ─── Account / credential / this device's session ─────────────────────────
   // A snapshot from the multi-account era has no `account`: it starts from
@@ -429,6 +434,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     sessionsRef.current = sessions;
     teachersRef.current = teachers;
     teacherPaymentsRef.current = teacherPayments;
+    allTeacherPaymentsRef.current = allTeacherPayments;
     teacherEarningsRef.current = teacherEarnings;
     teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
     weeklySessionPlansRef.current = weeklySessionPlans;
@@ -464,23 +470,17 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         [...completed.values()].reduce((acc, s) => upsertEarningForSession(acc, s, policy), prev)
       );
 
-      notify([
-        ...[...completed.values()].map((cs) =>
+      notify(
+        [...completed.values()].map((cs) =>
           buildSessionNotification("session_auto_completed", cs, studentsRef.current, teachersRef.current)
-        ),
-        ...[...completed.values()]
-          .filter((cs) => isEarningSession(cs, policy))
-          .map((cs) =>
-            buildSessionNotification("teacher_earning_created", cs, studentsRef.current, teachersRef.current)
-          ),
-      ]);
+        )
+      );
     }
 
     // Reminders (upcoming sessions).
     function collectReminders() {
       notify(
         collectTimedNotifications({
-          settings: getActiveSettings().notifications,
           sessions: sessionsRef.current,
           students: studentsRef.current,
           teachers: teachersRef.current,
@@ -518,9 +518,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teachers,
       educationTypes,
       sessions,
-      payments,
+      payments: allPayments,
       teacherEarnings,
-      teacherPayments,
+      teacherPayments: allTeacherPayments,
       teacherEducationTypeAssignments,
       openingBalances,
       importBatches,
@@ -543,9 +543,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     teachers,
     educationTypes,
     sessions,
-    payments,
+    allPayments,
     teacherEarnings,
-    teacherPayments,
+    allTeacherPayments,
     teacherEducationTypeAssignments,
     openingBalances,
     importBatches,
@@ -600,8 +600,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     educationTypes,
     sessions,
     payments,
+    historicalPayments,
     teacherEarnings,
     teacherPayments,
+    historicalTeacherPayments,
     teacherEducationTypeAssignments,
     openingBalances,
     importBatches,
@@ -643,6 +645,15 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addTeacher: (t) => setTeachers((prev) => [...prev, t]),
+    setTeacherOpeningBalance: (teacherId, balance) =>
+      setTeachers((prev) =>
+        prev.map((t) => {
+          if (t.id !== teacherId) return t;
+          const { openingBalance: _previous, ...rest } = t;
+          void _previous;
+          return balance ? { ...rest, openingBalance: balance } : rest;
+        })
+      ),
     updateTeacher: (t) => {
       setTeachers((prev) =>
         prev.map((x) =>
@@ -742,7 +753,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       const movedTeacherEarningIds = teacherEarningsRef.current
         .filter((e) => e.teacherId === duplicateTeacherId)
         .map((e) => e.id);
-      const movedTeacherPaymentIds = teacherPaymentsRef.current
+      const movedTeacherPaymentIds = allTeacherPaymentsRef.current
         .filter((p) => p.teacherId === duplicateTeacherId)
         .map((p) => p.id);
       const movedWeeklyPlanIds = weeklySessionPlansRef.current
@@ -941,9 +952,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         const people = [studentsRef.current, teachersRef.current] as const;
         if (s.status === "cancelled") notify([buildSessionNotification("session_cancelled", s, ...people)]);
         if (s.status === "no_show") notify([buildSessionNotification("student_no_show", s, ...people)]);
-        if (!isEarningSession(previous) && isEarningSession(s)) {
-          notify([buildSessionNotification("teacher_earning_created", s, ...people)]);
-        }
       }
       setAuditLog((prev) => [
         makeAuditEntry({
@@ -965,11 +973,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       const byId = new Map(approved.map((s) => [s.id, s]));
       setSessions((prev) => prev.map((s) => byId.get(s.id) ?? s));
       setTeacherEarnings((prev) => approved.reduce((acc, s) => upsertEarningForSession(acc, s), prev));
-      notify(
-        approved.map((s) =>
-          buildSessionNotification("teacher_earning_created", s, studentsRef.current, teachersRef.current)
-        )
-      );
       logAudit({ action: "earnings_approved", module: "teacher_earnings", recordLabel: `${approved.length} seans` });
     },
     deleteSessions: (ids) => {
@@ -979,8 +982,10 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addPayment: (p) => {
-      setPayments((prev) => [...prev, assignReceiptNumber(p, prev)]);
-      notify([buildPaymentNotification(p, studentsRef.current)]);
+      // A history-only payment gets no receipt number; imported payments
+      // don't ring the bell one by one.
+      setPayments((prev) => [...prev, p.historical ? p : assignReceiptNumber(p, prev)]);
+      if (!p.importBatchId) notify([buildPaymentNotification(p, studentsRef.current)]);
       setAuditLog((prev) => [
         makeAuditEntry({
           userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
@@ -1016,6 +1021,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       // Guard: never let a teacher payment push paid past what's actually owed.
       // Read from refs so this is correct even from a stale memoised handler.
       const teacher = teachersRef.current.find((t) => t.id === p.teacherId);
+      if (p.importBatchId) {
+        // Imported: validated by the import preview, and sessions from the
+        // same import aren't in the refs yet, so the pending check below
+        // would wrongly drop it.
+        if (p.amount > 0) setTeacherPayments((prev) => [...prev, p]);
+        return;
+      }
       if (!teacher || p.amount <= 0) return;
       const policy = getActiveSettings().teacherEarnings;
       if (!getAllowedTeacherPaymentTypes([p.paymentType], policy).length) return;
@@ -1199,9 +1211,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       teachers,
       educationTypes,
       sessions,
-      payments,
+      payments: allPayments,
       teacherEarnings,
-      teacherPayments,
+      teacherPayments: allTeacherPayments,
       teacherEducationTypeAssignments,
       openingBalances,
       importBatches,
@@ -1238,7 +1250,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setNotifications(normalizeNotifications(d.notifications));
       setInstitutionSettings(settings);
       // The restored audit log is kept, plus a record of the restore itself.
-      setAuditLogState([
+      setAuditLog([
         makeAuditEntry({
           userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
           action: "backup_restored",
@@ -1301,8 +1313,12 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       educationTypes,
       sessions,
       payments,
+      historicalPayments,
+      allPayments,
       teacherEarnings,
       teacherPayments,
+      historicalTeacherPayments,
+      allTeacherPayments,
       teacherEducationTypeAssignments,
       openingBalances,
       importBatches,

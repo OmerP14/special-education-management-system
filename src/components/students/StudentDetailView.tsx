@@ -478,14 +478,32 @@ function StudentDetailViewContent({
     />
   );
 
+  const historicalPayments = store.historicalPayments
+    .filter((p) => p.studentId === studentId)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
   const paymentsContent = (
-    <DataTable
-      data={detail.payments}
-      columns={paymentColumns}
-      keyExtractor={(p) => p.id}
-      emptyTitle="Ödeme bulunamadı"
-      emptyDescription="Bu öğrenciye ait ödeme kaydı bulunmamaktadır."
-    />
+    <div className="space-y-4">
+      <DataTable
+        data={detail.payments}
+        columns={paymentColumns}
+        keyExtractor={(p) => p.id}
+        emptyTitle="Ödeme bulunamadı"
+        emptyDescription="Bu öğrenciye ait ödeme kaydı bulunmamaktadır."
+      />
+      {historicalPayments.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">Aktarılan geçmiş ödemeler</p>
+            <HistoricalRecordBadge label="Borca dahil değil" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Excel aktarımındaki devir tarihinden önceki ödemeler. O tarihteki bakiye devir olarak girdiği için yalnızca kayıt olarak durur.
+          </p>
+          <DataTable data={historicalPayments} columns={paymentColumns} keyExtractor={(p) => p.id} dense />
+        </div>
+      )}
+    </div>
   );
 
   const notesContent = (

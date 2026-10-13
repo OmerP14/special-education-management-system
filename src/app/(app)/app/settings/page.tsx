@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   Building2,
   GraduationCap,
-  Bell,
   Database,
   History,
   CheckCircle2,
@@ -31,11 +30,6 @@ export default function SettingsOverviewPage() {
   const institutionComplete =
     getSettingsSectionStatus("institution", store) === "complete";
   const activeEducationTypes = educationTypes.filter((et) => et.status === "active").length;
-
-  const enabledNotificationEvents = Object.values(institutionSettings.notifications.events).filter(
-    (e) => e.enabled
-  ).length;
-  const totalNotificationEvents = Object.keys(institutionSettings.notifications.events).length;
 
   const lastBackup = institutionSettings.dataManagement.lastBackupAt;
 
@@ -65,13 +59,6 @@ export default function SettingsOverviewPage() {
       label: "Eğitim Türleri",
       value: `${activeEducationTypes} aktif`,
       tone: activeEducationTypes > 0 ? "primary" : "warning",
-    },
-    {
-      href: "/app/settings/notifications",
-      icon: Bell,
-      label: "Bildirim Olayları",
-      value: `${enabledNotificationEvents}/${totalNotificationEvents} aktif`,
-      tone: "primary",
     },
     {
       href: "/app/settings/data",

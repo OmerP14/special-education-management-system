@@ -114,6 +114,16 @@ export interface Teacher {
   archivedAt?: string;
   archivedReason?: string;
   mergedIntoTeacherId?: string;
+  /** Devir: what the institution owed this teacher on `date` for work before
+   *  it (set by an Excel import, whose older sessions earn nothing). Counted
+   *  as earning in the hakediş period that holds `date`. */
+  openingBalance?: TeacherOpeningBalance;
+}
+
+export interface TeacherOpeningBalance {
+  amount: number;
+  date: string; // "YYYY-MM-DD"
+  importBatchId?: string;
 }
 
 // ─── Session ───────────────────────────────────────────────────────────────────
@@ -217,6 +227,10 @@ export interface Payment {
   createdAt: string;
   updatedAt?: string;
   importBatchId?: string;
+  /** Imported as history only — dated before the import's devir date, whose
+   *  devir balance already accounts for it. Never counted anywhere (the store
+   *  leaves it out of `payments`); listed in the student's history. */
+  historical?: boolean;
 }
 
 // ─── Opening Balance (Devir Bakiyesi) ──────────────────────────────────────────
@@ -354,6 +368,8 @@ export interface TeacherPayment {
   createdAt: string;
   updatedAt?: string;
   importBatchId?: string;
+  /** Imported as history only — see Payment.historical. */
+  historical?: boolean;
 }
 
 // ─── Derived / UI Models ───────────────────────────────────────────────────────
@@ -949,6 +965,8 @@ export interface ImportBatch {
    *  imported" independent of row-level duplicate matching. */
   fileFingerprint: string;
   rolledBackAt?: string;
+  /** Teachers whose devir this import set (Teacher.openingBalance). */
+  teacherDevirIds?: string[];
 }
 
 export interface EditedImportRecord {

@@ -12,6 +12,7 @@ import {
   getImportTypeLabel,
   getSystemFieldsForImportType,
   suggestColumnMappings,
+  foldHeader,
   newId,
   type StagedRow,
 } from "@/lib/helpers/import";
@@ -229,14 +230,34 @@ function scoreHeaderMatchForType(sheet: ParsedSheet, type: ImportEntityType): { 
   return { confidence, reasons };
 }
 
+/** Sheet-name words that say what a sheet holds ("Öğrenciler", "Tahsilat
+ *  2026", "Devir"), folded like headers. Checked most specific first. */
+const SHEET_NAME_HINTS: [ImportEntityType, string[]][] = [
+  ["teacherPayments", ["ogretmen odeme", "maas", "hakedis odeme", "personel odeme"]],
+  ["openingBalances", ["devir", "bakiye", "kalan borc", "borc listesi", "acilis"]],
+  ["payments", ["odeme", "tahsilat", "makbuz", "kasa"]],
+  ["sessions", ["ders", "seans", "yoklama", "program", "puantaj"]],
+  ["guardians", ["veli"]],
+  ["teachers", ["ogretmen", "personel", "egitmen", "terapist", "kadro"]],
+  ["students", ["ogrenci", "danisan", "kayit"]],
+];
+
+export function sheetNameHint(name: string): ImportEntityType | null {
+  const folded = foldHeader(name);
+  return SHEET_NAME_HINTS.find(([, words]) => words.some((w) => folded.includes(w)))?.[0] ?? null;
+}
+
 function classicTableRule(type: ImportEntityType): AnalyzerRule {
   return {
     id: `classic-${type}`,
     resultType: type,
     label: getImportTypeLabel(type),
     evaluate: ({ sheet, signals }) => {
-      const { confidence, reasons } = scoreHeaderMatchForType(sheet, type);
-      if (confidence <= 0) return null;
+      const scored = scoreHeaderMatchForType(sheet, type);
+      if (scored.confidence <= 0) return null;
+      const named = sheetNameHint(sheet.name) === type;
+      const confidence = scored.confidence + (named ? 0.15 : 0);
+      const reasons = named ? [...scored.reasons, `Sayfa adı '${sheet.name}'`] : scored.reasons;
       // A sheet that's mostly merged cells / a repeating name-or-date grid is more
       // likely a matrix than a real table, even if a couple of header aliases happen
       // to match — but require several repeated entity-like columns (>=3), not just a

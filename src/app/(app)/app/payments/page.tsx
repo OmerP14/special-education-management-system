@@ -40,7 +40,6 @@ import type {
   Student,
 } from "@/types";
 import { cn } from "@/lib/utils";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
 import { printPaymentReceipt } from "@/lib/helpers/export";
 
 // ─── Debt status badge (local — avoids collision with EarningStatus "paid") ───
@@ -344,7 +343,6 @@ function ZeroActivityStudentCard({
 
 export default function PaymentsPage() {
   const store = useMockStore();
-  const confirm = useConfirm();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
@@ -443,16 +441,9 @@ export default function PaymentsPage() {
     }
   };
 
-  const handlePrintReceipt = async (row: PaymentListItem) => {
+  const handlePrintReceipt = (row: PaymentListItem) => {
     const payment = store.payments.find((p) => p.id === row.id);
     if (!payment) return;
-    const ok = await confirm({
-      kind: "export",
-      title: "Makbuz yazdırılsın mı?",
-      description: "Makbuz, öğrenci ve veli bilgilerini içeren bir belge olarak açılacak.",
-      confirmLabel: "Yazdır",
-    });
-    if (!ok) return;
     printPaymentReceipt({
       payment,
       studentName: row.studentName,
@@ -467,7 +458,7 @@ export default function PaymentsPage() {
       <div className="flex items-center justify-end gap-3">
         <button
           className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-          onClick={(e) => { e.stopPropagation(); void handlePrintReceipt(row); }}
+          onClick={(e) => { e.stopPropagation(); handlePrintReceipt(row); }}
           title={store.payments.find((p) => p.id === row.id)?.receiptNumber ?? "Makbuz"}
         >
           Makbuz

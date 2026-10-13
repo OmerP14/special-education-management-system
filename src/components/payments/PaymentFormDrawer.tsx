@@ -213,7 +213,6 @@ export function PaymentFormDrawer({
     if (
       isEditing &&
       !(await confirm({
-        kind: "financial",
         title: "Ödeme kaydı değiştirilsin mi?",
         description: "Kayıtlı bir ödemeyi değiştirmek öğrencinin borç/bakiye hesabını etkiler.",
         confirmLabel: "Değişiklikleri Kaydet",

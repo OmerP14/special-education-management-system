@@ -15,7 +15,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMonthlyRevenue, getMonthlyCollected, formatCurrency } from "@/lib/helpers/finance";
 import type { Session, Payment } from "@/types";
-import { getActiveSettings } from "@/lib/settings/runtime";
 
 interface CashFlowChartProps {
   sessions: Session[];
@@ -96,7 +95,7 @@ export function CashFlowChart({ sessions, payments, monthsBack = 6 }: CashFlowCh
               wrapperStyle={{ fontSize: 12, color: "var(--muted-foreground)" }}
               formatter={(value: string) => (value === "revenue" ? "Ciro" : "Tahsilat")}
             />
-            <Bar dataKey="revenue" name="revenue" fill={getActiveSettings().appearance.accentColor} radius={[4, 4, 0, 0]} maxBarSize={22} />
+            <Bar dataKey="revenue" name="revenue" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={22} />
             <Bar dataKey="collected" name="collected" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={22} />
           </BarChart>
         </ResponsiveContainer>

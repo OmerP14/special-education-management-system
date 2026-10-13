@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/shared/StatCard";
 import { DataTable, type Column } from "@/components/shared/DataTable";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
 import { useMockStore } from "@/lib/mock/store";
 import {
@@ -30,7 +31,6 @@ import {
 } from "@/lib/helpers/finance";
 import { downloadCsv, printHtmlReport } from "@/lib/helpers/export";
 import type { TeacherPayment } from "@/types";
-import { useConfirm } from "@/components/shared/ConfirmProvider";
 
 // Kesinti isn't a cash/bank payment — it has no meaningful method.
 function methodDisplay(p: TeacherPayment): string {
@@ -50,7 +50,6 @@ interface TeacherPaymentHistoryTabProps {
 
 export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTabProps) {
   const store = useMockStore();
-  const confirm = useConfirm();
   const [monthFilter, setMonthFilter] = useState("all");
   const [payOpen, setPayOpen] = useState(false);
 
@@ -108,15 +107,7 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
   const filteredMonthLabel = monthFilter === "all" ? "Tüm Aylar" : getMonthLabel(monthFilter);
   const filenameSuffix = monthFilter === "all" ? "" : `-${monthFilter}`;
 
-  const confirmExport = () =>
-    confirm({
-      kind: "export",
-      title: "Ödeme geçmişi dışa aktarılsın mı?",
-      confirmLabel: "Dışa Aktar",
-    });
-
-  const handleExportCsv = async () => {
-    if (!(await confirmExport())) return;
+  const handleExportCsv = () => {
     downloadCsv(
       `${slugify(teacher.fullName)}-odeme-gecmisi${filenameSuffix}.csv`,
       ["Tarih", "Dönem", "Ödeme Türü", "Tutar", "Yöntem", "Açıklama"],
@@ -131,8 +122,7 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
     );
   };
 
-  const handleExportPdf = async () => {
-    if (!(await confirmExport())) return;
+  const handleExportPdf = () => {
     printHtmlReport({
       title: `${teacher.fullName} — Ödeme Geçmişi`,
       subtitle: filteredMonthLabel,
@@ -162,6 +152,11 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
       ]),
     });
   };
+
+  const historicalPayments = store.historicalTeacherPayments
+    .filter((p) => p.teacherId === teacherId)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const teacherOpeningBalance = store.teachers.find((t) => t.id === teacherId)?.openingBalance;
 
   const columns: Column<TeacherPayment>[] = [
     {
@@ -322,6 +317,24 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
             : "Seçilen ayda ödeme kaydı yok."
         }
       />
+
+      {teacherOpeningBalance && (
+        <p className="text-xs text-muted-foreground">
+          Devir: {formatDate(teacherOpeningBalance.date)} itibarıyla{" "}
+          <span className="font-medium text-foreground">{formatCurrency(teacherOpeningBalance.amount)}</span> alacak, o ayın hakedişine
+          eklendi (Excel aktarımı).
+        </p>
+      )}
+
+      {historicalPayments.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">Aktarılan geçmiş ödemeler</p>
+            <HistoricalRecordBadge label="Hakedişe dahil değil" />
+          </div>
+          <DataTable data={historicalPayments} columns={columns} keyExtractor={(p) => p.id} dense />
+        </div>
+      )}
 
       <TeacherPaymentFormDrawer
         open={payOpen}
