@@ -26,8 +26,6 @@ export type SettingsSectionKey =
   | "teacherEarnings"
   | "data";
 
-export type SettingsSectionStatus = "complete" | "incomplete" | "attention";
-
 // ─── 1. Kurum Bilgileri ──────────────────────────────────────────────────────
 
 export interface InstitutionProfileSettings {
@@ -152,7 +150,7 @@ export type NotificationEventKey =
 // and confirmations are fixed system rules
 // (lib/auth/security-policy.ts, components/shared/ConfirmProvider.tsx).
 
-// ─── 10. Excel ve Veri Yönetimi ──────────────────────────────────────────────
+// ─── 10. Yedekleme ve Excel ──────────────────────────────────────────────
 // Most of this section is actions (backup/restore/export), not persisted
 // settings — this is just the small bit of state those actions leave behind.
 

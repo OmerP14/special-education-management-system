@@ -6,7 +6,7 @@ import { saveDailyAutoBackup } from "@/lib/data/persistence";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { initBackupFolder, useBackupFolder, writeBackupToFolder } from "@/lib/backup/backup-folder";
 
-/** Ayarlar → Excel ve Veri Yönetimi → Otomatik yedekleme: keeps one backup
+/** Ayarlar → Yedekleme ve Excel → Otomatik yedekleme: keeps one backup
  *  per day in this browser (see saveDailyAutoBackup) and, when a folder was
  *  chosen, writes the day's file there too, refreshing it every 30 minutes
  *  so it holds the day's latest data. Renders nothing. */

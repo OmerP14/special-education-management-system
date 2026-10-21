@@ -76,9 +76,3 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
 ];
 
-export function getSettingsSectionMeta(key: SettingsSectionKey): SettingsSectionMeta {
-  const meta = SETTINGS_SECTIONS.find((s) => s.key === key);
-  if (!meta) throw new Error(`Unknown settings section: ${key}`);
-  return meta;
-}
-

@@ -1,189 +1,57 @@
-<div align="center">
+# Özel Eğitim Yönetim Sistemi
 
-# 🎓 Special Education Management System
+Özel eğitim kurumlarının Excel ile yürüttüğü işleri tek yerde toplayan web uygulaması: öğrenciler ve veliler, öğretmenler, ders programı, veli ödemeleri, öğretmen hakedişleri ve raporlar.
 
-### A modern SaaS platform for managing special education centers.
+## Neler var
 
-Built with **Next.js**, **React**, **TypeScript** and **Tailwind CSS**.
+- **Öğrenciler ve veliler** — kayıt, bağlı veliler, ders geçmişi, cari hesap (borç / ödeme / devir)
+- **Öğretmenler** — eğitim türüne göre ders ücreti, ders başı / maaşlı / maaş + kota / yüzdelik hakediş, ödemeler ve avanslar, öğretmen birleştirme
+- **Dersler** — haftalık plan, takvim, 40 dakikalık ders ve blok ders, mola süresi, çakışma kontrolü
+- **Finans** — veli ödemeleri ve makbuz numarası, alacaklar, öğretmenlere ödenecekler
+- **Raporlar** — finans, ders, öğretmen ve öğrenci raporları; Excel (CSV) olarak indirme ve yazdırma
+- **Excel'den aktarma** — herhangi bir Excel dosyasını sütun eşleştirerek alma, devir tarihi, önizleme ve geri alma
+- **Yedekleme** — yedek dosyası alma / geri yükleme, günlük otomatik yedek ve bilgisayardaki bir klasöre yedek (Chrome / Edge)
 
-</div>
+## Önemli: veriler nerede duruyor
 
----
+Henüz sunucu (veritabanı) yok. Tüm veriler, giriş bilgileri dahil, **kullanılan tarayıcının içinde** saklanır:
 
-## 📖 Overview
+- Farklı bilgisayarlar veya tarayıcılar birbirinin verisini görmez.
+- Tarayıcı verisi silinirse kayıtlar da gider. Bu yüzden **Ayarlar → Yedekleme ve Excel → Yedek Al** ile düzenli yedek alın.
 
-The **Special Education Management System** is a comprehensive SaaS platform designed to replace Excel-based workflows used by special education centers.
+Sunucuya geçiş planı: [docs/BACKEND.md](docs/BACKEND.md).
 
-It centralizes student management, session scheduling, financial tracking, reporting, and teacher management into a modern web application.
+## İlk giriş
 
----
+Yeni kurulum boş başlar. Kullanıcı adı `admin`, şifre `1`. Giriş yaptıktan sonra şifreyi **Profil** sayfasından değiştirin.
 
-## ✨ Features
+## Geliştirici
 
-### 👨‍🎓 Student Management
-
-- Student profiles
-- Guardian management
-- Session history
-- Notes
-- Current account tracking
-
-### 👨‍🏫 Teacher Management
-
-- Teacher profiles
-- Earnings calculation
-- Custom pricing
-- Payroll management
-
-### 📅 Session Management
-
-- Weekly planning
-- Calendar view
-- Conflict detection
-- Attendance tracking
-
-### 💰 Financial Management
-
-- Student payments
-- Installments
-- Teacher payments
-- Daily cash flow
-- Current account system
-
-### 📊 Reporting
-
-- Financial reports
-- Session reports
-- Teacher reports
-- Student reports
-
-### 📥 Data Import
-
-- Excel Import Wizard
-- Validation
-- Preview
-- Data mapping
-
-### 🔐 Access
-
-- One shared institution account with full access
-- Several people can be signed in at once, on different devices
-- Login lockout after repeated wrong passwords; a password change signs out every other device
-
----
-
-## 🛠 Tech Stack
-
-| Category | Technologies |
-|----------|--------------|
-| Frontend | Next.js (App Router), React, TypeScript |
-| Styling | Tailwind CSS, shadcn/ui (Base UI) |
-| State Management | React Context + localStorage (mock store) |
-| Charts | Recharts |
-| Excel | SheetJS (xlsx) |
-| Icons | Lucide React |
-| Testing | Vitest |
-
----
-
-## 📁 Project Structure
-
-```text
-src/
- ├── app/            # Routes: (auth) login pages, (app)/app/* application pages
- ├── components/     # Feature components (students, sessions, payments…) and ui/ primitives
- ├── hooks/          # Shared React hooks
- ├── lib/
- │   ├── auth/       # Single-account auth service and password rules
- │   ├── helpers/    # Business logic (finance, installments, conflicts, import…)
- │   ├── mock/       # Seed data and the localStorage-backed store
- │   └── settings/   # Institution settings defaults and validation
- └── types/          # Shared TypeScript types
-```
-
-> **Note:** There is no backend yet. All data, including the account and its
-> password, lives in the browser's localStorage, so devices do not share data
-> yet and this build is for demos only — it must not be used with real student
-> data.
-
----
-
-## 🚀 Getting Started
-
-Clone the repository
-
-```bash
-git clone https://github.com/OmerP14/special-education-management-system.git
-```
-
-Install dependencies
+Next.js (App Router), React, TypeScript, Tailwind CSS, shadcn/ui (Base UI), Recharts, SheetJS, Vitest.
 
 ```bash
 npm install
+npm run dev        # http://localhost:3000
 ```
 
-Run the development server
-
-```bash
-npm run dev
-```
-
-Open
+| Komut | Görevi |
+|---|---|
+| `npm run dev` | Geliştirme sunucusu |
+| `npm run build` | Canlı sürüm derlemesi |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript kontrolü |
+| `npm test` | Testler (Vitest) |
 
 ```text
-http://localhost:3000
+src/
+ ├── app/          # Sayfalar: (auth)/login, (app)/app/*
+ ├── components/   # Sayfa bileşenleri ve ui/ temel parçalar
+ ├── hooks/        # Ortak React hook'ları
+ ├── lib/
+ │   ├── auth/     # Tek hesaplı giriş ve şifre kuralları
+ │   ├── backup/   # Klasöre yedekleme
+ │   ├── data/     # Veri deposu (bugün tarayıcı) ve sunucu bağlantı noktası
+ │   ├── helpers/  # İş kuralları: borç, hakediş, çakışma, Excel aktarımı
+ │   └── settings/ # Kurum ayarları, varsayılanlar, doğrulama
+ └── types/        # Ortak türler
 ```
-
-### Demo account
-
-Username `admin`, password `1`.
-
-Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets all institution data back to the demo data (the login is kept).
-
-### Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start the development server |
-| `npm run build` | Production build |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | TypeScript check |
-| `npm test` | Unit tests (Vitest) |
-
----
-
-## 🎯 Project Goals
-
-- Replace Excel-based workflows
-- Simplify daily operations
-- Improve financial tracking
-- Reduce manual work
-- Provide a scalable SaaS solution
-
----
-
-## 🗺️ Roadmap
-
-- [x] Student Management
-- [x] Teacher Management
-- [x] Session Management
-- [x] Financial Module
-- [x] Reporting
-- [x] Calendar
-- [x] Excel Import
-- [x] Single shared account (client-side mock)
-- [ ] Backend and database — shared data and live sync across devices (see [docs/BACKEND.md](docs/BACKEND.md): data source seam, data model, business rules, migration)
-- [ ] Multi-tenant Architecture
-- [ ] Production Deployment
-
----
-
-## 📸 Screenshots
-
-Screenshots will be added soon.
-
----
-
-## 📄 License
-
-This project is currently under active development.

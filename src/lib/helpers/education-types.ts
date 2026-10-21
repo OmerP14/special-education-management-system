@@ -51,25 +51,8 @@ export const normalizeEducationTypeName = normalizeName;
 
 // ─── Canonical lookups ──────────────────────────────────────────────────────────
 
-export function getEducationTypeById(
-  id: string | undefined | null,
-  educationTypes: EducationType[]
-): EducationType | undefined {
-  if (!id) return undefined;
-  return educationTypes.find((et) => et.id === id);
-}
-
 export function getActiveEducationTypes(educationTypes: EducationType[]): EducationType[] {
   return educationTypes.filter((et) => et.status === "active");
-}
-
-/** Never returns a raw id — falls back to "—" so a stale/unknown reference
- *  never leaks an internal identifier into the UI. */
-export function getEducationTypeLabel(
-  id: string | undefined | null,
-  educationTypes: EducationType[]
-): string {
-  return getEducationTypeById(id, educationTypes)?.name ?? "—";
 }
 
 // ─── Usage / delete-safety ──────────────────────────────────────────────────────

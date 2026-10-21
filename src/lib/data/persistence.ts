@@ -7,7 +7,7 @@
 // aggregate state back on change. See DataProvider in store.tsx.
 //
 // SCHEMA_VERSION exists so a future shape change can invalidate old snapshots
-// outright (fall back to seed data) instead of crashing on a mismatched
+// outright (start empty) instead of crashing on a mismatched
 // shape — bump it whenever a field is added/removed/renamed in a
 // non-backward-compatible way.
 
@@ -46,7 +46,7 @@ export function loadPersistedStore<T>(): T | null {
       parsed = null;
     }
     if (!parsed || parsed.version !== SCHEMA_VERSION || !parsed.data) {
-      // The app falls back to demo data and its first save overwrites this
+      // The app starts empty and its first save overwrites this
       // key — keep the unreadable snapshot aside instead of losing it.
       preserveUnreadable(raw);
       return null;
@@ -126,7 +126,7 @@ export function watchOtherTabWrites(): () => void {
   };
 }
 
-// ─── Backups (Ayarlar → Excel ve Veri Yönetimi) ─────────────────────────────
+// ─── Backups (Ayarlar → Yedekleme ve Excel) ─────────────────────────────
 
 export const BACKUP_APP_ID = "ozel-egitim-yonetim";
 

@@ -53,15 +53,6 @@ export function getTeacherEducationAssignment(
   return assignments.find((a) => a.teacherId === teacherId && a.educationTypeId === educationTypeId);
 }
 
-export function getTeachersForEducationType(
-  educationTypeId: string,
-  assignments: TeacherEducationTypeAssignment[]
-): string[] {
-  return assignments
-    .filter((a) => a.educationTypeId === educationTypeId && a.status === "active")
-    .map((a) => a.teacherId);
-}
-
 // ─── Configuration status (sections 9 & 12) ─────────────────────────────────────
 // "Is this teacher's payout setup complete" — a different question from "does
 // this teacher have historical sessions with an unresolved earning," which is

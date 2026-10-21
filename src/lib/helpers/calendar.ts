@@ -166,16 +166,6 @@ export function getSessionsForWeek(
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
-export function getSessionsForMonth(
-  events: CalendarEvent[],
-  year: number,
-  month: number // 0-indexed
-): CalendarEvent[] {
-  return events
-    .filter((e) => e.date.getFullYear() === year && e.date.getMonth() === month)
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
-}
-
 export function getCalendarEventRelations(
   sessionId: string,
   sessions: Session[],

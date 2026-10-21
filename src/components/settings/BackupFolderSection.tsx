@@ -15,7 +15,7 @@ import {
   writeBackupToFolder,
 } from "@/lib/backup/backup-folder";
 
-/** Ayarlar → Excel ve Veri Yönetimi → Yedekleme: the folder on this computer
+/** Ayarlar → Yedekleme ve Excel → Yedekleme: the folder on this computer
  *  that daily backups are written to (see lib/backup/backup-folder.ts). */
 export function BackupFolderSection({ onMessage }: { onMessage: (text: string, tone?: "success" | "error") => void }) {
   const store = useStore();

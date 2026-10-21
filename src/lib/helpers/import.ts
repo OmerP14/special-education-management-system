@@ -1611,41 +1611,6 @@ export interface CommitBatchMeta {
   entityTypes: ImportEntityType[];
 }
 
-/** Single-type commit — wraps commitRowsIntoBatch with one ImportBatch record
- *  covering just this run, so rollback ("İçe Aktarmayı Geri Al") is always
- *  available afterwards. */
-export function commitImportBatch(
-  rows: StagedRow[],
-  store: CommitStore,
-  meta: CommitBatchMeta
-): { result: ImportResult; batch: ImportBatch } {
-  const batchId = newId("batch");
-  const entityIds = emptyImportBatchEntityIds();
-  const result = commitRowsIntoBatch(rows, store, batchId, entityIds);
-  const summary = buildImportSummary(rows);
-  const impact = buildFinancialImpact(rows);
-
-  const batch: ImportBatch = {
-    id: batchId,
-    tenantId: TENANT_ID,
-    fileName: meta.fileName,
-    importedAt: new Date().toISOString(),
-    importMode: meta.importMode,
-    importedBy: "Sistem Kullanıcısı",
-    entityTypes: meta.entityTypes,
-    rowCount: summary.totalRows,
-    createdEntityIds: entityIds,
-    skippedRows: summary.errorRows,
-    warningRows: summary.warningRows,
-    duplicateRows: summary.duplicateRows,
-    financialSummary: impact,
-    fileFingerprint: meta.fileFingerprint,
-  };
-  store.addImportBatch(batch);
-
-  return { result, batch };
-}
-
 /** Multi-type commit (multi-select import wizard) — commits every task's staged
  *  rows in dependency order into ONE shared ImportBatch, so rollback removes
  *  the entire run across every entity type at once. */

@@ -97,29 +97,3 @@ export const NAV_SETTINGS_ITEM: NavItem = {
 export function isNavItemActive(pathname: string, href: string): boolean {
   return pathname === href || (href !== "/app/dashboard" && pathname.startsWith(href));
 }
-
-export interface NavBreadcrumb {
-  groupLabel: string | null;
-  pageLabel: string;
-}
-
-/** Resolves the current route to a "Section / Page" label pair for the topbar.
- *  Falls back to null/null for routes outside the nav model (e.g. a detail page
- *  one level below a list item) — callers should fall back to the page's own
- *  title in that case rather than show nothing. */
-export function resolveNavBreadcrumb(pathname: string): NavBreadcrumb | null {
-  for (const item of NAV_TOP_ITEMS) {
-    if (isNavItemActive(pathname, item.href)) return { groupLabel: null, pageLabel: item.label };
-  }
-  if (isNavItemActive(pathname, NAV_SETTINGS_ITEM.href)) {
-    return { groupLabel: null, pageLabel: NAV_SETTINGS_ITEM.label };
-  }
-  for (const group of NAV_GROUPS) {
-    for (const item of group.items) {
-      if (isNavItemActive(pathname, item.href)) {
-        return { groupLabel: group.label, pageLabel: item.label };
-      }
-    }
-  }
-  return null;
-}

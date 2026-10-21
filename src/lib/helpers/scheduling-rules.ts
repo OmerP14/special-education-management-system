@@ -18,7 +18,6 @@ export const LESSON_MINUTES = 40;
 
 /** 1 = tek ders, 2 = blok ders. */
 export const LESSON_COUNT_OPTIONS = [1, 2] as const;
-export type LessonCount = (typeof LESSON_COUNT_OPTIONS)[number];
 
 export const BREAK_MINUTE_OPTIONS = [0, 5, 10, 15, 20] as const;
 

@@ -155,7 +155,7 @@ function LoginForm() {
           </form>
           <CardFooter className="border-t pt-4">
             <p className="w-full text-center text-xs text-muted-foreground">
-              Demo sistemi · Gerçek veri içermez
+              Verileriniz bu tarayıcıda saklanır · Düzenli yedek alın
             </p>
           </CardFooter>
         </Card>

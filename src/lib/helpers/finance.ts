@@ -9,10 +9,8 @@ import type {
   TeacherEarningResolution,
   TeacherEarningSource,
   DashboardStats,
-  StudentSummary,
   StudentListItem,
   StudentDetail,
-  TeacherSummary,
   TeacherListItem,
   TeacherDetail,
   TeacherStudentRow,
@@ -256,12 +254,6 @@ export function getStudentTotalPaid(studentId: string, payments: Payment[]): num
     .reduce((sum, p) => sum + p.amount, 0);
 }
 
-export function getStudentCompletedSessions(studentId: string, sessions: Session[]): number {
-  return sessions.filter(
-    (s) => s.studentId === studentId && s.status === "completed"
-  ).length;
-}
-
 export function getTeacherTotalEarnings(
   teacher: Teacher,
   sessions: Session[],
@@ -357,33 +349,6 @@ export function buildDashboardStats(
     unknownEarningSessionCount,
     pendingEarnings,
   };
-}
-
-export function buildStudentSummaries(
-  sessions: Session[],
-  payments: Payment[],
-  students: Student[],
-  openingBalances: OpeningBalance[] = []
-): StudentSummary[] {
-  return students.map((student) => ({
-    ...student,
-    totalDebt: getStudentDebt(student.id, sessions, payments, openingBalances),
-    totalPaid: getStudentTotalPaid(student.id, payments),
-    completedSessions: getStudentCompletedSessions(student.id, sessions),
-  }));
-}
-
-export function buildTeacherSummaries(
-  sessions: Session[],
-  teacherPayments: TeacherPayment[],
-  teachers: Teacher[]
-): TeacherSummary[] {
-  return teachers.map((teacher) => ({
-    ...teacher,
-    totalEarnings: getTeacherTotalEarnings(teacher, sessions, teacherPayments),
-    pendingEarnings: getTeacherPendingEarnings(teacher, sessions, teacherPayments),
-    completedSessions: getTeacherCompletedSessions(teacher.id, sessions),
-  }));
 }
 
 /** Money is always Turkish lira — for input labels like "Tutar (₺)". */
@@ -601,74 +566,6 @@ export function getStudentGuardian(
   const student = students.find((s) => s.id === studentId);
   if (!student) return null;
   return guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
-}
-
-export function getSessionRelations(
-  sessionId: string,
-  sessions: Session[],
-  students: Student[],
-  teachers: Teacher[],
-  educationTypes: EducationType[],
-  guardians: Guardian[]
-): {
-  session: Session | null;
-  student: Student | null;
-  teacher: Teacher | null;
-  educationType: EducationType | null;
-  guardian: Guardian | null;
-} {
-  const session = sessions.find((s) => s.id === sessionId) ?? null;
-  const student = session ? (students.find((s) => s.id === session.studentId) ?? null) : null;
-  const teacher = session ? (teachers.find((t) => t.id === session.teacherId) ?? null) : null;
-  const educationType = session
-    ? (educationTypes.find((et) => et.id === session.educationTypeId) ?? null)
-    : null;
-  const guardian = student
-    ? (guardians.find((g) => student.guardianIds.includes(g.id)) ?? null)
-    : null;
-  return { session, student, teacher, educationType, guardian };
-}
-
-export function getPaymentRelations(
-  paymentId: string,
-  payments: Payment[],
-  students: Student[],
-  guardians: Guardian[]
-): {
-  payment: Payment | null;
-  student: Student | null;
-  guardian: Guardian | null;
-} {
-  const payment = payments.find((p) => p.id === paymentId) ?? null;
-  const student = payment ? (students.find((s) => s.id === payment.studentId) ?? null) : null;
-  const guardian = student
-    ? (guardians.find((g) => student.guardianIds.includes(g.id)) ?? null)
-    : null;
-  return { payment, student, guardian };
-}
-
-export function getEarningRelations(
-  earningId: string,
-  earnings: TeacherEarning[],
-  sessions: Session[],
-  teachers: Teacher[],
-  students: Student[],
-  educationTypes: EducationType[]
-): {
-  earning: TeacherEarning | null;
-  session: Session | null;
-  teacher: Teacher | null;
-  student: Student | null;
-  educationType: EducationType | null;
-} {
-  const earning = earnings.find((e) => e.id === earningId) ?? null;
-  const session = earning ? (sessions.find((s) => s.id === earning.sessionId) ?? null) : null;
-  const teacher = earning ? (teachers.find((t) => t.id === earning.teacherId) ?? null) : null;
-  const student = session ? (students.find((s) => s.id === session.studentId) ?? null) : null;
-  const educationType = session
-    ? (educationTypes.find((et) => et.id === session.educationTypeId) ?? null)
-    : null;
-  return { earning, session, teacher, student, educationType };
 }
 
 export function getStudentAssignedTeachers(
@@ -1468,21 +1365,6 @@ export function getTeacherEarningTotals(
   const pendingEarning = Math.max(0, totalEarning - paidEarning - deductedEarning);
   const unknownSessionCount = countUnknownEarningSessions(teacher, sessions, assignments);
   return { teacherId: teacher.id, totalEarning, paidEarning, deductedEarning, pendingEarning, unknownSessionCount };
-}
-
-/** Canonical name for "how many of this teacher's historical earning-eligible
- *  sessions have an unresolved earning, all-time" (section 12) — a thin,
- *  purpose-named wrapper over getTeacherEarningTotals so call sites that only
- *  need this one count don't have to know it's nested inside the totals
- *  object. Deliberately separate from getTeacherEarningConfigurationStatus:
- *  this is about past sessions, that is about the teacher's current setup. */
-export function getTeacherHistoricalUnresolvedEarningCount(
-  teacher: Teacher,
-  sessions: Session[],
-  teacherPayments: TeacherPayment[],
-  assignments: TeacherEducationTypeAssignment[] = []
-): number {
-  return getTeacherEarningTotals(teacher, sessions, teacherPayments, assignments).unknownSessionCount;
 }
 
 /**

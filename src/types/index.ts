@@ -377,12 +377,6 @@ export interface TeacherPayment {
 }
 
 // ─── Derived / UI Models ───────────────────────────────────────────────────────
-export interface StudentSummary extends Student {
-  totalDebt: number;
-  totalPaid: number;
-  completedSessions: number;
-}
-
 export interface StudentListItem {
   id: string;
   tenantId: string;
@@ -412,12 +406,6 @@ export interface StudentDetail extends Student {
   totalBilled: number;
   totalPaid: number;
   totalDebt: number;
-}
-
-export interface TeacherSummary extends Teacher {
-  totalEarnings: number;
-  pendingEarnings: number;
-  completedSessions: number;
 }
 
 export interface TeacherStudentRow {

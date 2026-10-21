@@ -65,13 +65,6 @@ function parseEntityDate(dateStr: string): Date {
   return dateStr.includes("T") ? new Date(dateStr) : parseDateOnly(dateStr);
 }
 
-/** Generic date-range check for any already-built row that has a `.date` field
- *  (TeacherPaymentReportRow, SessionListItem, …). */
-export function isWithinReportRange(dateStr: string, filters: ReportFilters): boolean {
-  const { start, end } = resolveReportDateRange(filters);
-  return isDateWithinRange(dateStr, start, end);
-}
-
 function isDateWithinRange(dateStr: string, start: string | null, end: string | null): boolean {
   const d = parseEntityDate(dateStr);
   if (start && d < parseDateOnly(start)) return false;
