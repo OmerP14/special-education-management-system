@@ -14,16 +14,16 @@
 
 ## Önemli: veriler nerede duruyor
 
-Henüz sunucu (veritabanı) yok. Tüm veriler, giriş bilgileri dahil, **kullanılan tarayıcının içinde** saklanır:
+Giriş bilgileri sunucuda (Neon veritabanı) durur. Öğrenci, ders ve ödeme kayıtları ise şimdilik **kullanılan tarayıcının içinde** saklanır:
 
 - Farklı bilgisayarlar veya tarayıcılar birbirinin verisini görmez.
 - Tarayıcı verisi silinirse kayıtlar da gider. Bu yüzden **Ayarlar → Yedekleme ve Excel → Yedek Al** ile düzenli yedek alın.
 
 Sunucuya geçiş planı: [docs/BACKEND.md](docs/BACKEND.md).
 
-## İlk giriş
+## İlk açılış
 
-Yeni kurulum boş başlar. Kullanıcı adı `admin`, şifre `1`. Giriş yaptıktan sonra şifreyi **Profil** sayfasından değiştirin.
+Hazır bir hesap yoktur. Siteyi ilk açan kişi **Kurulum** ekranında kurum adını ve telefonunu, kendi adını, kullanıcı adını ve şifresini girer. Ardından paneldeki **Başlarken** adımları sırayla yol gösterir. Bilgiler sonra Ayarlar ve Profil sayfasından değiştirilebilir.
 
 ## Geliştirici
 

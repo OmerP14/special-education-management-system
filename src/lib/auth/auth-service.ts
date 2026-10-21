@@ -1,25 +1,26 @@
-import type { AuthResult, AuthSession, AuthUser } from "@/types/auth";
+import type { AuthResult, AuthUser } from "@/types/auth";
 
-// ─── AuthService — the replaceable auth boundary ────────────────────────────
+// ─── AuthService — the auth boundary ─────────────────────────────────────────
 //
-// Every component consumes this interface (via useAuth(), never a concrete
-// implementation import) so LocalAuthService can later be swapped for a
-// backend-backed service without touching a single page — see
-// local-auth-service.ts for today's implementation.
+// Every component consumes this through useAuth(), never a concrete
+// implementation. Today's implementation talks to the app's own API routes
+// (http-auth-service.ts → src/app/api/auth/*).
 
 export interface AuthService {
-  signIn(input: {
-    username: string;
-    password: string;
-    remember?: boolean;
-  }): Promise<AuthResult<{ user: AuthUser; session: AuthSession }>>;
+  signIn(input: { username: string; password: string; remember?: boolean }): Promise<AuthResult<{ user: AuthUser }>>;
 
   signOut(): Promise<void>;
 
-  getSession(): AuthSession | null;
+  /** Who is signed in on this device (null = nobody) and whether the
+   *  first-run setup is still pending; undefined when the server could not
+   *  be reached (the caller keeps its current state). */
+  getStatus(): Promise<{ user: AuthUser | null; needsSetup: boolean } | undefined>;
 
-  /** Null when there is no session or it was opened with an old password. */
-  getCurrentUser(): AuthUser | null;
+  /** First run only: creates the institution's account and signs in. */
+  setup(input: { name: string; username: string; password: string }): Promise<AuthResult<{ user: AuthUser }>>;
 
   changePassword(input: { currentPassword: string; newPassword: string }): Promise<AuthResult>;
+
+  /** Profil page: display name and username. */
+  updateProfile(input: { name: string; username: string }): Promise<AuthResult<{ user: AuthUser }>>;
 }

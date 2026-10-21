@@ -10,7 +10,7 @@ Bu belge, sisteme sunucu tarafı (backend) ekleyecek geliştirici içindir. Uygu
 | Tarayıcı deposu | `src/lib/data/persistence.ts` | Bugünkü `DataSource` uygulaması (localStorage, sekmeler arası koruma, otomatik yedek). |
 | Uygulama durumu | `src/lib/data/store.tsx` | Tüm kayıtlar ve onları değiştiren eylemler (`addStudent`, `updateSession`…). Sayfalar veriye yalnızca `useStore()` ile ulaşır. |
 | İş kuralları | `src/lib/helpers/*.ts` | Borç, öğretmen hakedişi, devir, Excel aktarımı, çakışma kontrolü. Saf fonksiyonlar, testli. |
-| Kimlik doğrulama | `src/lib/auth/auth-service.ts` | Giriş/çıkış arayüzü. Bugünkü uygulama: `local-auth-service.ts`. |
+| Kimlik doğrulama | `src/lib/server/auth-core.ts`, `src/app/api/auth/*` | **Sunucuda (Neon Postgres).** Tarayıcı tarafı: `auth-service.ts` → `http-auth-service.ts`. |
 | Kimlik numaraları | `src/lib/data/ids.ts` | Tüm kayıt kimlikleri (`createId`) ve kurum kimliği (`TENANT_ID`). |
 
 Uygulama açılırken `DataProvider` veriyi `dataSource.load()` ile **asenkron** yükler (bu sırada "Yükleniyor…" ekranı görünür), her değişiklikten sonra durumun tamamını `dataSource.save()` ile kaydeder. Kaydetme başarısız olursa üst bantta uyarı çıkar.
@@ -35,7 +35,7 @@ Uygulamanın tüm iş kuralları tarayıcıda çalıştığı için sunucunun il
    export const dataSource: DataSource = serverDataSource;
    ```
 3. **Eş zamanlı düzenleme:** Birden fazla kişi aynı anda çalışabilir. Her kayda bir sürüm numarası (veya `ETag`) ekleyin; `PUT` eski sürüme dayanıyorsa `409` dönün. `save` bu durumda `false` döndürsün, `watch` ise belirli aralıklarla sürümü kontrol edip yeni sürüm varsa sayfayı yenilesin. Bugünkü tarayıcı uygulaması (`watchOtherTabWrites`) aynı şeyi sekmeler arasında yapıyor.
-4. Kaydedilen durumdan `account`, `credential` ve `authSession` alanlarını **çıkarın**: bunlar kimlik doğrulamaya aittir (bkz. Bölüm 5).
+4. Kaydedilen durumda giriş bilgisi yoktur; hesap ve oturumlar ayrı tablolardadır (bkz. Bölüm 5). `/api/state` yalnızca oturum çereziyle çalışmalı.
 
 ### Aşama 2 — Tablolara ayırma
 
@@ -77,14 +77,13 @@ Bu kurallar bugün uygulamada uygulanıyor ve testli (`npm test`). Sunucu veriyi
 - **Öğrenci numarası** (`OGR-0001`…) da aynı şekilde tek yerden verilmeli.
 - **Çakışma:** Aynı öğretmene veya öğrenciye aynı saatte iki ders verilmez; aradaki mola ayarlıdır. → `session-conflict.ts`
 
-## 5. Kimlik doğrulama — mutlaka sunucuya taşınmalı
+## 5. Kimlik doğrulama — sunucuda (tamamlandı)
 
-Bugünkü giriş **yalnızca tarayıcıda** çalışır ve gerçek güvenlik sağlamaz:
-
-- Şifre tarayıcıda SHA-256 ile özetlenip localStorage'da tutuluyor (`src/lib/auth/password.ts`). Sunucuda **argon2 veya bcrypt** kullanılmalı.
-- Oturum localStorage'da tutuluyor; sunucuda `httpOnly`, `secure` çerezle tutulmalı.
-- Başlangıç hesabı `src/lib/data/seed-account.ts` içindedir. Canlıya çıkmadan önce değiştirilmeli; sunucuda başlangıç hesabı kurulum sırasında oluşturulmalı.
-- Yapılacak: `AuthService` arayüzünü (`auth-service.ts`) sunucuya istek atan yeni bir sınıfla uygulayın ve `AuthProvider` içinde onu kullanın. Sayfaların hiçbiri değişmez. Kilitleme kuralları (`security-policy.ts`: 3 hatalı denemede 5 dakika kilit) sunucuda da uygulanmalı.
+- Hesap, şifre ve oturumlar Neon Postgres'te: `account` (tek satır) ve `auth_sessions` tabloları. Tablolar ilk istekte kendiliğinden oluşur (`src/lib/server/db.ts`). Hazır hesap yoktur: boş veritabanında site `/setup` kurulum ekranını açar, hesabı ilk kurulum oluşturur (`POST /api/setup`, hesap varsa reddedilir).
+- Şifre sunucuda **scrypt** ile saklanır (`src/lib/server/password-hash.ts`).
+- Oturum `httpOnly` çerezde rastgele bir anahtardır; veritabanında yalnızca SHA-256 özeti durur. "Beni hatırla" kapalıysa çerez tarayıcı kapanınca silinir.
+- Kurallar `src/lib/server/auth-core.ts` içinde ve testli: 3 hatalı denemede 5 dakika kilit, şifre değişince diğer cihazların oturumu kapanır, kullanıcı adı büyük/küçük harf ve ı/i farkı gözetmez.
+- Uç noktalar: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`, `POST /api/auth/profile`.
 
 ## 6. Kurum ve kimlik numaraları
 

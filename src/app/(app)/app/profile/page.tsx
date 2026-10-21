@@ -3,7 +3,6 @@
 import { useState, type FormEvent } from "react";
 import { UserRound, CheckCircle2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useStore } from "@/lib/data/store";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,7 @@ import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/passw
 
 // The single institution account: display name, username and password.
 // Everyone signing in uses these, so a password change here signs out every
-// other device (see LocalAuthService.changePassword).
+// other device (see changePassword in src/lib/server/auth-core.ts).
 export default function ProfilePage() {
   const { user } = useAuth();
   if (!user) return null;
@@ -27,15 +26,19 @@ export default function ProfilePage() {
 }
 
 function AccountInfoCard({ name: savedName, username: savedUsername }: { name: string; username: string }) {
-  const { updateAccountProfile } = useStore();
+  const { updateProfile } = useAuth();
   const [name, setName] = useState(savedName);
   const [username, setUsername] = useState(savedUsername);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const dirty = name !== savedName || username !== savedUsername;
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError(updateAccountProfile({ name, username }));
+    setSubmitting(true);
+    const result = await updateProfile({ name, username });
+    setSubmitting(false);
+    setError(result.success ? null : result.errorMessage ?? "Bilgiler kaydedilemedi.");
   };
 
   return (
@@ -70,8 +73,8 @@ function AccountInfoCard({ name: savedName, username: savedUsername }: { name: s
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
-          <Button type="submit" size="sm" disabled={!dirty}>
-            Bilgileri Kaydet
+          <Button type="submit" size="sm" disabled={!dirty || submitting}>
+            {submitting ? "Kaydediliyor…" : "Bilgileri Kaydet"}
           </Button>
         </form>
       </CardContent>

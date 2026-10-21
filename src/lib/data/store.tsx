@@ -16,7 +16,6 @@ import type {
   TeacherMergeHistory,
   EducationType,
 } from "@/types";
-import { seedAccount, seedCredential } from "@/lib/data/seed-account";
 import type {
   InstitutionSettings,
   InstitutionSettingsKey,
@@ -25,7 +24,6 @@ import type {
 } from "@/types/settings";
 import { getSettingsDefaults, normalizeInstitutionSettings } from "@/lib/settings/defaults";
 import { getActiveSettings, setActiveSettings } from "@/lib/settings/runtime";
-import type { Account, Credential, AuthSession } from "@/types/auth";
 import { dataSource } from "@/lib/data/source";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
@@ -240,20 +238,6 @@ interface DataStore {
   ) => void;
   resetSettingsSection: (key: InstitutionSettingsKey) => void;
 
-  // ─── The single account (see src/lib/auth/AuthProvider.tsx — the only real
-  //     consumer) ───────────────────────────────────────────────────────────
-  account: Account;
-  /** Login counters/lockout/lastLoginAt. */
-  saveAccountState: (account: Account) => void;
-  /** Profil page: display name and username. Returns an error message when
-   *  either is empty. */
-  updateAccountProfile: (input: { name: string; username: string }) => string | null;
-  /** Never read/written outside src/lib/auth/local-auth-service.ts. */
-  credential: Credential;
-  setCredential: (credential: Credential) => void;
-  /** This device's session. */
-  authSession: AuthSession | null;
-  setAuthSession: (session: AuthSession | null) => void;
   /** Kept in sync by AuthProvider — settings metadata records the account's
    *  name as "updatedBy". See actorNameRef below. */
   setActorName: (name: string | null) => void;
@@ -278,13 +262,11 @@ export interface PersistedState {
   weeklySessionPlans: WeeklySessionPlan[];
   notifications: AppNotification[];
   institutionSettings: InstitutionSettings;
-  account: Account;
-  credential: Credential;
-  authSession: AuthSession | null;
 }
 
-/** What a backup file holds: institution data only. */
-export type BackupData = Omit<PersistedState, "account" | "credential" | "authSession">;
+/** What a backup file holds: all institution data. The login account lives
+ *  on the server and is never part of it. */
+export type BackupData = PersistedState;
 
 // ─── Context ───────────────────────────────────────────────────────────────────
 
@@ -393,16 +375,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   // in this same pass already formats/calculates with the new values.
   setActiveSettings(institutionSettings);
 
-  // ─── Account / credential / this device's session ─────────────────────────
-  // A snapshot from the multi-account era has no `account`: it starts from
-  // the seed account and the old session no longer counts.
-  const [account, setAccount] = useState<Account>(() => persisted?.account ?? seedAccount);
-  const [credential, setCredentialState] = useState<Credential>(() =>
-    persisted?.account && persisted.credential ? persisted.credential : seedCredential
-  );
-  const [authSession, setAuthSessionState] = useState<AuthSession | null>(() =>
-    persisted?.account ? persisted.authSession ?? null : null
-  );
   // Not persisted (ephemeral per-tab) — kept fresh by AuthProvider via
   // setActorName. See FALLBACK_ACTOR_NAME / the DataStore interface comment.
   const [actorName, setActorName] = useState<string | null>(null);
@@ -488,11 +460,9 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   // per-field bespoke code, mirrored by the lazy `useState` initializers
   // above reading the loaded snapshot. See lib/data/source.ts.
   //
-  // Deliberately NOT debounced: a debounced write raced against a fast
-  // reload/relogin (e.g. immediately after signIn) could lose the just-set
-  // authSession/failedLoginAttempts entirely, since the browser can reload
-  // before the timer fires. localStorage.setItem on data this size is cheap
-  // enough that writing on every change is not a real cost here.
+  // Deliberately NOT debounced: a reload right after a change must never
+  // lose it, and localStorage.setItem on data this size is cheap enough that
+  // writing on every change is not a real cost here.
   useEffect(() => {
     let active = true;
     void dataSource.save({
@@ -511,9 +481,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       weeklySessionPlans,
       notifications,
       institutionSettings,
-      account,
-      credential,
-      authSession,
     }).then((saved) => {
       // Mirrors the data source into state so the layout can warn.
       if (active) setStorageFull(!saved);
@@ -537,9 +504,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     weeklySessionPlans,
     notifications,
     institutionSettings,
-    account,
-    credential,
-    authSession,
   ]);
 
   /** Re-derives earnings after Ayarlar → Öğretmen ve Hakediş is saved. Past
@@ -1111,21 +1075,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       }));
     },
 
-    account,
-    saveAccountState: (next) => setAccount(next),
-    updateAccountProfile: ({ name, username }) => {
-      const nextName = name.trim();
-      const nextUsername = username.trim();
-      if (!nextName) return "Ad boş bırakılamaz.";
-      if (!nextUsername) return "Kullanıcı adı boş bırakılamaz.";
-      if (/\s/.test(nextUsername)) return "Kullanıcı adı boşluk içeremez.";
-      setAccount((prev) => ({ ...prev, name: nextName, username: nextUsername, updatedAt: new Date().toISOString() }));
-      return null;
-    },
-    credential,
-    setCredential: (next) => setCredentialState(next),
-    authSession,
-    setAuthSession: (session) => setAuthSessionState(session),
     setActorName: (name) => setActorName(name),
 
     getBackupSnapshot: () => ({
@@ -1235,9 +1184,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       weeklySessionPlans,
       notifications,
       institutionSettings,
-      account,
-      credential,
-      authSession,
       applyEarningPolicy,
       notify,
     ]

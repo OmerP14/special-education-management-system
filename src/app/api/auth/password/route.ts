@@ -1,0 +1,20 @@
+import { getAuth } from "@/lib/server/auth-repo";
+import { clearSessionToken, readSessionToken } from "@/lib/server/session-cookie";
+import { readJson, serverError } from "@/lib/server/http";
+
+export async function POST(request: Request) {
+  const body = await readJson<{ currentPassword?: string; newPassword?: string }>(request);
+  if (!body || typeof body.currentPassword !== "string" || typeof body.newPassword !== "string") {
+    return Response.json({ success: false, error: "unknown", errorMessage: "Şifre alanları gereklidir." }, { status: 400 });
+  }
+  try {
+    const { signedOut, ...result } = await (await getAuth()).changePassword(await readSessionToken(), {
+      currentPassword: body.currentPassword,
+      newPassword: body.newPassword,
+    });
+    if (signedOut) await clearSessionToken();
+    return Response.json(result, { status: result.success ? 200 : 400 });
+  } catch (err) {
+    return serverError(err);
+  }
+}

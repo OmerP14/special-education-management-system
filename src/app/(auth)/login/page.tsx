@@ -14,7 +14,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
-  const { signIn, isAuthenticated, isLoading } = useAuth();
+  const { signIn, isAuthenticated, isLoading, needsSetup } = useAuth();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -29,10 +29,10 @@ function LoginForm() {
   // authenticated visitor sitting on the login form. Also the post-login
   // redirect itself.
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace(resolvePostLoginPath(next));
-    }
-  }, [isLoading, isAuthenticated, next, router]);
+    if (isLoading) return;
+    if (isAuthenticated) router.replace(resolvePostLoginPath(next));
+    else if (needsSetup) router.replace("/setup");
+  }, [isLoading, isAuthenticated, needsSetup, next, router]);
 
   // Live lockout countdown — clears itself once the lock has run out.
   useEffect(() => {
@@ -100,7 +100,6 @@ function LoginForm() {
                 <Input
                   id="username"
                   type="text"
-                  placeholder="admin"
                   autoComplete="username"
                   autoCapitalize="none"
                   value={username}
