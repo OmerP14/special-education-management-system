@@ -105,6 +105,12 @@ function lockedMessage(minutes: number): string {
   return `Çok sayıda hatalı giriş yapıldı. ${minutes} dakika sonra tekrar deneyin.`;
 }
 
+/** Trims and drops control characters (NUL, line breaks…) from a name or
+ *  username before it is stored. */
+function cleanText(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200);
+}
+
 /** Turkish error for the account form fields, or null when they are fine. */
 function validateProfile(name: string, username: string): string | null {
   if (!name) return "Ad boş bırakılamaz.";
@@ -180,8 +186,8 @@ export function createAuthCore(repo: AuthRepo) {
       username: string;
       password: string;
     }): Promise<{ result: AuthResult<{ user: AuthUser }>; token?: string }> {
-      const name = input.name.trim();
-      const username = input.username.trim();
+      const name = cleanText(input.name);
+      const username = cleanText(input.username);
       const error = validateProfile(name, username) ?? validatePasswordPolicy(input.password);
       if (error) return { result: { success: false, error: "unknown", errorMessage: error } };
       const account: AccountRow = {
@@ -288,8 +294,8 @@ export function createAuthCore(repo: AuthRepo) {
     async updateProfile(token: string | undefined, input: { name: string; username: string }): Promise<AuthResult<{ user: AuthUser }>> {
       const found = await resolve(token);
       if (!found) return { success: false, error: "unknown", errorMessage: NO_SESSION_MESSAGE };
-      const name = input.name.trim();
-      const username = input.username.trim();
+      const name = cleanText(input.name);
+      const username = cleanText(input.username);
       const error = validateProfile(name, username);
       if (error) return { success: false, error: "unknown", errorMessage: error };
       await repo.updateAccount({ name, username });

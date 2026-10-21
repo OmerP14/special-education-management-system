@@ -34,6 +34,8 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          // A private institution tool: keep every page out of search engines.
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
       {

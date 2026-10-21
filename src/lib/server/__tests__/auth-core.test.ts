@@ -240,6 +240,12 @@ describe("updateProfile", () => {
     expect((await signIn("x", PASSWORD, "MERKEZ")).success).toBe(true);
   });
 
+  it("drops control characters such as NUL from the name and username", async () => {
+    await signIn();
+    const result = await auth.updateProfile(tokens.laptop, { name: "Ku\u0000rum", username: "mer\u0000kez" });
+    expect(result.data?.user).toMatchObject({ name: "Kurum", username: "merkez" });
+  });
+
   it("rejects empty values and spaces in the username", async () => {
     await signIn();
     expect((await auth.updateProfile(tokens.laptop, { name: "", username: "a" })).success).toBe(false);

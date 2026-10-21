@@ -24,11 +24,25 @@ export async function readVersion(): Promise<number> {
   return rows[0] ? (rows[0].version as number) : 0;
 }
 
+/** Postgres text/jsonb can't hold the NUL character (it can arrive inside an
+ *  imported Excel cell); one would make every later save fail, so it is
+ *  dropped from every string. */
+export function stripNul(value: unknown): unknown {
+  if (typeof value === "string") return value.includes("\u0000") ? value.replaceAll("\u0000", "") : value;
+  if (Array.isArray(value)) return value.map(stripNul);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[stripNul(k) as string] = stripNul(v);
+    return out;
+  }
+  return value;
+}
+
 /** The new version, or null when `baseVersion` is no longer the latest. */
 export async function writeState(data: Record<string, unknown>, baseVersion: number): Promise<number | null> {
   await ensureSchema();
   const now = new Date().toISOString();
-  const json = JSON.stringify(data);
+  const json = JSON.stringify(stripNul(data));
   const rows =
     baseVersion === 0
       ? await sql()`

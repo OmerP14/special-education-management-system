@@ -36,7 +36,10 @@ export function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return request.headers.get("sec-fetch-site") !== "cross-site";
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    // The address the browser actually used (Host / x-forwarded-host behind
+    // Vercel or a custom domain); a cross-site page can't set these.
+    const hosts = [new URL(request.url).host, request.headers.get("host"), request.headers.get("x-forwarded-host")];
+    return hosts.includes(new URL(origin).host);
   } catch {
     return false;
   }
