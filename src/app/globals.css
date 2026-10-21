@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -139,6 +139,19 @@
   }
   html {
     @apply font-sans;
+    /* 17px base instead of 16px: the people using this app are mostly older,
+       and every rem-based size (text, buttons, inputs, spacing) grows with it. */
+    font-size: 106.25%;
+  }
+  /* Removes the double-tap zoom delay on touch devices. */
+  a,
+  button,
+  [role="button"],
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
   }
 }
 
@@ -174,13 +187,5 @@
   to {
     opacity: 1;
     transform: scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
   }
 }

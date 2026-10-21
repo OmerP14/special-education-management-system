@@ -16,28 +16,17 @@ import type {
   TeacherMergeHistory,
   EducationType,
 } from "@/types";
-import { mockStudents, mockGuardians, DEMO_STUDENTS, DEMO_GUARDIANS } from "@/lib/mock/students";
-import { mockTeachers } from "@/lib/mock/teachers";
-import { mockSessions } from "@/lib/mock/sessions";
-import { mockPayments } from "@/lib/mock/payments";
-import { mockTeacherEarnings } from "@/lib/mock/teacher-earnings";
-import { mockTeacherPayments } from "@/lib/mock/teacher-payments";
-import { mockTeacherEducationTypeAssignments } from "@/lib/mock/teacher-education-type-assignments";
-import { mockWeeklySessionPlans } from "@/lib/mock/weekly-session-plans";
-import { mockEducationTypes } from "@/lib/mock/education-types";
-import { mockAccount, mockCredential } from "@/lib/mock/account";
+import { seedAccount, seedCredential } from "@/lib/data/seed-account";
 import type {
   InstitutionSettings,
   InstitutionSettingsKey,
-  AuditLogEntry,
   TeacherEarningsSettings,
   StudentSettings,
 } from "@/types/settings";
-import { DEFAULT_INSTITUTION_SETTINGS, getSettingsDefaults, normalizeInstitutionSettings } from "@/lib/settings/defaults";
+import { getSettingsDefaults, normalizeInstitutionSettings } from "@/lib/settings/defaults";
 import { getActiveSettings, setActiveSettings } from "@/lib/settings/runtime";
-import { INSTITUTION_SETTINGS_FIELD_LABELS } from "@/lib/settings/sections";
 import type { Account, Credential, AuthSession } from "@/types/auth";
-import { loadPersistedStore, savePersistedStore, clearPersistedStore, watchOtherTabWrites } from "@/lib/mock/persistence";
+import { dataSource } from "@/lib/data/source";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
   getSessionEarningAmount,
@@ -57,11 +46,13 @@ import {
   type AppNotification,
 } from "@/lib/helpers/notifications";
 import {
+  applyMakeupBilling,
   assignReceiptNumber,
   canExceedPendingEarning,
   getAllowedTeacherPaymentTypes,
 } from "@/lib/helpers/finance-rules";
 import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/education-types";
+import { createId } from "@/lib/data/ids";
 
 // Upserts the TeacherEarning ledger row for a single session, keyed by sessionId so
 // re-saving the same completed session updates the existing row instead of duplicating it.
@@ -101,27 +92,11 @@ function upsertEarningForSession(
   return [...withoutThisSession, earning];
 }
 
-// ─── Audit log ──────────────────────────────────────────────────────────────
-// Not every mutation in this store pushes an entry — see logAuditEvent's own
-// doc comment on the MockStore interface for which ones do today and why the
-// rest were left out of this pass.
-
-// Fallback for audit entries logged by store actions that don't (and, for
-// most of these, shouldn't) accept an explicit actor — see actorNameRef in
-// MockDataProvider, kept fresh by AuthProvider via setActorName whenever the
-// signed-in user changes. Only used before a session exists (should be
-// unreachable in practice — every mutating action already sits behind
-// RouteGuard) or if AuthProvider hasn't synced yet.
+// ─── Actor name ─────────────────────────────────────────────────────────────
+// Stamped as "updatedBy" on settings metadata — see actorNameRef in
+// DataProvider, kept fresh by AuthProvider via setActorName. Only used
+// before AuthProvider has synced.
 const FALLBACK_ACTOR_NAME = "Sistem Kullanıcısı";
-
-function makeAuditEntry(entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">): AuditLogEntry {
-  return {
-    id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    tenantId: "tenant-1",
-    occurredAt: new Date().toISOString(),
-    ...entry,
-  };
-}
 
 // ─── Notification types ────────────────────────────────────────────────────────
 
@@ -152,7 +127,7 @@ export type { AppNotification };
 // or "void" record with a reason) over any delete at all, so the ledger always explains
 // itself. Sessions should likely follow the same reversing pattern once cancellation
 // audit trails matter, rather than ever being removed outright.
-interface MockStore {
+interface DataStore {
   students: Student[];
   guardians: Guardian[];
   teachers: Teacher[];
@@ -234,9 +209,10 @@ interface MockStore {
   addWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   deleteWeeklySessionPlan: (id: string) => void;
-  /** Replaces all institution data with the demo set. The account, its
-   *  password and the open session are kept. */
-  resetToDemo: () => void;
+  /** Deletes every record (students, guardians, teachers, sessions, payments,
+   *  earnings...). Institution info, education types, settings, the account
+   *  and the open session are kept. */
+  clearAllRecords: () => void;
   /** True while changes can't be saved to this browser (storage full). */
   storageFull: boolean;
   /** All institution data — what a backup file contains. The account and
@@ -256,8 +232,7 @@ interface MockStore {
   institutionSettings: InstitutionSettings;
   /** Section-level save — the whole section's value is replaced at once (the
    *  settings pages hold their own draft state via useSettingsSection and
-   *  only call this on "Kaydet"), and it stamps metadata + pushes an audit
-   *  entry in the same write. */
+   *  only call this on "Kaydet"), and it stamps metadata in the same write. */
   updateSettingsSection: <K extends InstitutionSettingsKey>(
     key: K,
     value: InstitutionSettings[K],
@@ -268,8 +243,7 @@ interface MockStore {
   // ─── The single account (see src/lib/auth/AuthProvider.tsx — the only real
   //     consumer) ───────────────────────────────────────────────────────────
   account: Account;
-  /** Login counters/lockout/lastLoginAt — a plain write with no audit entry;
-   *  the auth flow logs its own login events. */
+  /** Login counters/lockout/lastLoginAt. */
   saveAccountState: (account: Account) => void;
   /** Profil page: display name and username. Returns an error message when
    *  either is empty. */
@@ -280,22 +254,13 @@ interface MockStore {
   /** This device's session. */
   authSession: AuthSession | null;
   setAuthSession: (session: AuthSession | null) => void;
-  /** Kept in sync by AuthProvider — lets store actions log audit entries
-   *  under the account's name. See actorNameRef below. */
+  /** Kept in sync by AuthProvider — settings metadata records the account's
+   *  name as "updatedBy". See actorNameRef below. */
   setActorName: (name: string | null) => void;
 
-  // ─── İşlem Geçmişi ────────────────────────────────────────────────────────
-  auditLog: AuditLogEntry[];
-  /** General-purpose escape hatch for pages that need to record a one-off
-   *  event with no dedicated store action of their own (e.g. Veri Yönetimi's
-   *  backup/restore/export buttons). Settings changes, education type
-   *  create/update, imports, payments, session edits, and auth
-   *  events already log themselves from within their own store actions —
-   *  see each action's own comment. */
-  logAuditEvent: (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">) => void;
 }
 
-/** Everything persisted to localStorage — see lib/mock/persistence.ts. One
+/** Everything persisted to localStorage — see lib/data/persistence.ts. One
  *  shape, not per-field bespoke persistence code. */
 export interface PersistedState {
   students: Student[];
@@ -313,7 +278,6 @@ export interface PersistedState {
   weeklySessionPlans: WeeklySessionPlan[];
   notifications: AppNotification[];
   institutionSettings: InstitutionSettings;
-  auditLog: AuditLogEntry[];
   account: Account;
   credential: Credential;
   authSession: AuthSession | null;
@@ -324,34 +288,54 @@ export type BackupData = Omit<PersistedState, "account" | "credential" | "authSe
 
 // ─── Context ───────────────────────────────────────────────────────────────────
 
-const MockStoreContext = createContext<MockStore | null>(null);
+const StoreContext = createContext<DataStore | null>(null);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-export function MockDataProvider({ children }: { children: ReactNode }) {
-  // Read once per mount — every state initializer below reads from this same
-  // snapshot instead of each re-parsing localStorage independently. `null`
-  // (nothing persisted yet, or a stale schema version) falls back to the
-  // existing seed data exactly as before this phase.
-  const [persisted] = useState(() => loadPersistedStore<PersistedState>());
+/** Loads the data from the data source (lib/data/source.ts), then provides the
+ *  store. Until the data is in, a plain loading screen shows — a backend
+ *  answers asynchronously, and no screen may render on half-loaded data. */
+export function DataProvider({ children }: { children: ReactNode }) {
+  const [loaded, setLoaded] = useState<{ data: PersistedState | null } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void dataSource.load().then((data) => {
+      if (active) setLoaded({ data });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!loaded) {
+    return (
+      <div role="status" className="flex h-svh items-center justify-center bg-background text-base text-muted-foreground">
+        Yükleniyor…
+      </div>
+    );
+  }
+  return <StoreProvider persisted={loaded.data}>{children}</StoreProvider>;
+}
+
+function StoreProvider({ persisted, children }: { persisted: PersistedState | null; children: ReactNode }) {
   const [initialSettings] = useState(() => normalizeInstitutionSettings(persisted?.institutionSettings));
 
   const [students, setStudents] = useState<Student[]>(() =>
-    backfillStudentNumbers(persisted?.students ?? mockStudents, initialSettings.students)
+    backfillStudentNumbers(persisted?.students ?? [], initialSettings.students)
   );
   const studentsRef = useRef(students);
-  const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? mockGuardians);
+  const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? []);
   const guardiansRef = useRef(guardians);
-  const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? mockTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? []);
   const [educationTypes, setEducationTypes] = useState<EducationType[]>(
-    () => persisted?.educationTypes ?? mockEducationTypes
+    () => persisted?.educationTypes ?? []
   );
   const educationTypesRef = useRef(educationTypes);
   // Sessions saved before earning factors existed get one from the current
   // policy — with the default policy that reproduces the old completed/makeup
   // rule exactly.
   const [sessions, setSessions] = useState<Session[]>(() =>
-    (persisted?.sessions ?? mockSessions).map((s) =>
+    (persisted?.sessions ?? []).map((s) =>
       s.earningFactor === undefined ? withEarningFactor(s, initialSettings.teacherEarnings) : s
     )
   );
@@ -359,14 +343,14 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // Payments imported as history only ("historical") are kept with the rest
   // — backups, rollback and deletes see every record — but every consumer
   // gets `payments` without them, so no balance, total or report counts them.
-  const [allPayments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? mockPayments);
+  const [allPayments, setPayments] = useState<Payment[]>(() => persisted?.payments ?? []);
   const payments = useMemo(() => allPayments.filter((p) => !p.historical), [allPayments]);
   const historicalPayments = useMemo(() => allPayments.filter((p) => p.historical), [allPayments]);
   const [teacherEarnings, setTeacherEarnings] = useState<TeacherEarning[]>(
-    () => persisted?.teacherEarnings ?? mockTeacherEarnings
+    () => persisted?.teacherEarnings ?? []
   );
   const [allTeacherPayments, setTeacherPayments] = useState<TeacherPayment[]>(
-    () => persisted?.teacherPayments ?? mockTeacherPayments
+    () => persisted?.teacherPayments ?? []
   );
   const teacherPayments = useMemo(() => allTeacherPayments.filter((p) => !p.historical), [allTeacherPayments]);
   const historicalTeacherPayments = useMemo(() => allTeacherPayments.filter((p) => p.historical), [allTeacherPayments]);
@@ -376,7 +360,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   const teachersRef = useRef(teachers);
   const teacherPaymentsRef = useRef(teacherPayments);
   const [teacherEducationTypeAssignments, setTeacherEducationTypeAssignments] = useState<TeacherEducationTypeAssignment[]>(
-    () => persisted?.teacherEducationTypeAssignments ?? mockTeacherEducationTypeAssignments
+    () => persisted?.teacherEducationTypeAssignments ?? []
   );
   // Refs so mergeTeachers/rollbackTeacherMerge always compute against a single
   // consistent, current snapshot across every array they touch at once — same
@@ -388,7 +372,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   );
   const [importBatches, setImportBatches] = useState<ImportBatch[]>(() => persisted?.importBatches ?? []);
   const [weeklySessionPlans, setWeeklySessionPlans] = useState<WeeklySessionPlan[]>(
-    () => persisted?.weeklySessionPlans ?? mockWeeklySessionPlans
+    () => persisted?.weeklySessionPlans ?? []
   );
   const weeklySessionPlansRef = useRef(weeklySessionPlans);
   const [teacherMergeHistory, setTeacherMergeHistory] = useState<TeacherMergeHistory[]>(
@@ -408,20 +392,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // Published during render (not in an effect) so every descendant rendering
   // in this same pass already formats/calculates with the new values.
   setActiveSettings(institutionSettings);
-  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>(() => persisted?.auditLog ?? []);
 
   // ─── Account / credential / this device's session ─────────────────────────
   // A snapshot from the multi-account era has no `account`: it starts from
-  // the seed (admin / 1) and the old session no longer counts.
-  const [account, setAccount] = useState<Account>(() => persisted?.account ?? mockAccount);
+  // the seed account and the old session no longer counts.
+  const [account, setAccount] = useState<Account>(() => persisted?.account ?? seedAccount);
   const [credential, setCredentialState] = useState<Credential>(() =>
-    persisted?.account && persisted.credential ? persisted.credential : mockCredential
+    persisted?.account && persisted.credential ? persisted.credential : seedCredential
   );
   const [authSession, setAuthSessionState] = useState<AuthSession | null>(() =>
     persisted?.account ? persisted.authSession ?? null : null
   );
   // Not persisted (ephemeral per-tab) — kept fresh by AuthProvider via
-  // setActorName. See FALLBACK_ACTOR_NAME / the MockStore interface comment.
+  // setActorName. See FALLBACK_ACTOR_NAME / the DataStore interface comment.
   const [actorName, setActorName] = useState<string | null>(null);
   const actorNameRef = useRef(actorName);
 
@@ -497,14 +480,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
   }, [notify]);
 
-  useEffect(() => watchOtherTabWrites(), []);
+  useEffect(() => dataSource.watch(), []);
   /** True while the latest change could not be written to this browser. */
   const [storageFull, setStorageFull] = useState(false);
 
   // Full-store persistence — one write path for every domain instead of
   // per-field bespoke code, mirrored by the lazy `useState` initializers
-  // above reading loadPersistedStore() back on the next mount. See
-  // lib/mock/persistence.ts.
+  // above reading the loaded snapshot. See lib/data/source.ts.
   //
   // Deliberately NOT debounced: a debounced write raced against a fast
   // reload/relogin (e.g. immediately after signIn) could lose the just-set
@@ -512,7 +494,8 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
   // before the timer fires. localStorage.setItem on data this size is cheap
   // enough that writing on every change is not a real cost here.
   useEffect(() => {
-    const saved = savePersistedStore<PersistedState>({
+    let active = true;
+    void dataSource.save({
       students,
       guardians,
       teachers,
@@ -528,15 +511,16 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       weeklySessionPlans,
       notifications,
       institutionSettings,
-      auditLog,
       account,
       credential,
       authSession,
+    }).then((saved) => {
+      // Mirrors the data source into state so the layout can warn.
+      if (active) setStorageFull(!saved);
     });
-    // Mirrors an external system (localStorage) into state so the layout can
-    // warn — not derivable during render.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setStorageFull(!saved);
+    return () => {
+      active = false;
+    };
   }, [
     students,
     guardians,
@@ -553,7 +537,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     weeklySessionPlans,
     notifications,
     institutionSettings,
-    auditLog,
     account,
     credential,
     authSession,
@@ -571,28 +554,17 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     setTeacherEarnings((prev) => next.reduce((acc, s) => upsertEarningForSession(acc, s, policy), prev));
   }, []);
 
-  /** Audit entry under the current actor — skipped when Ayarlar → Güvenlik →
-   *  İşlem geçmişi kaydı is off. */
-  const logAudit = useCallback(
-    (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt" | "userName"> & { userName?: string }) => {
-      setAuditLog((prev) => [
-        makeAuditEntry({ ...entry, userName: entry.userName ?? actorNameRef.current ?? FALLBACK_ACTOR_NAME }),
-        ...prev,
-      ]);
-    },
-    [setAuditLog]
-  );
 
   // Memoized so this object keeps a stable reference across renders that
   // don't touch any of the data below — e.g. toggling the sidebar re-renders
-  // MockDataProvider (it's an ancestor in the tree) but none of THESE
-  // dependencies change, so the memo bails out and every `useMockStore()`
+  // DataProvider (it's an ancestor in the tree) but none of THESE
+  // dependencies change, so the memo bails out and every `useStore()`
   // consumer across the whole app correctly skips re-rendering too. Every
   // action below is safe to omit from the dependency list: each one only
   // closes over a stable setState function or a `*Ref.current` read (never a
   // plain state variable by value), so a "stale" version from an earlier
   // memoized call behaves identically to a freshly-created one.
-  const value: MockStore = useMemo<MockStore>(
+  const value: DataStore = useMemo<DataStore>(
     () => ({
     students,
     guardians,
@@ -609,8 +581,19 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     importBatches,
     teacherMergeHistory,
 
-    addStudent: (s) =>
-      setStudents((prev) => [...prev, assignStudentNumber(s, prev, getActiveSettings().students)]),
+    addStudent: (s) => {
+      setStudents((prev) => [...prev, assignStudentNumber(s, prev, getActiveSettings().students)]);
+      // Keep the link two-way: a guardian lists its students (guardian page,
+      // guardian balance), so a student added from anywhere — Excel import
+      // included — must also appear on its guardians.
+      if (s.guardianIds.length > 0) {
+        setGuardians((prev) =>
+          prev.map((g) =>
+            s.guardianIds.includes(g.id) && !g.studentIds.includes(s.id) ? { ...g, studentIds: [...g.studentIds, s.id] } : g
+          )
+        );
+      }
+    },
     updateStudent: (s) =>
       setStudents((prev) =>
         prev.map((x) =>
@@ -627,6 +610,9 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     deleteStudents: (ids) => {
       const idSet = new Set(ids);
       setStudents((prev) => prev.filter((x) => !idSet.has(x.id)));
+      setGuardians((prev) =>
+        prev.map((g) => (g.studentIds.some((id) => idSet.has(id)) ? { ...g, studentIds: g.studentIds.filter((id) => !idSet.has(id)) } : g))
+      );
     },
 
     addGuardian: (g) => setGuardians((prev) => [...prev, g]),
@@ -667,6 +653,13 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
                 archivedAt: x.archivedAt,
                 archivedReason: x.archivedReason,
                 mergedIntoTeacherId: x.mergedIntoTeacherId,
+                // Salary stops after the pay period a teacher leaves in.
+                leftAt:
+                  t.status === "active"
+                    ? undefined
+                    : x.status === "active"
+                      ? new Date().toISOString()
+                      : x.leftAt,
                 updatedAt: new Date().toISOString(),
               }
             : x
@@ -680,15 +673,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
 
     addEducationType: (et) => {
       setEducationTypes((prev) => [...prev, et]);
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "education_type_created",
-          module: "education_types",
-          recordLabel: et.name,
-        }),
-        ...prev,
-      ]);
     },
     updateEducationType: (et) => {
       setEducationTypes((prev) =>
@@ -696,15 +680,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           x.id === et.id ? { ...et, createdAt: x.createdAt, updatedAt: new Date().toISOString() } : x
         )
       );
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "education_type_updated",
-          module: "education_types",
-          recordLabel: et.name,
-        }),
-        ...prev,
-      ]);
     },
     setEducationTypeStatus: (id, status) =>
       setEducationTypes((prev) =>
@@ -828,7 +803,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       );
 
       const historyEntry: TeacherMergeHistory = {
-        id: `merge-${duplicateTeacherId}-${Date.now()}`,
+        id: createId("merge"),
         tenantId: primary.tenantId,
         primaryTeacherId,
         primaryTeacherName: primary.fullName,
@@ -928,7 +903,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     },
 
     addSession: (raw) => {
-      const s = withEarningFactor(raw, getActiveSettings().teacherEarnings);
+      const s = withEarningFactor(applyMakeupBilling(raw, getActiveSettings().sessions), getActiveSettings().teacherEarnings);
       setSessions((prev) => [...prev, s]);
       setTeacherEarnings((prev) => upsertEarningForSession(prev, s));
     },
@@ -936,6 +911,7 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       // The earning share is fixed when the status is set; editing anything
       // else (price, notes, time) keeps it — and keeps any approval.
       const previous = sessionsRef.current.find((x) => x.id === raw.id);
+      if (previous?.status !== "makeup") raw = applyMakeupBilling(raw, getActiveSettings().sessions);
       const statusUnchanged = previous?.status === raw.status && previous.earningFactor !== undefined;
       const s: Session = statusUnchanged
         ? { ...raw, earningFactor: previous!.earningFactor, earningApprovedAt: previous!.earningApprovedAt }
@@ -953,15 +929,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         if (s.status === "cancelled") notify([buildSessionNotification("session_cancelled", s, ...people)]);
         if (s.status === "no_show") notify([buildSessionNotification("student_no_show", s, ...people)]);
       }
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "session_edited",
-          module: "sessions",
-          recordLabel: `${s.date} — ${s.status}`,
-        }),
-        ...prev,
-      ]);
     },
     approveSessionEarnings: (ids) => {
       const idSet = new Set(ids);
@@ -973,7 +940,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       const byId = new Map(approved.map((s) => [s.id, s]));
       setSessions((prev) => prev.map((s) => byId.get(s.id) ?? s));
       setTeacherEarnings((prev) => approved.reduce((acc, s) => upsertEarningForSession(acc, s), prev));
-      logAudit({ action: "earnings_approved", module: "teacher_earnings", recordLabel: `${approved.length} seans` });
     },
     deleteSessions: (ids) => {
       const idSet = new Set(ids);
@@ -986,15 +952,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       // don't ring the bell one by one.
       setPayments((prev) => [...prev, p.historical ? p : assignReceiptNumber(p, prev)]);
       if (!p.importBatchId) notify([buildPaymentNotification(p, studentsRef.current)]);
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "payment_created",
-          module: "payments",
-          recordLabel: `${formatCurrency(p.amount)} — ${p.date}`,
-        }),
-        ...prev,
-      ]);
     },
     updatePayment: (p) =>
       setPayments((prev) =>
@@ -1060,12 +1017,12 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
         const others = prev.filter((a) => a.teacherId !== teacherId);
         const existingForTeacher = prev.filter((a) => a.teacherId === teacherId);
         const now = new Date().toISOString();
-        const next = rows.map((row, i) => {
+        const next = rows.map((row) => {
           const existing = existingForTeacher.find((a) => a.educationTypeId === row.educationTypeId);
           return existing
             ? { ...existing, earningAmount: row.earningAmount, status: row.status, updatedAt: now }
             : {
-                id: `tea-${teacherId}-${row.educationTypeId}-${Date.now()}-${i}`,
+                id: createId("tea"),
                 tenantId,
                 teacherId,
                 educationTypeId: row.educationTypeId,
@@ -1086,15 +1043,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
 
     addImportBatch: (batch) => {
       setImportBatches((prev) => [...prev, batch]);
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "import_performed",
-          module: "import",
-          recordLabel: batch.fileName,
-        }),
-        ...prev,
-      ]);
     },
     markImportBatchRolledBack: (batchId) =>
       setImportBatches((prev) =>
@@ -1146,15 +1094,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           },
         },
       }));
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: who,
-          action: "settings_changed",
-          module: "settings",
-          recordLabel: INSTITUTION_SETTINGS_FIELD_LABELS[key],
-        }),
-        ...prev,
-      ]);
     },
     resetSettingsSection: (key) => {
       if (key === "teacherEarnings") applyEarningPolicy(getSettingsDefaults("teacherEarnings"));
@@ -1170,15 +1109,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
           },
         },
       }));
-      setAuditLog((prev) => [
-        makeAuditEntry({
-          userName: (actorNameRef.current ?? FALLBACK_ACTOR_NAME),
-          action: "settings_reset",
-          module: "settings",
-          recordLabel: INSTITUTION_SETTINGS_FIELD_LABELS[key],
-        }),
-        ...prev,
-      ]);
     },
 
     account,
@@ -1190,10 +1120,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       if (!nextUsername) return "Kullanıcı adı boş bırakılamaz.";
       if (/\s/.test(nextUsername)) return "Kullanıcı adı boşluk içeremez.";
       setAccount((prev) => ({ ...prev, name: nextName, username: nextUsername, updatedAt: new Date().toISOString() }));
-      setAuditLog((prev) => [
-        makeAuditEntry({ userName: nextName, action: "account_updated", module: "auth", recordLabel: nextUsername }),
-        ...prev,
-      ]);
       return null;
     },
     credential,
@@ -1201,9 +1127,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
     authSession,
     setAuthSession: (session) => setAuthSessionState(session),
     setActorName: (name) => setActorName(name),
-
-    auditLog,
-    logAuditEvent: (entry) => setAuditLog((prev) => [makeAuditEntry(entry), ...prev]),
 
     getBackupSnapshot: () => ({
       students,
@@ -1221,7 +1144,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       weeklySessionPlans,
       notifications,
       institutionSettings,
-      auditLog,
     }),
 
     restoreBackup: (d) => {
@@ -1249,16 +1171,6 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       setWeeklySessionPlans(d.weeklySessionPlans ?? []);
       setNotifications(normalizeNotifications(d.notifications));
       setInstitutionSettings(settings);
-      // The restored audit log is kept, plus a record of the restore itself.
-      setAuditLog([
-        makeAuditEntry({
-          userName: actorNameRef.current ?? FALLBACK_ACTOR_NAME,
-          action: "backup_restored",
-          module: "data",
-          recordLabel: "Yedek dosyası",
-        }),
-        ...(d.auditLog ?? []),
-      ]);
       return null;
     },
 
@@ -1273,23 +1185,20 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       })),
 
     storageFull,
-    resetToDemo: () => {
-      clearPersistedStore();
-      setStudents([...DEMO_STUDENTS]);
-      setGuardians([...DEMO_GUARDIANS]);
-      setTeachers([...mockTeachers]);
-      setEducationTypes([...mockEducationTypes]);
+    // Clears every record; institution info, education types and settings stay.
+    clearAllRecords: () => {
+      setStudents([]);
+      setGuardians([]);
+      setTeachers([]);
       setSessions([]);
       setPayments([]);
       setTeacherEarnings([]);
       setTeacherPayments([]);
-      setTeacherEducationTypeAssignments([...mockTeacherEducationTypeAssignments]);
+      setTeacherEducationTypeAssignments([]);
       setWeeklySessionPlans([]);
       setNotifications([]);
       setOpeningBalances([]);
       setImportBatches([]);
-      setInstitutionSettings(structuredClone(DEFAULT_INSTITUTION_SETTINGS));
-      setAuditLog([]);
       setTeacherMergeHistory([]);
     },
 
@@ -1326,28 +1235,25 @@ export function MockDataProvider({ children }: { children: ReactNode }) {
       weeklySessionPlans,
       notifications,
       institutionSettings,
-      auditLog,
       account,
       credential,
       authSession,
-      setAuditLog,
-      logAudit,
       applyEarningPolicy,
       notify,
     ]
   );
 
   return (
-    <MockStoreContext.Provider value={value}>
+    <StoreContext.Provider value={value}>
       {children}
-    </MockStoreContext.Provider>
+    </StoreContext.Provider>
   );
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useMockStore(): MockStore {
-  const ctx = useContext(MockStoreContext);
-  if (!ctx) throw new Error("useMockStore must be used within MockDataProvider");
+export function useStore(): DataStore {
+  const ctx = useContext(StoreContext);
+  if (!ctx) throw new Error("useStore must be used within DataProvider");
   return ctx;
 }

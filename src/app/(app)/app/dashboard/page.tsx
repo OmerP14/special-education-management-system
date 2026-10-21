@@ -12,12 +12,13 @@ import { TodaysScheduleCard } from "@/components/dashboard/TodaysScheduleCard";
 import { UpcomingSessionsCard } from "@/components/dashboard/UpcomingSessionsCard";
 import { TodaysTeachersCard } from "@/components/dashboard/TodaysTeachersCard";
 import { CalendarPreviewCard } from "@/components/dashboard/CalendarPreviewCard";
-import { useMockStore } from "@/lib/mock/store";
+import { SetupChecklist } from "@/components/dashboard/SetupChecklist";
+import { useStore } from "@/lib/data/store";
 
 // The operational dashboard — no revenue, payments, or earnings figures
 // here. Those live on /app/finance.
 export default function DashboardPage() {
-  const store = useMockStore();
+  const store = useStore();
 
   const today = useMemo(() => new Date(), []);
 
@@ -52,6 +53,8 @@ export default function DashboardPage() {
       />
 
       <DashboardHero />
+
+      <SetupChecklist />
 
       {/* Quick operational stats — deliberately no money here; see /app/finance */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

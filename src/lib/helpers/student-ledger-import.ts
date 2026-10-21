@@ -14,7 +14,7 @@
 // can migrate this file in one pass instead of requiring a separate Students import
 // first.
 
-import type { ImportEntityMatch, ImportMode, Student, Teacher, Session, TeacherEducationTypeAssignment, SessionBillingMode } from "@/types";
+import type { ImportEntityMatch, ImportMode, Student, Teacher, Session, SessionStatus, TeacherEducationTypeAssignment, SessionBillingMode } from "@/types";
 import {
   cellToDisplayString,
   parseCellAsDateString,
@@ -23,7 +23,7 @@ import {
   type ParsedSheet,
   type RawCell,
 } from "@/lib/helpers/import-parse";
-import { newId, type StagedRow } from "@/lib/helpers/import";
+import { newId, resolveSessionStatusValue, type StagedRow } from "@/lib/helpers/import";
 import {
   resolveStudentByName,
   resolveTeacherByName,
@@ -48,6 +48,7 @@ import {
 import { calculateTeacherSessionEarning } from "@/lib/helpers/finance";
 import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
 import { registerAnalyzerRule, type AnalyzerRule } from "@/lib/helpers/workbook-analyzer";
+import { TENANT_ID } from "@/lib/data/ids";
 
 function normalizeForTokenMatch(s: string): string {
   return s.toLocaleLowerCase("tr-TR");
@@ -497,8 +498,8 @@ export function extractStudentLedgerSheet(
     let teacher = teacherRes?.teacher ?? null;
     if (!teacher && firstTeacherName && allowTeacherAutoCreate) {
       teacher = {
-        id: newId("teacher", rowNumber),
-        tenantId: "tenant-1",
+        id: newId("teacher"),
+        tenantId: TENANT_ID,
         fullName: stripHocaHonorific(firstTeacherName) || firstTeacherName,
         phone: "—",
         status: "active",
@@ -585,6 +586,18 @@ export function extractStudentLedgerSheet(
     }
 
     const noteCell = noteCol >= 0 ? cellToDisplayString(raw[noteCol]) : "";
+    // A note that is a status word ("gelmedi", "iptal", "telafi") sets the
+    // lesson's status; otherwise a lesson already past was held, a future one
+    // is planned — the same rule plain lesson lists follow.
+    const noteStatus = noteCell ? resolveSessionStatusValue(noteCell) : null;
+    const status: SessionStatus =
+      mode === "historical"
+        ? "completed"
+        : noteStatus?.recognized
+          ? noteStatus.status
+          : new Date(startsAt).getTime() < Date.now()
+            ? "completed"
+            : "planned";
     const notes = [
       `Kaynak: '${sheet.name}' ders takip sayfası`,
       teacherCandidates.length > 1 ? `Orijinal öğretmen: ${teacherNameRaw}` : null,
@@ -594,8 +607,8 @@ export function extractStudentLedgerSheet(
       .join(" · ");
 
     const session: Session = {
-      id: newId("session", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("session"),
+      tenantId: TENANT_ID,
       studentId: studentRes.student.id,
       teacherId: teacher.id,
       educationTypeId: defaultEducationTypeId,
@@ -604,7 +617,7 @@ export function extractStudentLedgerSheet(
       sessionCount,
       studentPrice: unitFee,
       teacherEarning,
-      status: mode === "historical" ? "completed" : "planned",
+      status,
       notes,
       createdAt: new Date().toISOString(),
       billingMode,
@@ -695,8 +708,8 @@ function buildStudentLedgerStudentCreationRows(rosterNames: string[], studentInd
     if (existing.student) continue;
 
     const student: Student = {
-      id: newId("student", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("student"),
+      tenantId: TENANT_ID,
       fullName: name,
       birthDate: "",
       status: "active",
@@ -789,7 +802,11 @@ const studentLedgerAnalyzerRule: AnalyzerRule = {
     // A roster sheet (LİSTE / Öğrenci Listesi / Master Liste) that's just a bare
     // name column is recognized on its own — it never needs a sibling ledger sheet
     // to make sense of it, and it must never fall through to "unknown".
+    // Only inside a ledger workbook, though: on its own, a sheet called
+    // "Öğrenci Listesi" is an ordinary student table (with guardian columns and
+    // all) and belongs to the classic Students rule.
     if (isRosterSheetName(sheet.name) && !sheetHasLedgerLessonHeader(sheet)) {
+      if (!detectStudentLedgerWorkbook(allSheets).isStudentLedgerWorkbook) return null;
       return { confidence: 0.95, reasons: ["Sayfa adı öğrenci listesi/roster kalıbıyla eşleşti", "Sadece isim sütunu içeriyor, ders satırı yok"] };
     }
 

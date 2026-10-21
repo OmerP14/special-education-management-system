@@ -23,7 +23,7 @@ function fakeBrowser(initial: Record<string, string> = {}) {
 
 async function load() {
   vi.resetModules();
-  return import("@/lib/mock/persistence");
+  return import("@/lib/data/persistence");
 }
 
 const envelope = (data: unknown) => JSON.stringify({ version: 1, savedAt: "2026-01-01T00:00:00Z", data });

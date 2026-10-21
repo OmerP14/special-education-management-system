@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 
 /** Shown while the latest change couldn't be saved to this browser — without
  *  it the user keeps working and loses everything on the next reload. */
 export function StorageFullBanner() {
-  const { storageFull } = useMockStore();
+  const { storageFull } = useStore();
   if (!storageFull) return null;
   return (
     <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">

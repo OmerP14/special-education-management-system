@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { buildTeacherMergePreview } from "@/lib/helpers/teacher-merge";
 import type { DuplicateTeacherCandidate } from "@/lib/helpers/finance";
 import type { Teacher } from "@/types";
@@ -44,7 +44,7 @@ interface MergeResultSummary {
 }
 
 export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const [index, setIndex] = useState(0);
   const [swapped, setSwapped] = useState(false);
   const [reason, setReason] = useState("");
@@ -210,6 +210,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
                     size="icon-sm"
                     onClick={() => setSwapped((s) => !s)}
                     title="Öğretmenleri değiştir"
+                    aria-label="Öğretmenleri değiştir"
                   >
                     <ArrowLeftRight className="h-3.5 w-3.5" />
                   </Button>
@@ -273,7 +274,7 @@ export function TeacherMergeDrawer({ open, onOpenChange, queue }: TeacherMergeDr
               {/* Reason */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Not (opsiyonel)</label>
-                <textarea
+                <textarea aria-label="Not"
                   rows={2}
                   placeholder={`${duplicateTeacher.fullName} → ${primaryTeacher.fullName} birleştirildi`}
                   value={reason}
@@ -326,7 +327,7 @@ function TeacherMergeCard({
     >
       <p
         className={cn(
-          "text-[10px] font-semibold uppercase tracking-wide",
+          "text-xs font-semibold uppercase tracking-wide",
           isPrimary ? "text-primary" : "text-amber-700"
         )}
       >
@@ -339,7 +340,7 @@ function TeacherMergeCard({
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold tabular-nums text-foreground">{sessionCount}</p>
-          <p className="text-[10px] text-muted-foreground">seans</p>
+          <p className="text-xs text-muted-foreground">seans</p>
         </div>
       </div>
       <div className="mt-1.5">
@@ -353,7 +354,7 @@ function PreviewStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg bg-muted/40 px-3 py-2">
       <p className="text-base font-bold tabular-nums text-foreground">{value}</p>
-      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
     </div>
   );
 }

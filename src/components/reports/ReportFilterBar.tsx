@@ -27,7 +27,7 @@ interface ReportFilterBarProps {
 }
 
 const selectClass =
-  "h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+  "h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function ReportFilterBar({
   filters,
@@ -58,10 +58,10 @@ export function ReportFilterBar({
     <div className="flex flex-wrap items-end gap-2">
       {/* Month */}
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Ay
         </label>
-        <select
+        <select aria-label="Ay"
           value={filters.monthKey ?? "all"}
           onChange={(e) => setMonth(e.target.value)}
           className={`${selectClass} block`}
@@ -77,10 +77,10 @@ export function ReportFilterBar({
 
       {/* Date range */}
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Başlangıç
         </label>
-        <Input
+        <Input aria-label="Başlangıç tarihi"
           type="date"
           value={filters.startDate ?? ""}
           onChange={(e) => setStartDate(e.target.value)}
@@ -88,10 +88,10 @@ export function ReportFilterBar({
         />
       </div>
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Bitiş
         </label>
-        <Input
+        <Input aria-label="Bitiş tarihi"
           type="date"
           value={filters.endDate ?? ""}
           onChange={(e) => setEndDate(e.target.value)}
@@ -102,10 +102,10 @@ export function ReportFilterBar({
       {/* Teacher */}
       {showTeacherFilter && (
         <div className="space-y-1">
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Öğretmen
           </label>
-          <select
+          <select aria-label="Öğretmen"
             value={filters.teacherId ?? "all"}
             onChange={(e) =>
               onChange({ ...filters, teacherId: e.target.value === "all" ? null : e.target.value })
@@ -125,10 +125,10 @@ export function ReportFilterBar({
       {/* Student */}
       {showStudentFilter && (
         <div className="space-y-1">
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Öğrenci
           </label>
-          <select
+          <select aria-label="Öğrenci"
             value={filters.studentId ?? "all"}
             onChange={(e) =>
               onChange({ ...filters, studentId: e.target.value === "all" ? null : e.target.value })
@@ -148,10 +148,10 @@ export function ReportFilterBar({
       {/* Education type */}
       {showEducationTypeFilter && (
         <div className="space-y-1">
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Eğitim Türü
           </label>
-          <select
+          <select aria-label="Eğitim türü"
             value={filters.educationTypeId ?? "all"}
             onChange={(e) =>
               onChange({

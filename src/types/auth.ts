@@ -13,7 +13,7 @@
 export interface Account {
   /** Typed on the login screen. Compared case-insensitively. */
   username: string;
-  /** Shown in the topbar and written into audit entries. */
+  /** Shown in the topbar. */
   name: string;
   lastLoginAt?: string;
   /** Reset to 0 on a successful sign-in; LocalAuthService locks sign-in once

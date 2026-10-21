@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { buildBackupFile } from "@/lib/mock/persistence";
+import { buildBackupFile } from "@/lib/data/persistence";
 
 // ─── Backups written to a folder on this computer ───────────────────────────
 //

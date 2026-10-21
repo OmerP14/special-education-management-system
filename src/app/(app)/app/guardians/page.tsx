@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { GuardianFormDrawer } from "@/components/guardians/GuardianFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { buildGuardianListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Guardian, GuardianListItem } from "@/types";
 import { cn } from "@/lib/utils";
@@ -82,7 +82,7 @@ function FilterChip({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function GuardiansPage() {
-  const store = useMockStore();
+  const store = useStore();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
@@ -158,7 +158,7 @@ export default function GuardiansPage() {
       render: (row) => (
         <div className="flex items-center gap-2.5">
           <Avatar className="h-8 w-8 shrink-0">
-            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
               {initialsOf(row.fullName)}
             </AvatarFallback>
           </Avatar>
@@ -171,11 +171,11 @@ export default function GuardiansPage() {
               {row.fullName}
             </Link>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+              <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-1.5 py-px text-xs font-medium text-muted-foreground">
                 {row.relationship}
               </span>
               {row.studentCount === 0 && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-px text-[10px] font-medium text-amber-700">
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-px text-xs font-medium text-amber-700">
                   Öğrenci yok
                 </span>
               )}
@@ -216,7 +216,7 @@ export default function GuardiansPage() {
       render: (row) => {
         if (row.studentIds.length === 0) {
           return (
-            <span className="inline-flex items-center rounded-full bg-muted/60 border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground/60">
+            <span className="inline-flex items-center rounded-full bg-muted/60 border border-border/60 px-2 py-0.5 text-xs font-medium text-muted-foreground/60">
               Henüz öğrenci yok
             </span>
           );
@@ -229,14 +229,14 @@ export default function GuardiansPage() {
               <Link
                 key={id}
                 href={`/app/students/${id}`}
-                className="inline-flex items-center rounded-full bg-primary/8 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/15 transition-colors"
+                className="inline-flex items-center rounded-full bg-primary/8 border border-primary/20 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15 transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
                 {row.studentNames[i]}
               </Link>
             ))}
             {restCount > 0 && (
-              <span className="inline-flex items-center rounded-full bg-muted/60 border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="inline-flex items-center rounded-full bg-muted/60 border border-border/60 px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 +{restCount} daha
               </span>
             )}
@@ -359,7 +359,7 @@ export default function GuardiansPage() {
         <div className="space-y-2.5">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
+            <Input aria-label="Veli ara"
               placeholder="Ad, telefon, e-posta veya öğrenci ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

@@ -1,16 +1,18 @@
-// ─── Versioned localStorage persistence for the mock store ──────────────────
+// ─── Versioned localStorage persistence for the data store ──────────────────
 //
-// One generic load/save pair, not per-field bespoke code — MockDataProvider
+// One generic load/save pair, not per-field bespoke code — DataProvider
 // hydrates every domain's useState from loadPersistedStore() (via a lazy
 // initializer, same pattern institutionSettings already used for its
 // structuredClone default) and a single debounced effect writes the whole
-// aggregate state back on change. See MockDataProvider in store.tsx.
+// aggregate state back on change. See DataProvider in store.tsx.
 //
 // SCHEMA_VERSION exists so a future shape change can invalidate old snapshots
 // outright (fall back to seed data) instead of crashing on a mismatched
 // shape — bump it whenever a field is added/removed/renamed in a
 // non-backward-compatible way.
 
+// Key names predate the lib/mock → lib/data rename; kept so data already saved
+// in a browser is still found.
 const STORAGE_KEY = "mock-store-v1";
 const SCHEMA_VERSION = 1;
 const AUTO_BACKUP_KEY = "mock-store-auto-backups-v1";

@@ -339,7 +339,11 @@ export function buildDashboardStats(
   // Teacher earnings are owed the moment a session is completed/salary is entitled —
   // never derived from whether the student/parent has paid. "Paid" comes from actual
   // TeacherPayment records, never from the TeacherEarning ledger.
-  const teacherTotals = teachers.map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, assignments));
+  // A merged-away (archived) record's lessons and payments now sit on the kept
+  // teacher; counting it too would owe its salary twice.
+  const teacherTotals = teachers
+    .filter((t) => t.status !== "archived")
+    .map((t) => getTeacherEarningTotals(t, sessions, teacherPayments, assignments));
   const pendingEarnings = teacherTotals.reduce((sum, t) => sum + t.pendingEarning, 0);
   const unknownEarningSessionCount = teacherTotals.reduce((sum, t) => sum + t.unknownSessionCount, 0);
 
@@ -1251,7 +1255,7 @@ export function buildEarningRecalculationPreview(
  * This function only returns data — it does not call the store. The caller
  * must feed each returned Session through the existing `store.updateSession`,
  * which already upserts the TeacherEarning ledger idempotently by sessionId
- * (see upsertEarningForSession in mock/store.tsx) and never touches
+ * (see upsertEarningForSession in data/store.tsx) and never touches
  * TeacherPayment, satisfying "no duplicate earning/payment records" by
  * construction — this helper does not need to re-implement that guarantee.
  */
@@ -1292,10 +1296,16 @@ function calculateTeacherMonthlyWorkPayable(
     0
   );
 
+  // Salary is owed only for the periods the teacher was employed.
+  const salaried = getSalaryPeriodRange(teacher, sessions);
+  const index = periodIndex({ year, month });
+  const employed = !!salaried && index >= salaried.first && index <= salaried.last;
+
   switch (teacher.earningType) {
     case "monthly_salary":
-      return teacher.monthlySalary ?? 0;
+      return employed ? teacher.monthlySalary ?? 0 : 0;
     case "salary_plus_quota": {
+      if (!employed) return 0;
       const salary = teacher.monthlySalary ?? 0;
       const quota = teacher.includedSessionQuota ?? 0;
       const extra = Math.max(0, totalSessionCount - quota);
@@ -1320,25 +1330,53 @@ function calculateTeacherMonthlyWorkPayable(
   }
 }
 
+const periodIndex = (p: { year: number; month: number }) => p.year * 12 + (p.month - 1);
+
+/** The pay periods (as periodIndex values) a salaried teacher is owed salary
+ *  for: from when they started (first lesson, devir or creation) up to now, or
+ *  up to the period they left in. Null for non-salaried teachers and for a
+ *  merged-away record, whose lessons and payments now sit on the kept teacher. */
+function getSalaryPeriodRange(teacher: Teacher, sessions: Session[]): { first: number; last: number } | null {
+  if (teacher.earningType !== "monthly_salary" && teacher.earningType !== "salary_plus_quota") return null;
+  if (teacher.status === "archived") return null;
+  const lessonPeriods = sessions
+    .filter((s) => s.teacherId === teacher.id && isEarningSession(s))
+    .map((s) => periodIndex(getEarningPeriod(s.date)));
+  const starts = [periodIndex(getEarningPeriod(teacher.createdAt)), ...lessonPeriods];
+  if (teacher.openingBalance) starts.push(periodIndex(getEarningPeriod(teacher.openingBalance.date)));
+  const first = Math.min(...starts);
+  const current = periodIndex(getEarningPeriod(new Date()));
+  let last = current;
+  if (teacher.status !== "active") {
+    const leftAt = teacher.leftAt ?? teacher.updatedAt;
+    const lastLesson = lessonPeriods.length > 0 ? Math.max(...lessonPeriods) : first;
+    last = Math.min(current, Math.max(leftAt ? periodIndex(getEarningPeriod(leftAt)) : first, lastLesson));
+  }
+  return { first, last };
+}
+
 /** Distinct (year, month) pairs a teacher could owe earnings for — every month with an
- *  earning-eligible session, plus the current month (salary is owed unconditionally). */
+ *  earning-eligible session or the devir, plus, for salaried teachers, every month they
+ *  were employed: from when they started (first lesson, devir or creation) up to now, or
+ *  up to the month they left. Salary is owed for a month whether or not lessons were
+ *  recorded in it, so a quiet month never drops out and the total never changes just
+ *  because the calendar turned. */
 function getTeacherEarningMonths(
   teacher: Teacher,
   sessions: Session[]
 ): { year: number; month: number }[] {
   const seen = new Set<string>();
-  sessions
+  const add = (p: { year: number; month: number }) => seen.add(`${p.year}-${p.month}`);
+  const earningPeriods = sessions
     .filter((s) => s.teacherId === teacher.id && isEarningSession(s))
-    .forEach((s) => {
-      const p = getEarningPeriod(s.date);
-      seen.add(`${p.year}-${p.month}`);
-    });
-  if (teacher.openingBalance) {
-    const p = getEarningPeriod(teacher.openingBalance.date);
-    seen.add(`${p.year}-${p.month}`);
+    .map((s) => getEarningPeriod(s.date));
+  earningPeriods.forEach(add);
+  if (teacher.openingBalance) add(getEarningPeriod(teacher.openingBalance.date));
+
+  const salaried = getSalaryPeriodRange(teacher, sessions);
+  if (salaried) {
+    for (let i = salaried.first; i <= salaried.last; i++) add({ year: Math.floor(i / 12), month: (i % 12) + 1 });
   }
-  const current = getEarningPeriod(new Date());
-  seen.add(`${current.year}-${current.month}`);
 
   return [...seen].map((key) => {
     const [year, month] = key.split("-").map(Number);
@@ -1531,7 +1569,9 @@ export function getTeacherMonthAccountSummary(
   const priorSettled = teacherOwnPayments
     .filter((p) => isBeforeMonth(p.date))
     .reduce((sum, p) => sum + p.amount, 0); // cash + Kesinti both settle what's owed
-  const previousBalance = Math.max(0, priorEarned - priorSettled);
+  // Negative = paid ahead (e.g. an advance larger than that month's earning);
+  // it carries into this month so the advance is deducted from later earnings.
+  const previousBalance = priorEarned - priorSettled;
 
   const paymentsThisMonth = teacherOwnPayments.filter((p) => isInMonth(p.date));
   const thisMonthPaid = paymentsThisMonth
@@ -1602,40 +1642,13 @@ export function getTeacherEarningTotalsForRange(
   const start = startDate ? parseDateOnly(startDate) : null;
   const end = endDate ? parseDateOnlyEndOfDay(endDate) : null;
 
-  const seen = new Set<string>();
-  sessions
-    .filter((s) => s.teacherId === teacher.id && isEarningSession(s))
-    .forEach((s) => {
-      const d = new Date(s.date);
-      if (start && d < start) return;
-      if (end && d > end) return;
-      const p = getEarningPeriod(d);
-      seen.add(`${p.year}-${p.month}`);
-    });
-
-  if (teacher.openingBalance) {
-    const d = parseDateOnly(teacher.openingBalance.date);
-    if ((!start || d >= start) && (!end || d <= end)) {
-      const p = getEarningPeriod(d);
-      seen.add(`${p.year}-${p.month}`);
-    }
-  }
-
-  // Every calendar month the range spans, so a salary teacher still shows up even with
-  // zero sessions that month (mirrors getTeacherEarningMonths' "unconditional" inclusion).
-  if (start && end) {
-    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-    const last = new Date(end.getFullYear(), end.getMonth(), 1);
-    while (cursor <= last) {
-      seen.add(`${cursor.getFullYear()}-${cursor.getMonth() + 1}`);
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-  }
-
-  const totalEarning = [...seen]
-    .map((key) => {
-      const [year, month] = key.split("-").map(Number);
-      return { year: year as number, month: month as number };
+  // Every pay period the teacher is owed for (lessons, devir, salaried months —
+  // see getTeacherEarningMonths) that overlaps the range.
+  const totalEarning = getTeacherEarningMonths(teacher, sessions)
+    .filter(({ year, month }) => {
+      const periodStart = new Date(year, month - 1, 1);
+      const periodEnd = new Date(year, month, 0, 23, 59, 59);
+      return (!start || periodEnd >= start) && (!end || periodStart <= end);
     })
     .reduce((sum, { year, month }) => sum + calculateTeacherMonthlyPayable(teacher, sessions, year, month), 0);
 
@@ -2129,9 +2142,12 @@ export function buildMonthlyTeacherEarningSummary(
 ): MonthlyTeacherEarningSummary[] {
   const inMonthSessions = sessions.filter((s) => isEarningSession(s) && isInEarningPeriod(s.date, year, month));
 
-  // Include salary teachers unconditionally, per-session/percentage only if they have sessions
+  // Salaried teachers for the months they were employed; everyone else when
+  // they taught that month.
   const relevantTeachers = teachers.filter((t) => {
-    if (t.earningType === "monthly_salary" || t.earningType === "salary_plus_quota") return true;
+    if (t.earningType === "monthly_salary" || t.earningType === "salary_plus_quota") {
+      return calculateTeacherMonthlyPayable(t, sessions, year, month) > 0;
+    }
     return inMonthSessions.some((s) => s.teacherId === t.id);
   });
 

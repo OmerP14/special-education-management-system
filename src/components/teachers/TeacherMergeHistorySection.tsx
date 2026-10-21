@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/shared/DataTable";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatDateTime } from "@/lib/helpers/finance";
 import type { TeacherMergeHistory } from "@/types";
 
@@ -77,7 +77,7 @@ const columns: Column<TeacherMergeHistory>[] = [
 ];
 
 export function TeacherMergeHistorySection() {
-  const store = useMockStore();
+  const store = useStore();
   const [rollbackTarget, setRollbackTarget] = useState<TeacherMergeHistory | null>(null);
 
   const rows = [...store.teacherMergeHistory].reverse();

@@ -301,14 +301,30 @@ describe("settings migration and password policy", () => {
     expect("timeStepMinutes" in s.sessions).toBe(false);
     expect("lateToleranceMinutes" in s.sessions).toBe(false);
     expect(normalizeInstitutionSettings({ sessions: { defaultBreakMinutes: 30 } }).sessions.breakMinutes).toBe(20);
-    expect(s.appearance.theme).toBe("dark");
-    // Notification, security and appearance cosmetics are no longer settings.
+    // Notification, security and appearance are no longer settings.
     expect("notifications" in s).toBe(false);
     expect("security" in s).toBe(false);
-    expect(Object.keys(normalizeInstitutionSettings({ appearance: { accentColor: "#ff0000", theme: "system" } }).appearance)).toEqual([
-      "theme",
-      "defaultLandingPage",
-    ]);
+    expect("appearance" in s).toBe(false);
+  });
+
+  it("pins the options taken off the settings screens to their fixed values", () => {
+    const s = normalizeInstitutionSettings({
+      sessions: { breakMinutes: 5, allowEditingCompletedSessions: false, autoCompleteEnabled: false },
+      teacherEarnings: { noShowSessionEarning: "full", payPeriodStartDay: 15, earningRoundingRule: "nearest_10" },
+      students: { requireBirthDate: false },
+      dataManagement: { autoBackupEnabled: false, backupCount: 4 },
+    });
+    // Still-visible choices are kept...
+    expect(s.sessions.breakMinutes).toBe(5);
+    expect(s.teacherEarnings.noShowSessionEarning).toBe("full");
+    expect(s.dataManagement.backupCount).toBe(4);
+    // ...hidden ones always run on the fixed value.
+    expect(s.sessions.allowEditingCompletedSessions).toBe(true);
+    expect(s.sessions.autoCompleteEnabled).toBe(true);
+    expect(s.teacherEarnings.payPeriodStartDay).toBe(1);
+    expect(s.teacherEarnings.earningRoundingRule).toBe("none");
+    expect(s.students.requireBirthDate).toBe(true);
+    expect(s.dataManagement.autoBackupEnabled).toBe(true);
   });
 
   it("notifies upcoming sessions within the fixed lead time and drops removed events", () => {

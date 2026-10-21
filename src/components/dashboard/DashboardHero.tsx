@@ -37,9 +37,9 @@ export function DashboardHero() {
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">
               {dateLabel}
             </p>
-            <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
               {getGreeting(now.getHours())} 👋
-            </h1>
+            </h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Kurumunuzun bugünkü durumuna hızlıca göz atın.
             </p>

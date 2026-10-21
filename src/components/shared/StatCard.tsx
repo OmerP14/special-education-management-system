@@ -15,7 +15,7 @@ interface StatCardProps {
     label: string;
   };
   variant?: "default" | "success" | "warning" | "danger";
-  /** Override the value paragraph's classes. Replaces the default text-2xl truncate style. */
+  /** Override the value paragraph's classes. Replaces the default text-2xl wrapping style. */
   valueClassName?: string;
   className?: string;
   /** When provided, the card becomes a clickable filter toggle (e.g. "show only
@@ -44,7 +44,7 @@ export function StatCard({
   onClick,
   active,
 }: StatCardProps) {
-  const valueCls = valueClassName ?? "text-2xl font-bold tracking-tight text-foreground truncate";
+  const valueCls = valueClassName ?? "text-xl font-bold tracking-tight tabular-nums text-foreground [overflow-wrap:anywhere] sm:text-2xl";
   return (
     <Card
       className={cn(
@@ -67,8 +67,8 @@ export function StatCard({
           }
         : {})}
     >
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-4">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {title}
@@ -91,7 +91,8 @@ export function StatCard({
               </p>
             )}
           </div>
-          <div className={cn("rounded-lg p-2.5 shrink-0", variantStyles[variant])}>
+          {/* Hidden on phones so a two-column grid leaves room for the full amount. */}
+          <div className={cn("hidden rounded-lg p-2.5 shrink-0 sm:block", variantStyles[variant])}>
             <Icon className="h-5 w-5" />
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { UserRound, CheckCircle2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ export default function ProfilePage() {
 }
 
 function AccountInfoCard({ name: savedName, username: savedUsername }: { name: string; username: string }) {
-  const { updateAccountProfile } = useMockStore();
+  const { updateAccountProfile } = useStore();
   const [name, setName] = useState(savedName);
   const [username, setUsername] = useState(savedUsername);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,7 @@ function AccountInfoCard({ name: savedName, username: savedUsername }: { name: s
           <div className="space-y-1.5">
             <Label htmlFor="account-name">Görünen ad</Label>
             <Input id="account-name" value={name} onChange={(e) => { setName(e.target.value); setError(null); }} />
-            <p className="text-xs text-muted-foreground">Üst menüde ve işlem geçmişinde görünür.</p>
+            <p className="text-xs text-muted-foreground">Üst menüde görünür.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="account-username">Kullanıcı adı</Label>

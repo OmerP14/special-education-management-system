@@ -82,7 +82,7 @@ function DayCell({
       {/* Date number */}
       <div className="mb-1 flex items-center justify-end gap-1">
         {meta.holiday && (
-          <span className="truncate text-[9px] font-medium text-muted-foreground" title={meta.holiday}>
+          <span className="truncate text-[11px] font-medium text-muted-foreground" title={meta.holiday}>
             {meta.holiday}
           </span>
         )}
@@ -110,8 +110,8 @@ function DayCell({
             onClick={stopAnd(() => onEventClick(event.id))}
             style={appearance.style}
             className={cn(
-              "flex w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-left text-[10px] font-medium leading-tight",
-              "transition-all duration-200 ease-out hover:scale-[1.03] hover:shadow-sm",
+              "flex w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-left text-xs font-medium leading-tight",
+              "transition-[transform,box-shadow] duration-200 ease-out hover:scale-[1.03] hover:shadow-sm",
               appearance.className
             )}
           >
@@ -129,7 +129,7 @@ function DayCell({
         {overflow > 0 && (
           <button
             onClick={stopAnd(openDay)}
-            className="w-full truncate rounded-full px-2 text-left text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="w-full truncate rounded-full px-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             +{overflow} daha
           </button>
@@ -170,7 +170,7 @@ export function CalendarMonthView({
         {getOrderedWeekdays().map((d) => (
           <div
             key={d}
-            className="py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-r border-border last:border-r-0"
+            className="py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground border-r border-border last:border-r-0"
           >
             {getWeekdayShortLabel(d)}
           </div>

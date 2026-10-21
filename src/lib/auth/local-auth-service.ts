@@ -1,4 +1,3 @@
-import type { AuditLogEntry } from "@/types/settings";
 import type { Account, AuthSession, AuthUser, Credential } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
 import { validatePasswordPolicy, hashPassword, verifyPassword } from "@/lib/auth/password";
@@ -6,7 +5,7 @@ import { LOCKOUT_MINUTES, MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-
 
 // ─── LocalAuthService ────────────────────────────────────────────────────────
 //
-// Today's only AuthService implementation — backed entirely by the mock
+// Today's only AuthService implementation — backed entirely by the data
 // store's single `account` + `credential` and the fixed rules in
 // lib/auth/security-policy.ts, no network involved. A backend-backed service
 // implements the same AuthService interface; nothing outside this file (and
@@ -24,11 +23,10 @@ export interface LocalAuthDeps {
   account: Account;
   credential: Credential;
   session: AuthSession | null;
-  /** Writes login counters/lockout without an audit entry. */
+  /** Writes login counters/lockout. */
   saveAccountState: (account: Account) => void;
   setCredential: (credential: Credential) => void;
   setAuthSession: (session: AuthSession | null) => void;
-  logAuditEvent: (entry: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">) => void;
 }
 
 const INVALID_MESSAGE = "Kullanıcı adı veya şifre hatalı.";
@@ -88,10 +86,8 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       if (!usernameOk || !passwordOk) {
         const { lockedUntil } = registerFailure();
         if (lockedUntil) {
-          deps.logAuditEvent({ userName: account.name, action: "account_locked", module: "auth", recordLabel: normalized });
           return { success: false, error: "account_locked", lockedUntil, errorMessage: lockedMessage(LOCKOUT_MINUTES) };
         }
-        deps.logAuditEvent({ userName: account.name, action: "login_failed", module: "auth", recordLabel: normalized });
         return { success: false, error: "invalid_credentials", errorMessage: INVALID_MESSAGE };
       }
 
@@ -99,14 +95,11 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       deps.saveAccountState({ ...account, failedLoginAttempts: 0, lockedUntil: undefined, lastLoginAt: now, updatedAt: now });
       const session: AuthSession = { loginAt: now, remember: !!remember, credentialVersion: credential.updatedAt };
       deps.setAuthSession(session);
-      deps.logAuditEvent({ userName: account.name, action: "login_success", module: "auth" });
       return { success: true, data: { user: toAuthUser(account), session } };
     },
 
     async signOut() {
-      const hadSession = !!deps.session;
       deps.setAuthSession(null);
-      if (hadSession) deps.logAuditEvent({ userName: deps.account.name, action: "logout", module: "auth" });
     },
 
     getSession() {
@@ -129,7 +122,6 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
         // session can't be used to guess the password.
         const { attempts, lockedUntil } = registerFailure();
         if (lockedUntil) {
-          deps.logAuditEvent({ userName: account.name, action: "account_locked", module: "auth" });
           deps.setAuthSession(null);
           return {
             success: false,
@@ -152,7 +144,6 @@ export function createLocalAuthService(deps: LocalAuthDeps): AuthService {
       // This device stays signed in; every other device's session is now stale.
       deps.setAuthSession({ ...session, credentialVersion: now });
       if (account.failedLoginAttempts) deps.saveAccountState({ ...account, failedLoginAttempts: 0, updatedAt: now });
-      deps.logAuditEvent({ userName: account.name, action: "password_changed", module: "auth" });
       return { success: true };
     },
   };

@@ -1,5 +1,5 @@
-import type { Payment, TeacherPaymentType } from "@/types";
-import type { TeacherEarningsSettings } from "@/types/settings";
+import type { Payment, Session, TeacherPaymentType } from "@/types";
+import type { SessionSettings, TeacherEarningsSettings } from "@/types/settings";
 
 // ─── Student payment rules ───────────────────────────────────────────────────
 // Fixed rules: receipts are numbered MKB-<year>-<0000> from 1000 on, and a new
@@ -70,4 +70,12 @@ export function canExceedPendingEarning(
   if (type === "deduction") return false;
   if (type === "advance") return policy.allowAdvances;
   return !policy.preventOverpayment;
+}
+
+/** Ayarlar → Ders Kuralları → "Telafi dersi için veliden ücret alınsın mı?":
+ *  with "Hayır", a lesson saved as Telafi — from the form, Excel or a plan —
+ *  costs the guardian nothing. Applied when the lesson becomes a makeup, so a
+ *  later change of the setting never rewrites past lessons. */
+export function applyMakeupBilling<T extends Session>(session: T, rules: Pick<SessionSettings, "makeupSessionBehavior">): T {
+  return session.status === "makeup" && rules.makeupSessionBehavior === "non_billable" ? { ...session, studentPrice: 0 } : session;
 }

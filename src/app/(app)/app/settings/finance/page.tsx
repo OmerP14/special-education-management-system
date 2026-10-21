@@ -19,7 +19,7 @@ import type { PaymentMethod } from "@/types";
 const ALL_METHODS: PaymentMethod[] = ["cash", "bank_transfer", "credit_card", "other"];
 
 function FinanceSettingsContent() {
-  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
+  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel } =
     useSettingsSection("finance");
 
   const set = <K extends keyof FinanceSettings>(key: K, value: FinanceSettings[K]) =>
@@ -35,21 +35,19 @@ function FinanceSettingsContent() {
 
   return (
     <SettingsFormSection
-      title="Finans Ayarları"
-      description="Ödeme yöntemleri ve borç uyarısı. Tutarlar Türk lirasıyla gösterilir; makbuzlar MKB-yıl-sıra biçiminde otomatik numaralanır."
+      title="Veli Ödemeleri"
+      description="Velilerden ödeme alırken hangi yöntemlerin seçilebileceği ve borç uyarısı. Makbuz numaraları otomatik verilir."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
-      metadata={metadata}
       onSave={save}
       onCancel={cancel}
-      onReset={resetToDefaults}
     >
       {/* Debt warning */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <SettingsField
-          label="Öğrenci Borç Uyarı Eşiği"
-          description="Bu tutarı aşan borçlar öğrenci listesinde ve detayında işaretlenir (Öğrenci ve Veli → Borç uyarısı açıkken)."
+          label="Borç uyarısı (TL)"
+          description="Borcu bu tutarı geçen öğrenciler listede kırmızı ile işaretlenir."
         >
           <NumericInput
             min={0}
@@ -61,15 +59,16 @@ function FinanceSettingsContent() {
 
       {/* Payment methods */}
       <div className="space-y-3">
-        <SettingsField label="Aktif Ödeme Yöntemleri" error={errors.enabledPaymentMethods}>
-          <div className="flex flex-wrap gap-1.5">
+        <SettingsField label="Kullanılan ödeme yöntemleri" description="Seçili olanlar koyu renkte görünür." error={errors.enabledPaymentMethods}>
+          <div className="flex flex-wrap gap-2">
             {ALL_METHODS.map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => toggleMethod(m)}
+                aria-pressed={draft.enabledPaymentMethods.includes(m)}
                 className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                  "rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors",
                   draft.enabledPaymentMethods.includes(m)
                     ? "border-primary bg-primary text-primary-foreground"
                     : "border-border text-muted-foreground hover:text-foreground"
@@ -81,7 +80,7 @@ function FinanceSettingsContent() {
           </div>
         </SettingsField>
         <SettingsField
-          label="Varsayılan Ödeme Yöntemi"
+          label="Ödeme alırken önce seçili gelen yöntem"
           className="sm:max-w-xs"
           error={errors.defaultPaymentMethod}
         >

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   computeEarningFactor,
   formatCurrency,
@@ -20,7 +20,7 @@ import {
  * Approving one makes its earning count toward the teacher's totals.
  */
 export function PendingEarningApprovalsCard() {
-  const store = useMockStore();
+  const store = useStore();
   const policy = store.institutionSettings.teacherEarnings;
   const [selected, setSelected] = useState<Set<string>>(new Set());
 

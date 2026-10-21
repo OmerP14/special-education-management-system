@@ -50,7 +50,7 @@ export function CalendarPreviewCard({ sessions, students, teachers, educationTyp
                   isToday ? "bg-primary/8" : "hover:bg-muted/50"
                 )}
               >
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {DAY_LABELS[i]}
                 </span>
                 <span
@@ -70,7 +70,7 @@ export function CalendarPreviewCard({ sessions, students, teachers, educationTyp
                     />
                   ))}
                 </div>
-                <span className="text-[10px] text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums">
                   {dayEvents.length > 0 ? dayEvents.length : ""}
                 </span>
               </div>

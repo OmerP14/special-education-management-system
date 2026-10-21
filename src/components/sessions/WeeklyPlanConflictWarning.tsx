@@ -47,13 +47,13 @@ export function WeeklyPlanConflictWarning({
             <p className="text-xs font-medium text-foreground tabular-nums">
               {formatDate(date)} · {formatTime(date)}
             </p>
-            <p className="text-[11px] text-muted-foreground">{result.message}</p>
+            <p className="text-xs text-muted-foreground">{result.message}</p>
             {result.conflictingSessions.map((s) => {
               const student = students.find((st) => st.id === s.studentId);
               const teacher = teachers.find((t) => t.id === s.teacherId);
               const et = educationTypes.find((e) => e.id === s.educationTypeId);
               return (
-                <p key={s.id} className="text-[11px] text-muted-foreground/80 truncate">
+                <p key={s.id} className="text-xs text-muted-foreground/80 truncate">
                   Çakışan seans: {student?.fullName ?? "—"} · {teacher?.fullName ?? "—"} ·{" "}
                   {et?.name ?? "—"}
                 </p>
@@ -75,11 +75,11 @@ export function HolidaySkipNotice({ skips }: { skips: { date: string; label: str
         {skips.length} seans resmi tatile denk geldiği için oluşturulmayacak.
       </p>
       {skips.slice(0, 6).map((s) => (
-        <p key={s.date} className="text-[11px] text-muted-foreground tabular-nums">
+        <p key={s.date} className="text-xs text-muted-foreground tabular-nums">
           {formatDate(s.date)} · {s.label}
         </p>
       ))}
-      {skips.length > 6 && <p className="text-[11px] text-muted-foreground">…ve {skips.length - 6} tarih daha</p>}
+      {skips.length > 6 && <p className="text-xs text-muted-foreground">…ve {skips.length - 6} tarih daha</p>}
     </div>
   );
 }

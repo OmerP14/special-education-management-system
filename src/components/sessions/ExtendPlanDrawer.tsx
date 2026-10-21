@@ -6,7 +6,7 @@ import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatCurrency, formatDate, formatTime } from "@/lib/helpers/finance";
 import {
   generateSessionDates,
@@ -21,6 +21,7 @@ import {
   partitionDatesByHoliday,
 } from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
+import { createId } from "@/lib/data/ids";
 
 interface ExtendPlanDrawerProps {
   open: boolean;
@@ -29,7 +30,7 @@ interface ExtendPlanDrawerProps {
 }
 
 export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const [newEndDate, setNewEndDate] = useState("");
 
   // Reset when the drawer opens (or targets another plan). Done during render
@@ -107,7 +108,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
 
     for (const dateStr of datesToCreate) {
       store.addSession({
-        id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: createId("session"),
         tenantId,
         studentId: plan.studentId,
         teacherId: plan.teacherId,
@@ -219,7 +220,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
                   <p className="text-2xl font-bold text-foreground tabular-nums">
                     {datesToCreate.length}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                  <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                     Yeni Seans
                   </p>
                 </div>
@@ -227,7 +228,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
                   <p className="text-lg font-bold text-foreground tabular-nums">
                     {formatCurrency(totalBilling)}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                  <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                     Potansiyel Tahakkuk
                   </p>
                 </div>
@@ -235,7 +236,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
                   <p className="text-lg font-bold text-amber-600 tabular-nums">
                     {formatCurrency(totalTeacherEarning)}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                  <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                     Öğretmen Hakedişi
                   </p>
                 </div>

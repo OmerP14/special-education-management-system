@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/shared/DataTable";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatDateTime } from "@/lib/helpers/finance";
 import type { TeacherMergeHistory } from "@/types";
 
@@ -29,7 +29,7 @@ interface MergeRow {
 }
 
 export function TeacherMergeHistoryTab({ teacherId }: TeacherMergeHistoryTabProps) {
-  const store = useMockStore();
+  const store = useStore();
   const [rollbackTarget, setRollbackTarget] = useState<TeacherMergeHistory | null>(null);
 
   const rows: MergeRow[] = store.teacherMergeHistory
@@ -64,8 +64,8 @@ export function TeacherMergeHistoryTab({ teacherId }: TeacherMergeHistoryTabProp
         <span
           className={
             r.role === "primary"
-              ? "inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
-              : "inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+              ? "inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
+              : "inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
           }
         >
           {r.role === "primary" ? "Bu kayıt korundu" : "Bu kayıt arşivlendi"}

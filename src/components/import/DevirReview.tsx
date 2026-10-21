@@ -85,7 +85,7 @@ export function DevirReview({ plan, devirDate, amountOf, onAmountChange, include
                     </td>
                     <td className={cell}>
                       <span className="font-medium text-foreground">{l.studentName}</span>
-                      {l.hasExistingDevir && <span className="block text-[11px] text-amber-700">Zaten bir devri var — işaretlerseniz eklenir</span>}
+                      {l.hasExistingDevir && <span className="block text-xs text-amber-700">Zaten bir devri var — işaretlerseniz eklenir</span>}
                     </td>
                     <td className={`${cell} ${num}`}>{formatCurrency(l.lessonTotal)}</td>
                     <td className={`${cell} ${num}`}>{formatCurrency(l.paymentTotal)}</td>
@@ -147,9 +147,9 @@ export function DevirReview({ plan, devirDate, amountOf, onAmountChange, include
                     <td className={cell}>
                       <span className="font-medium text-foreground">{l.teacherName}</span>
                       {l.salaryBased && (
-                        <span className="block text-[11px] text-muted-foreground">Maaşlı — hakediş derslerden hesaplanamaz, tutarı yazın</span>
+                        <span className="block text-xs text-muted-foreground">Maaşlı — hakediş derslerden hesaplanamaz, tutarı yazın</span>
                       )}
-                      {l.hasExistingDevir && <span className="block text-[11px] text-amber-700">Zaten bir devri var — işaretlerseniz değişir</span>}
+                      {l.hasExistingDevir && <span className="block text-xs text-amber-700">Zaten bir devri var — işaretlerseniz değişir</span>}
                     </td>
                     <td className={`${cell} ${num}`}>{l.salaryBased ? "—" : formatCurrency(l.earningTotal)}</td>
                     <td className={`${cell} ${num}`}>{formatCurrency(l.paymentTotal)}</td>

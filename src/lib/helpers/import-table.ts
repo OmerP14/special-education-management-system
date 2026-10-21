@@ -104,6 +104,14 @@ function isSubHeaderRow(grid: RawCell[][], h: number, merges: ParsedSheet["merge
   return groupsColumns || new Set(labels).size < labels.length;
 }
 
+const SUMMARY_ROW = /^(genel |ara )?(toplam|total)\b/;
+
+function isSummaryRow(cells: RawCell[]): boolean {
+  const first = cells.find((c) => !isEmpty(c));
+  if (first === undefined) return false;
+  return SUMMARY_ROW.test(cellToDisplayString(first).toLocaleLowerCase("tr-TR").replace(/[:.]/g, " ").trim());
+}
+
 /** Cleans a plain-table sheet. `headerRowIndex` (in [headers, ...rows]
  *  coordinates) overrides the detected header row. */
 export function normalizeTableSheet(sheet: ParsedSheet, headerRowIndex?: number): ParsedSheet {
@@ -143,26 +151,71 @@ export function normalizeTableSheet(sheet: ParsedSheet, headerRowIndex?: number)
     return k === 1 ? n : `${n} (${k})`;
   });
 
-  // Rows: drop blank rows and repeats of the header row.
+  // Rows: drop blank rows, repeats of the header row and summary rows
+  // ("TOPLAM", "Genel Toplam", "Ara toplam:", "Total") — otherwise a total
+  // line under a student list becomes a student named "TOPLAM".
   const headerKey = columns.map((c) => cellToDisplayString(headerRow[c]).toLocaleLowerCase("tr-TR")).join("\u0000");
   const rows: RawCell[][] = [];
   const rowNumbers: number[] = [];
   for (const i of dataIdx) {
     const cells = columns.map((c) => grid[i]![c] ?? "");
     if (cells.every(isEmpty)) continue;
+    if (isSummaryRow(cells)) continue;
     if (cells.map((c) => cellToDisplayString(c).toLocaleLowerCase("tr-TR")).join("\u0000") === headerKey) continue;
     rows.push(cells.map((c) => (typeof c === "string" ? cellToDisplayString(c) : c)));
     rowNumbers.push(rowNumberOf(i));
   }
 
-  return {
+  return joinSplitNameColumns({
     ...sheet,
     headers,
     rows,
     rowNumbers,
     headerRowNumber: rowNumberOf(h),
     merges: undefined,
-  };
+  });
+}
+
+// "Adı" + "Soyadı", "Veli Adı" + "Veli Soyadı", "İsim" + "Soyisim": many lists
+// keep first and last name apart, while every import field wants the full name.
+const FIRST_NAME = /^(.*?)\s*(ad|adı|adi|isim|ismi|isim)$/;
+const LAST_NAME = /^(.*?)\s*(soyad|soyadı|soyadi|soyisim|soyismi)$/;
+
+function nameKey(header: string): string {
+  return header.toLocaleLowerCase("tr-TR").replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Joins each first-name column with the last-name column that shares its
+ *  prefix into one "<prefix> Ad Soyad" column, in the first one's place. */
+export function joinSplitNameColumns(sheet: ParsedSheet): ParsedSheet {
+  const pairs: [number, number][] = [];
+  sheet.headers.forEach((header, first) => {
+    const f = nameKey(cellToDisplayString(header)).match(FIRST_NAME);
+    if (!f) return;
+    const last = sheet.headers.findIndex((h) => {
+      const l = nameKey(cellToDisplayString(h)).match(LAST_NAME);
+      return !!l && l[1] === f[1];
+    });
+    if (last >= 0 && last !== first) pairs.push([first, last]);
+  });
+  if (pairs.length === 0) return sheet;
+
+  const drop = new Set(pairs.map(([, last]) => last));
+  const lastOf = new Map(pairs);
+  const keep = sheet.headers.map((_, i) => i).filter((i) => !drop.has(i));
+  const headers = keep.map((i) => {
+    if (!lastOf.has(i)) return sheet.headers[i]!;
+    const prefix = nameKey(cellToDisplayString(sheet.headers[i])).match(FIRST_NAME)![1]!;
+    return prefix ? `${cellToDisplayString(sheet.headers[i]).replace(/\s*\S+$/, "")} Ad Soyad` : "Ad Soyad";
+  });
+  const rows = sheet.rows.map((row) =>
+    keep.map((i) => {
+      const last = lastOf.get(i);
+      if (last === undefined) return row[i] ?? "";
+      return [cellToDisplayString(row[i]), cellToDisplayString(row[last])].filter(Boolean).join(" ");
+    })
+  );
+  return { ...sheet, headers, rows };
 }
 
 /** Every sheet of one file, ready for the analyzer: plain tables cleaned,

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   Sheet,
   SheetContent,
@@ -35,6 +35,24 @@ export function FormDrawer({
   saving = false,
   saveDisabled = false,
 }: FormDrawerProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // A rejected save must never be silent: once the form has rendered its
+  // validation messages, bring the first one into view and focus its field.
+  const handleSave = () => {
+    onSave?.();
+    requestAnimationFrame(() => {
+      const body = bodyRef.current;
+      const error = body?.querySelector<HTMLElement>('p.text-destructive, [aria-invalid="true"]');
+      if (!body || !error) return;
+      error.scrollIntoView({ block: "center", behavior: "smooth" });
+      const field = error.matches("input, textarea, button")
+        ? error
+        : error.parentElement?.querySelector<HTMLElement>("input:not([type=hidden]), textarea, [role=combobox]");
+      field?.focus({ preventScroll: true });
+    });
+  };
+
   return (
     <Sheet open={open} onOpenChange={(isOpen: boolean) => onOpenChange(isOpen)}>
       <SheetContent side="right" showCloseButton className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
@@ -47,7 +65,7 @@ export function FormDrawer({
           )}
         </SheetHeader>
         <Separator />
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div ref={bodyRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
         <Separator />
         <SheetFooter className="flex flex-row justify-end gap-2 px-5 py-4">
           <Button
@@ -58,7 +76,7 @@ export function FormDrawer({
             Vazgeç
           </Button>
           {onSave && (
-            <Button onClick={onSave} disabled={saving || saveDisabled}>
+            <Button onClick={handleSave} disabled={saving || saveDisabled}>
               {saving ? "Kaydediliyor…" : saveLabel}
             </Button>
           )}

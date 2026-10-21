@@ -80,10 +80,24 @@ export function DataTable<T>({
               key={keyExtractor(row)}
               className={cn(
                 "border-border transition-colors",
-                onRowClick && "cursor-pointer hover:bg-muted/40",
+                onRowClick && "cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                 rowClassName?.(row)
               )}
               onClick={() => onRowClick?.(row)}
+              // Clickable rows are reachable by Tab and open with Enter/Space;
+              // keys pressed on buttons inside the row are left to those buttons.
+              tabIndex={onRowClick ? 0 : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
+                    }
+                  : undefined
+              }
             >
               {columns.map((col) => (
                 <TableCell

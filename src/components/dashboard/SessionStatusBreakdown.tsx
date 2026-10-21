@@ -227,13 +227,13 @@ export function SessionStatusBreakdown({ sessions }: SessionStatusBreakdownProps
               {isEmpty ? (
                 <>
                   <span className="text-2xl font-semibold text-foreground">0</span>
-                  <span className="text-[11px] text-muted-foreground">Seans</span>
+                  <span className="text-xs text-muted-foreground">Seans</span>
                 </>
               ) : (
                 <>
-                  <span className="text-[11px] text-muted-foreground">Toplam</span>
+                  <span className="text-xs text-muted-foreground">Toplam</span>
                   <span className="text-2xl font-semibold text-foreground">{total}</span>
-                  <span className="text-[11px] text-muted-foreground">Seans</span>
+                  <span className="text-xs text-muted-foreground">Seans</span>
                 </>
               )}
             </div>

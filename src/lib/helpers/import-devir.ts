@@ -16,6 +16,7 @@ import type { OpeningBalance, Session, Student, Teacher } from "@/types";
 import type { TeacherEarningsSettings } from "@/types/settings";
 import { newId, type StagedRow } from "@/lib/helpers/import";
 import { computeEarningFactor, isChargeableStatus } from "@/lib/helpers/finance";
+import { TENANT_ID } from "@/lib/data/ids";
 
 /** "YYYY-MM-DD" of a stored date ("YYYY-MM-DD" or an ISO date-time). */
 export function dayKeyOf(date: string): string {
@@ -202,8 +203,8 @@ export function studentDevirRows(
     const amount = Math.round(amountOf(line.studentId, line.suggested) * 100) / 100;
     if (line.source === "file" || amount === 0) return [];
     const record: OpeningBalance = {
-      id: newId("opening", i + 1),
-      tenantId: "tenant-1",
+      id: newId("opening"),
+      tenantId: TENANT_ID,
       studentId: line.studentId,
       amount: Math.abs(amount),
       balanceType: amount > 0 ? "debt" : "credit",

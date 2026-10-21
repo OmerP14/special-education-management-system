@@ -67,8 +67,9 @@ export interface StudentMatchResult {
   student: Student | null;
 }
 
-/** Name match alone is a "possible duplicate" (needs user confirmation); name +
- *  phone (via the student's guardians) agreeing both is a confident "matched". */
+/** Same name is the same student — so importing a list twice never doubles it —
+ *  unless both sides have a guardian phone and none of them agree: then it's a
+ *  namesake ("possible"), imported as a different student with a warning. */
 export function matchStudent(
   fullName: string,
   guardianPhone: string | null | undefined,
@@ -89,9 +90,10 @@ export function matchStudent(
     if (confident) return { tier: "matched", student: confident };
   }
 
-  // Name matches but no phone corroboration (or student has no phone on file) —
-  // could be the same person or a coincidental namesake.
-  return { tier: "possible", student: candidates[0]! };
+  const knownPhones = (s: Student) =>
+    s.guardianIds.some((gid) => !!normalizePhone(guardianIndex.byId.get(gid)?.phone));
+  const contradicted = !!normalizedPhone && candidates.every(knownPhones);
+  return { tier: contradicted ? "possible" : "matched", student: candidates[0]! };
 }
 
 export interface StudentResolution {
@@ -140,8 +142,9 @@ export function matchGuardian(fullName: string, phone: string | undefined, guard
     const byPhone = guardianIndex.byPhone.get(normalizedPhone);
     if (byPhone) return { tier: "matched", guardian: byPhone };
   }
+  // Same name: the same guardian unless both phones are known and differ.
   const byName = guardianIndex.byName.get(normalizeName(fullName))?.[0];
-  if (byName) return { tier: normalizedPhone ? "possible" : "matched", guardian: byName };
+  if (byName) return { tier: normalizedPhone && normalizePhone(byName.phone) ? "possible" : "matched", guardian: byName };
   return { tier: "new", guardian: null };
 }
 
@@ -175,7 +178,9 @@ export function matchTeacher(fullName: string, phone: string | undefined, teache
     const confident = candidates.find((t) => normalizePhone(t.phone) === normalizedPhone);
     if (confident) return { tier: "matched", teacher: confident };
   }
-  return { tier: "possible", teacher: candidates[0]! };
+  // Same name: the same teacher unless both phones are known and differ.
+  const contradicted = !!normalizedPhone && candidates.every((t) => !!normalizePhone(t.phone));
+  return { tier: contradicted ? "possible" : "matched", teacher: candidates[0]! };
 }
 
 export interface TeacherResolution {

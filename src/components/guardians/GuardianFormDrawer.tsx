@@ -5,11 +5,12 @@ import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { cn } from "@/lib/utils";
 import { getStudentIdsWithOtherGuardian } from "@/lib/helpers/student-rules";
 import { getStudentStatusLabel } from "@/lib/helpers/finance";
 import type { Guardian } from "@/types";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export function GuardianFormDrawer({
   onOpenChange,
   initialData,
 }: GuardianFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
 
   const [form, setForm] = useState<FormState>(() =>
@@ -103,8 +104,8 @@ export function GuardianFormDrawer({
   const handleSave = () => {
     if (!form.fullName.trim() || !form.phone.trim()) return;
 
-    const tenantId = initialData?.tenantId ?? "tenant-1";
-    const id = initialData?.id ?? `guardian-${Date.now()}`;
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
+    const id = initialData?.id ?? createId("guardian");
     const relationship =
       form.relationship === "Diğer" && form.customRelationship.trim()
         ? form.customRelationship.trim()
@@ -215,7 +216,7 @@ export function GuardianFormDrawer({
             ))}
           </div>
           {form.relationship === "Diğer" && (
-            <Input
+            <Input aria-label="Yakınlık derecesi"
               placeholder="Yakınlık derecesini girin…"
               value={form.customRelationship}
               onChange={(e) => set("customRelationship", e.target.value)}

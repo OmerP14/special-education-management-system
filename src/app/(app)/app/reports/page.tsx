@@ -22,7 +22,7 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { ReportViewer, type ReportSummaryCard } from "@/components/reports/ReportViewer";
 import { ReportFilterBar } from "@/components/reports/ReportFilterBar";
 import type { Column } from "@/components/shared/DataTable";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildStudentDebtItems,
   buildPaymentListItems,
@@ -71,7 +71,7 @@ import { cn } from "@/lib/utils";
 
 function PaymentTypeBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+    <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
       {label}
     </span>
   );
@@ -493,7 +493,7 @@ const teacherEarningsColumns: Column<TeacherReportRow>[] = [
       <div className="text-right">
         <span className="tabular-nums font-semibold">{formatCurrency(row.totalEarning)}</span>
         {row.unknownSessionCount > 0 && (
-          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+          <p className="text-xs text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
         )}
       </div>
     ),
@@ -552,7 +552,7 @@ const teacherPerformanceColumns: Column<TeacherReportRow>[] = [
       <div className="text-right">
         <span className="tabular-nums font-semibold">{formatCurrency(row.totalEarning)}</span>
         {row.unknownSessionCount > 0 && (
-          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+          <p className="text-xs text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
         )}
       </div>
     ),
@@ -586,7 +586,7 @@ const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
     header: "Önceki Devir",
     render: (row) => (
       <span className={cn("tabular-nums text-right block", row.previousBalance > 0 ? "text-destructive" : "text-muted-foreground")}>
-        {formatCurrency(row.previousBalance)}
+        {row.previousBalance < 0 ? `${formatCurrency(-row.previousBalance)} peşin` : formatCurrency(row.previousBalance)}
       </span>
     ),
     className: "hidden md:table-cell text-right",
@@ -599,7 +599,7 @@ const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
       <div className="text-right">
         <span className="tabular-nums">{formatCurrency(row.thisMonthEarning)}</span>
         {row.unknownSessionCount > 0 && (
-          <p className="text-[10px] text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
+          <p className="text-xs text-amber-600">Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans</p>
         )}
       </div>
     ),
@@ -653,7 +653,7 @@ const teacherMonthAccountColumns: Column<TeacherMonthAccountSummary>[] = [
 const CATEGORIES: ReportCategory[] = ["financial", "education", "students", "teachers"];
 
 export default function ReportsPage() {
-  const store = useMockStore();
+  const store = useStore();
   const [category, setCategory] = useState<ReportCategory>("financial");
   const [reportId, setReportId] = useState<string>(REPORT_CATALOG.financial[0]!.id);
   const [filters, setFilters] = useState<ReportFilters>({ ...EMPTY_REPORT_FILTERS });

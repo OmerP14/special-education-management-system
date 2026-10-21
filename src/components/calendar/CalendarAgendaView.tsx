@@ -26,7 +26,7 @@ function DayGroupHeader({ date }: { date: Date }) {
     <div className="flex items-center gap-2 mb-2 mt-5 first:mt-0">
       <div
         className={cn(
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
           isToday
             ? "bg-primary text-primary-foreground"
             : "bg-muted text-muted-foreground"
@@ -42,7 +42,7 @@ function DayGroupHeader({ date }: { date: Date }) {
       >
         {label}
         {isToday && (
-          <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+          <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-primary">
             Bugün
           </span>
         )}
@@ -68,7 +68,7 @@ function AgendaEventRow({
       className={cn(
         "w-full text-left rounded-xl pl-2.5 pr-3 py-2.5 mb-1.5",
         "flex items-center gap-3 shadow-sm",
-        "transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md",
+        "transition-[transform,box-shadow] duration-200 ease-out hover:scale-[1.01] hover:shadow-md",
         appearance.className
       )}
     >
@@ -81,7 +81,7 @@ function AgendaEventRow({
           {event.teacherName} · {event.educationTypeName}
         </p>
       </div>
-      <StatusBadge status={event.status} className="shrink-0 text-[10px]" />
+      <StatusBadge status={event.status} className="shrink-0 text-xs" />
     </button>
   );
 }

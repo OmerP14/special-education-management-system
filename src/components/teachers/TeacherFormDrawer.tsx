@@ -13,7 +13,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import type { TeacherEarningsSettings } from "@/types/settings";
 import {
   getTeacherStatusLabel,
@@ -28,6 +28,7 @@ import type {
   TeacherEarningType,
   TeacherEducationTypeAssignmentStatus,
 } from "@/types";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ export function TeacherFormDrawer({
   onOpenChange,
   initialData,
 }: TeacherFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
 
   const buildExistingAssignmentRows = (): Record<string, AssignmentRowState> => {
@@ -220,8 +221,8 @@ export function TeacherFormDrawer({
   const handleSave = () => {
     if (!form.fullName.trim() || !form.phone.trim()) return;
 
-    const tenantId = initialData?.tenantId ?? "tenant-1";
-    const id = initialData?.id ?? `teacher-${Date.now()}`;
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
+    const id = initialData?.id ?? createId("teacher");
 
     const teacher: Teacher = {
       id,
@@ -329,7 +330,7 @@ export function TeacherFormDrawer({
             value={form.status}
             onValueChange={(val) => set("status", val as TeacherStatus)}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Durum">
               <SelectValue>{(val: TeacherStatus) => getTeacherStatusLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -505,7 +506,7 @@ export function TeacherFormDrawer({
                       </span>
                     </label>
                     {form.earningType === "per_session" && (
-                      <NumericInput
+                      <NumericInput aria-label={`${et.name} seans ücreti`}
                         min={0}
                         step={25}
                         placeholder="Tanımsız"
@@ -531,7 +532,7 @@ export function TeacherFormDrawer({
               <p className="text-sm font-medium">Diğer</p>
             </label>
             {form.hasCustomBranch && (
-              <Input
+              <Input aria-label="Branş adı"
                 placeholder="Branş adını girin…"
                 value={form.customBranch}
                 onChange={(e) => set("customBranch", e.target.value)}

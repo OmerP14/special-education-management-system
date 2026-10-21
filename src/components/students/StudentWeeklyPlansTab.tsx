@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
 import { ExtendPlanDrawer } from "@/components/sessions/ExtendPlanDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatDate, formatCurrency } from "@/lib/helpers/finance";
 import {
   computeWeeklyPlanStatus,
@@ -88,7 +88,7 @@ function ConfirmBanner({
 function StatCell({ label, value, colorClass }: { label: string; value: number; colorClass?: string }) {
   return (
     <div>
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">{label}</p>
+      <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">{label}</p>
       <p className={cn("text-base font-bold tabular-nums", colorClass ?? "text-foreground")}>{value}</p>
     </div>
   );
@@ -110,7 +110,7 @@ function PlanCard({
   onExtend?: () => void;
   onDelete?: () => void;
 }) {
-  const store = useMockStore();
+  const store = useStore();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const now = new Date();
@@ -142,11 +142,11 @@ function PlanCard({
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/20">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold border", statusConfig.className)}>
+            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border", statusConfig.className)}>
               {statusConfig.label}
             </span>
             {educationType && (
-              <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+              <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
                 {educationType.name}
               </span>
             )}
@@ -161,6 +161,7 @@ function PlanCard({
             <button
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               title="Düzenle"
+              aria-label="Düzenle"
               onClick={onEdit}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -170,6 +171,7 @@ function PlanCard({
             <button
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               title="Planı Uzat"
+              aria-label="Planı Uzat"
               onClick={onExtend}
             >
               <CalendarPlus className="h-3.5 w-3.5" />
@@ -188,6 +190,7 @@ function PlanCard({
             <button
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               title="Planı Kopyala"
+              aria-label="Planı Kopyala"
               onClick={onCopy}
             >
               <Copy className="h-3.5 w-3.5" />
@@ -197,6 +200,7 @@ function PlanCard({
             <button
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               title="Planı Sil"
+              aria-label="Planı Sil"
               onClick={() => setConfirmDelete(true)}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -207,7 +211,7 @@ function PlanCard({
 
       {/* Body */}
       <div className="px-4 py-3 space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Haftalık Program
         </p>
         <div className="flex flex-wrap gap-2">
@@ -280,7 +284,7 @@ type DrawerMode = "new" | "edit" | "copy";
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
 export function StudentWeeklyPlansTab({ studentId }: { studentId: string }) {
-  const store = useMockStore();
+  const store = useStore();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("new");
   const [activePlan, setActivePlan] = useState<WeeklySessionPlan | undefined>(undefined);

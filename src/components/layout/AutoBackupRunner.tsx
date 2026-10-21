@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useMockStore } from "@/lib/mock/store";
-import { saveDailyAutoBackup } from "@/lib/mock/persistence";
+import { useStore } from "@/lib/data/store";
+import { saveDailyAutoBackup } from "@/lib/data/persistence";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { initBackupFolder, useBackupFolder, writeBackupToFolder } from "@/lib/backup/backup-folder";
 
@@ -11,7 +11,7 @@ import { initBackupFolder, useBackupFolder, writeBackupToFolder } from "@/lib/ba
  *  chosen, writes the day's file there too, refreshing it every 30 minutes
  *  so it holds the day's latest data. Renders nothing. */
 export function AutoBackupRunner() {
-  const store = useMockStore();
+  const store = useStore();
   const enabled = store.institutionSettings.dataManagement.autoBackupEnabled;
   const { status: folderStatus, location: folderLocation } = useBackupFolder();
   const storeRef = useRef(store);

@@ -45,7 +45,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { TeacherMergeHistorySection } from "@/components/teachers/TeacherMergeHistorySection";
 import { EducationTypeFormDrawer } from "@/components/settings/EducationTypeFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDateTime, calculateTeacherSessionEarning } from "@/lib/helpers/finance";
 import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
@@ -74,6 +74,7 @@ import {
   buildMultiImportPreview,
   buildStagedRows,
   commitMultiImportBatch,
+  collectImportedTeacherAssignments,
   computeFileFingerprint,
   findExistingBatchByFingerprint,
   findEditedRecordsSinceImport,
@@ -127,6 +128,7 @@ import {
   checkSessionConflictIndexed,
   DEFAULT_CONFLICT_DURATION_MINUTES,
 } from "@/lib/helpers/session-conflict";
+import { TENANT_ID } from "@/lib/data/ids";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -278,10 +280,10 @@ function HeaderRowPicker({ u, onPick }: { u: UploadedSheet; onPick: (index: numb
   return (
     <div>
       <label className="text-xs font-medium text-foreground">Başlık satırı (sütun adlarının olduğu satır)</label>
-      <select
+      <select aria-label="Başlık satırı"
         value={current}
         onChange={(e) => onPick(Number(e.target.value))}
-        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {grid.map((row, i) => (
           <option key={i} value={i}>
@@ -289,7 +291,7 @@ function HeaderRowPicker({ u, onPick }: { u: UploadedSheet; onPick: (index: numb
           </option>
         ))}
       </select>
-      <p className="mt-1 truncate text-[11px] text-muted-foreground">Sütunlar: {u.sheet.headers.join(", ")}</p>
+      <p className="mt-1 truncate text-xs text-muted-foreground">Sütunlar: {u.sheet.headers.join(", ")}</p>
     </div>
   );
 }
@@ -501,7 +503,7 @@ function IssueBadges({
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-1">
         {shortLabels.map((label, i) => (
-          <span key={i} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          <span key={i} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {label}
           </span>
         ))}
@@ -511,7 +513,7 @@ function IssueBadges({
             e.stopPropagation();
             onToggle();
           }}
-          className="text-[11px] font-medium text-primary hover:underline underline-offset-2 shrink-0"
+          className="text-xs font-medium text-primary hover:underline underline-offset-2 shrink-0"
         >
           {detailLabel ?? (expanded ? "Detayı gizle" : "Detay >")}
         </button>
@@ -650,7 +652,7 @@ function initialRepairValuesFor(row: StagedRow, fields: RepairFieldDef[], entry?
   return values;
 }
 
-const repairInputClass = "mt-0.5 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+const repairInputClass = "mt-0.5 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /** The "fix it here" form a row's repair drawer shows for error rows. Purely
  *  client-side — `onApply` is the only bridge back to the wizard, and it
@@ -673,7 +675,7 @@ function RepairPanel({
   dateHint: DateRepairHint | null;
   onApply: (edits: Record<string, string>) => void;
 }) {
-  const store = useMockStore();
+  const store = useStore();
   const [draft, setDraft] = useState<Record<string, string>>(initialValues);
   const [createTeacher, setCreateTeacher] = useState(false);
   const [justApplied, setJustApplied] = useState(false);
@@ -691,10 +693,10 @@ function RepairPanel({
           const needsAttention = fieldNeedsAttention(f.key, issues);
           return (
             <div key={f.key}>
-              <label className="flex items-center gap-1.5 text-[11px] font-medium">
+              <label className="flex items-center gap-1.5 text-xs font-medium">
                 <span className={needsAttention ? "text-amber-700" : "text-muted-foreground"}>{f.label}</span>
                 {needsAttention ? (
-                  <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                  <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
                     Kontrol edin
                   </span>
                 ) : (
@@ -705,9 +707,9 @@ function RepairPanel({
               </label>
             {f.kind === "date" && (
               <>
-                <input type="date" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
+                <input aria-label={f.label} type="date" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
                 {dateHint && (
-                  <div className="mt-1 space-y-0.5 rounded-md bg-amber-50 px-2 py-1.5 text-[10px] text-amber-800">
+                  <div className="mt-1 space-y-0.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
                     {dateHint.extraText && (
                       <p>
                         Excel hücresinde ekstra metin bulundu: <span className="font-semibold">{dateHint.extraText}</span>
@@ -727,10 +729,10 @@ function RepairPanel({
               </>
             )}
             {f.kind === "time" && (
-              <input type="time" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
+              <input aria-label={f.label} type="time" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
             )}
             {f.kind === "number" && (
-              <input
+              <input aria-label={f.label}
                 type="number"
                 inputMode="decimal"
                 value={draft[f.key] ?? ""}
@@ -739,11 +741,11 @@ function RepairPanel({
               />
             )}
             {f.kind === "text" && (
-              <input type="text" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
+              <input aria-label={f.label} type="text" value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass} />
             )}
             {f.kind === "studentSearch" && (
               <>
-                <input
+                <input aria-label={f.label}
                   type="text"
                   list="repair-students-datalist"
                   value={draft[f.key] ?? ""}
@@ -760,7 +762,7 @@ function RepairPanel({
             )}
             {f.kind === "teacherSearch" && (
               <>
-                <input
+                <input aria-label={f.label}
                   type="text"
                   list="repair-teachers-datalist"
                   value={draft[f.key] ?? ""}
@@ -784,13 +786,13 @@ function RepairPanel({
                       }}
                       className="h-3 w-3 accent-primary"
                     />
-                    <span className="text-[10px] text-muted-foreground">Bulunamazsa yeni öğretmen olarak oluştur</span>
+                    <span className="text-xs text-muted-foreground">Bulunamazsa yeni öğretmen olarak oluştur</span>
                   </label>
                 )}
               </>
             )}
             {f.kind === "educationTypeSelect" && (
-              <select
+              <select aria-label={f.label}
                 value={draft[f.key] ?? ""}
                 onChange={(e) => {
                   if (e.target.value === "__create_new__") {
@@ -833,7 +835,7 @@ function RepairPanel({
               }
               return (
                 <div className="mt-1.5 flex items-center gap-2 rounded-md bg-amber-50 px-2 py-1.5">
-                  <p className="flex-1 text-[10px] text-amber-800">
+                  <p className="flex-1 text-xs text-amber-800">
                     &quot;{draftTeacher.fullName}&quot; bu eğitim türü için tanımlı değil.
                   </p>
                   <button
@@ -856,7 +858,7 @@ function RepairPanel({
                       );
                       setJustApplied(false);
                     }}
-                    className="shrink-0 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-amber-700"
+                    className="shrink-0 rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700"
                   >
                     Ata
                   </button>
@@ -864,7 +866,7 @@ function RepairPanel({
               );
             })()}
             {f.kind === "paymentMethodSelect" && (
-              <select value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass}>
+              <select aria-label={f.label} value={draft[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} className={repairInputClass}>
                 <option value="">— Seçin —</option>
                 {PAYMENT_METHOD_REPAIR_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -891,7 +893,7 @@ function RepairPanel({
           <CheckCircle2 className="h-3.5 w-3.5" />
           Düzelt ve Doğrula
         </button>
-        {justApplied && <span className="text-[11px] text-muted-foreground">Satır yeniden doğrulandı.</span>}
+        {justApplied && <span className="text-xs text-muted-foreground">Satır yeniden doğrulandı.</span>}
       </div>
       <EducationTypeFormDrawer
         open={newEducationTypeFieldKey !== null}
@@ -908,7 +910,7 @@ function RepairPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ImportPage() {
-  const store = useMockStore();
+  const store = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<WizardStep>("upload");
@@ -978,8 +980,10 @@ export default function ImportPage() {
       guardians: store.guardians,
       teachers: store.teachers,
       sessions: store.sessions,
-      payments: store.payments,
-      teacherPayments: store.teacherPayments,
+      // History-only payments too: they're kept out of store.payments, but a
+      // second import of the same file must still see them as already there.
+      payments: [...store.payments, ...store.historicalPayments],
+      teacherPayments: [...store.teacherPayments, ...store.historicalTeacherPayments],
       openingBalances: store.openingBalances,
       teacherEducationTypeAssignments: store.teacherEducationTypeAssignments,
     };
@@ -1345,8 +1349,8 @@ export default function ImportPage() {
     if (teacherNameRaw && !teacherRes?.teacher) {
       if (edits.createTeacher === "true") {
         createdTeacher = {
-          id: newId("teacher", rowNumber),
-          tenantId: "tenant-1",
+          id: newId("teacher"),
+          tenantId: TENANT_ID,
           fullName: teacherNameRaw,
           phone: "—",
           status: "active",
@@ -1411,8 +1415,8 @@ export default function ImportPage() {
     }
 
     const session: Session = {
-      id: newId("session", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("session"),
+      tenantId: TENANT_ID,
       studentId,
       teacherId,
       educationTypeId,
@@ -1661,6 +1665,17 @@ export default function ImportPage() {
           .map((t) => ({ teacherId: t.teacherId, amount: devirAmountOf(t.teacherId, t.suggested) })),
       }
     );
+    // Lessons that paired a teacher with a new education type assign them to it.
+    const assignments = collectImportedTeacherAssignments(previewResults, store.teacherEducationTypeAssignments);
+    for (const teacherId of new Set(assignments.map((a) => a.teacherId))) {
+      const current = store.teacherEducationTypeAssignments
+        .filter((a) => a.teacherId === teacherId)
+        .map((a) => ({ educationTypeId: a.educationTypeId, earningAmount: a.earningAmount, status: a.status }));
+      const added = assignments
+        .filter((a) => a.teacherId === teacherId)
+        .map((a) => ({ educationTypeId: a.educationTypeId, earningAmount: a.earningAmount, status: "active" as const }));
+      store.upsertTeacherEducationTypeAssignments(teacherId, TENANT_ID, [...current, ...added]);
+    }
     setResultState({ result, batch });
   }
 
@@ -1711,14 +1726,14 @@ export default function ImportPage() {
           >
             {r.row.preview.displayText}
           </span>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{r.sheetLabel}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{r.sheetLabel}</p>
           {r.row.preview.entityMatches.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {r.row.preview.entityMatches.map((match, i) => (
                 <span
                   key={i}
                   className={cn(
-                    "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                    "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium",
                     match.matched ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                   )}
                 >
@@ -1933,7 +1948,7 @@ export default function ImportPage() {
         const isActive = stepIndex === i;
         return (
           <Fragment key={s.key}>
-            {i > 0 && <div className={cn("flex-1 h-px min-w-8", stepIndex >= i ? "bg-primary" : "bg-border")} />}
+            {i > 0 && <div className={cn("flex-1 h-px min-w-3 sm:min-w-8", stepIndex >= i ? "bg-primary" : "bg-border")} />}
             <div className="flex flex-col items-center gap-1.5">
               <div
                 className={cn(
@@ -1943,7 +1958,8 @@ export default function ImportPage() {
               >
                 {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
               </div>
-              <span className={cn("text-xs font-medium whitespace-nowrap", isActive ? "text-primary" : isCompleted ? "text-primary/70" : "text-muted-foreground")}>
+              {/* On phones only the current step is named, so the row fits. */}
+              <span className={cn("text-xs font-medium whitespace-nowrap", isActive ? "text-primary" : cn("hidden sm:inline", isCompleted ? "text-primary/70" : "text-muted-foreground"))}>
                 {s.label}
               </span>
             </div>
@@ -2202,7 +2218,7 @@ export default function ImportPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {isDetected ? `${count.toLocaleString("tr-TR")} kayıt` : "Bulunamadı"}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">{ENTITY_DESCRIPTIONS[type]}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground/70">{ENTITY_DESCRIPTIONS[type]}</p>
                   </div>
                 </div>
                 {isDetected && (
@@ -2252,7 +2268,7 @@ export default function ImportPage() {
                       ? "Bu sayfayı tanımlayamadık. Lütfen tür seçin:"
                       : `"${resultTypeLabel(c.resultType)}" olabilir ama güven düzeyi düşük (%${Math.round(c.confidence * 100)}). Lütfen onaylayın veya değiştirin:`}
                   </p>
-                  <select
+                  <select aria-label="Sayfa türü"
                     value={overrides[u.key] ?? ""}
                     onChange={(e) =>
                       setOverrides((prev) => {
@@ -2262,7 +2278,7 @@ export default function ImportPage() {
                         return next;
                       })
                     }
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <option value="">— Tür seçin —</option>
                     {OVERRIDE_OPTIONS.map((o) => (
@@ -2333,7 +2349,7 @@ export default function ImportPage() {
 
                   <div>
                     <label className="text-xs font-medium text-foreground">Tür (gerekirse değiştirin)</label>
-                    <select
+                    <select aria-label="Sayfa türü"
                       value={overrides[u.key] ?? ""}
                       onChange={(e) =>
                         setOverrides((prev) => {
@@ -2343,7 +2359,7 @@ export default function ImportPage() {
                           return next;
                         })
                       }
-                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <option value="">— Otomatik algılamayı kullan —</option>
                       {OVERRIDE_OPTIONS.map((o) => (
@@ -2360,7 +2376,7 @@ export default function ImportPage() {
                       <p className="text-xs text-foreground/80">
                         Bu sayfa bir zaman çizelgesi matrisi gibi görünüyor. Seansa dönüştürülecek — hangi eğitim türü için?
                       </p>
-                      <select
+                      <select aria-label="Zaman çizelgesi için eğitim türü"
                         value={matrixEducationTypeId[u.key] ?? store.educationTypes[0]?.id ?? ""}
                         onChange={(e) => setMatrixEducationTypeId((prev) => ({ ...prev, [u.key]: e.target.value }))}
                         className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
@@ -2398,7 +2414,7 @@ export default function ImportPage() {
           <div>
             <p className="mb-2 text-sm font-semibold text-foreground">{STUDENT_LEDGER_RESULT_LABEL} — Eğitim Türü</p>
             <p className="mb-2 text-xs text-muted-foreground">Bu format eğitim türü içermez; tüm öğrenci sayfaları için tek bir tür seçin.</p>
-            <select
+            <select aria-label="Öğrenci sayfaları için eğitim türü"
               value={ledgerEducationTypeId || store.educationTypes[0]?.id || ""}
               onChange={(e) => setLedgerEducationTypeId(e.target.value)}
               className="h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-xs"
@@ -2501,10 +2517,10 @@ export default function ImportPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <select
+                          <select aria-label={`${m.excelColumn} sütunu için sistem alanı`}
                             value={m.systemField ?? ""}
                             onChange={(e) => updateTaskMapping(activeTask, i, e.target.value)}
-                            className="h-8 w-full min-w-[160px] rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                            className="h-8 w-full min-w-[160px] rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <option value="">— Eşleştirme Yok —</option>
                             {activeSystemFields.map((f) => (
@@ -2768,10 +2784,10 @@ export default function ImportPage() {
           )}
         </div>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-          <select
+          <select aria-label="Sayfaya göre filtrele"
             value={sheetFilter}
             onChange={(e) => setSheetFilter(e.target.value)}
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="all">Tüm sayfalar</option>
             {sheetFilterOptions.map(([key, label]) => (
@@ -2780,23 +2796,23 @@ export default function ImportPage() {
               </option>
             ))}
           </select>
-          <input
+          <input aria-label="Öğrenci adına göre filtrele"
             value={studentFilterInput}
             onChange={(e) => setStudentFilterInput(e.target.value)}
             placeholder="Öğrenci adı ara…"
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <input
+          <input aria-label="Öğretmen adına göre filtrele"
             value={teacherFilterInput}
             onChange={(e) => setTeacherFilterInput(e.target.value)}
             placeholder="Öğretmen adı ara…"
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <input
+          <input aria-label="Tarihe göre filtrele"
             value={dateFilterInput}
             onChange={(e) => setDateFilterInput(e.target.value)}
             placeholder="Tarih ara… (YYYY-MM-DD)"
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
       </div>

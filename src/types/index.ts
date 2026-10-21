@@ -107,6 +107,10 @@ export interface Teacher {
   notes?: string;
   createdAt: string;
   updatedAt?: string;
+  /** When the teacher was switched to Pasif (set by the store, cleared when
+   *  they are made active again). A salaried teacher is owed salary up to and
+   *  including this pay period. */
+  leftAt?: string;
   importBatchId?: string;
   /** Set together with status:"archived" when this record was merged away —
    *  see TeacherMergeHistory. Never set directly; only mergeTeachers/rollback

@@ -31,7 +31,7 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { getGuardianContactLink } from "@/lib/helpers/student-rules";
 import {
   buildStudentDetail,
@@ -225,14 +225,14 @@ interface StudentDetailViewProps {
 }
 
 export function StudentDetailView({ studentId }: StudentDetailViewProps) {
-  const store = useMockStore();
+  const store = useStore();
   return <StudentDetailViewContent studentId={studentId} store={store} />;
 }
 
 function StudentDetailViewContent({
   studentId,
   store,
-}: StudentDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
+}: StudentDetailViewProps & { store: ReturnType<typeof useStore> }) {
   const [editOpen, setEditOpen] = useState(false);
   const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
   const detail = buildStudentDetail(
@@ -353,7 +353,7 @@ function StudentDetailViewContent({
                   {detail.educationTypeNames.map((name) => (
                     <span
                       key={name}
-                      className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+                      className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
                     >
                       {name}
                     </span>
@@ -540,11 +540,11 @@ function StudentDetailViewContent({
           <BookOpen className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-semibold text-foreground">{monthLabel}</span>
         </div>
-        <input
+        <input aria-label="Ay seçin"
           type="month"
           value={selectedMonthStr}
           onChange={(e) => e.target.value && setSelectedMonthStr(e.target.value)}
-          className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         {selectedMonthStr !== defaultMonthValue && (
           <button
@@ -566,7 +566,7 @@ function StudentDetailViewContent({
         <CardContent className="pt-0 space-y-3">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Önceki Devir
               </p>
               <p
@@ -581,7 +581,7 @@ function StudentDetailViewContent({
               >
                 {formatCurrency(Math.abs(account.previousBalance))}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {account.previousBalance > 0
                   ? "Borç devri"
                   : account.previousBalance < 0
@@ -590,25 +590,25 @@ function StudentDetailViewContent({
               </p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Bu Ay Tahakkuk
               </p>
               <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
                 {formatCurrency(account.currentMonthBilled)}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Seans bedeli</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Seans bedeli</p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Bu Ay Ödeme
               </p>
               <p className="mt-1 text-lg font-bold tabular-nums text-emerald-600">
                 {formatCurrency(account.currentMonthPaid)}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Tahsil edilen</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Tahsil edilen</p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Güncel Bakiye
               </p>
               <p
@@ -621,7 +621,7 @@ function StudentDetailViewContent({
               >
                 {formatCurrency(Math.abs(account.currentBalance))}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {account.currentBalance > 0 ? "Öğrenci borçlu" : "Bakiye yok"}
               </p>
             </div>
@@ -769,7 +769,7 @@ function StudentDetailViewContent({
                       {detail.educationTypeNames.map((name) => (
                         <span
                           key={name}
-                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                         >
                           {name}
                         </span>

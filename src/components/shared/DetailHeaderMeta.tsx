@@ -15,7 +15,7 @@ interface DetailHeaderMetaProps {
 export function DetailHeaderMeta({ createdAt, updatedAt }: DetailHeaderMetaProps) {
   if (!createdAt && !updatedAt) return null;
   return (
-    <div className="flex items-center gap-4 flex-wrap text-[11px] text-muted-foreground/60 mt-1.5">
+    <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground/60 mt-1.5">
       {createdAt && (
         <span className="flex items-center gap-1">
           <CalendarDays className="h-3 w-3" />

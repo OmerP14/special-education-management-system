@@ -36,13 +36,13 @@ export function PlannedSessionsCard({ count, totalValue, className }: PlannedSes
           <div className="flex items-center gap-6 sm:gap-8">
             <div className="text-left sm:text-right">
               <p className="text-xl font-bold tabular-nums text-foreground">{count}</p>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Seans</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Seans</p>
             </div>
             <div className="text-left sm:text-right">
               <p className="text-xl font-bold tabular-nums text-blue-600">
                 {formatCurrency(totalValue)}
               </p>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 Potansiyel Tutar
               </p>
             </div>

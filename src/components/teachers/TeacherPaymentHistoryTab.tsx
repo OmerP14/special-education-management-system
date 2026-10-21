@@ -16,7 +16,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   getTeacherMonthAccountSummary,
   getEarningPeriod,
@@ -49,7 +49,7 @@ interface TeacherPaymentHistoryTabProps {
 }
 
 export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTabProps) {
-  const store = useMockStore();
+  const store = useStore();
   const [monthFilter, setMonthFilter] = useState("all");
   const [payOpen, setPayOpen] = useState(false);
 
@@ -127,7 +127,10 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
       title: `${teacher.fullName} — Ödeme Geçmişi`,
       subtitle: filteredMonthLabel,
       summary: [
-        { label: "Önceki Devir", value: formatCurrency(account.previousBalance) },
+        {
+          label: account.previousBalance < 0 ? "Önceden Ödenen" : "Önceki Devir",
+          value: formatCurrency(Math.abs(account.previousBalance)),
+        },
         { label: "Bu Ay Hakediş", value: formatCurrency(account.thisMonthEarning) },
         { label: "Bu Ay Ödeme", value: formatCurrency(account.thisMonthPaid) },
         { label: "Bu Ay Kesinti", value: formatCurrency(account.thisMonthDeducted) },
@@ -179,7 +182,7 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
       key: "paymentType",
       header: "Ödeme Türü",
       render: (row) => (
-        <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+        <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
           {getTeacherPaymentTypeLabel(row.paymentType)}
         </span>
       ),
@@ -222,9 +225,13 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
         </p>
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
           <StatCard
-            title="Önceki Devir"
-            value={formatCurrency(account.previousBalance)}
-            description="Seçili aydan önceki bekleyen"
+            title={account.previousBalance < 0 ? "Önceden Ödenen" : "Önceki Devir"}
+            value={formatCurrency(Math.abs(account.previousBalance))}
+            description={
+              account.previousBalance < 0
+                ? "Fazla ödenen (avans); bu aydan düşülür"
+                : "Seçili aydan önceki bekleyen"
+            }
             icon={AlertCircle}
             variant={account.previousBalance > 0 ? "warning" : "success"}
           />
@@ -268,10 +275,10 @@ export function TeacherPaymentHistoryTab({ teacherId }: TeacherPaymentHistoryTab
 
       {/* Toolbar: month filter + exports + pay action */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <select
+        <select aria-label="Aya göre filtrele"
           value={monthFilter}
           onChange={(e) => setMonthFilter(e.target.value)}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {monthOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>

@@ -2,7 +2,7 @@
 
 import { Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatTime } from "@/lib/helpers/finance";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import {
@@ -18,15 +18,11 @@ import {
 /** Ayarlar → Excel ve Veri Yönetimi → Yedekleme: the folder on this computer
  *  that daily backups are written to (see lib/backup/backup-folder.ts). */
 export function BackupFolderSection({ onMessage }: { onMessage: (text: string, tone?: "success" | "error") => void }) {
-  const store = useMockStore();
-  const { dataManagement } = store.institutionSettings;
+  const store = useStore();
   const { status, location, lastWrite, error } = useBackupFolder();
 
   const choose = async () => {
     if (!(await chooseBackupFolder())) return;
-    if (!dataManagement.autoBackupEnabled) {
-      store.updateSettingsSection("dataManagement", { ...dataManagement, autoBackupEnabled: true });
-    }
     onMessage("Yedek klasörü ayarlandı; günlük yedek buraya kaydedilecek.");
   };
 
@@ -42,25 +38,25 @@ export function BackupFolderSection({ onMessage }: { onMessage: (text: string, t
   if (status === "loading") return null;
 
   return (
-    <div className="mt-2 space-y-2 rounded-lg border border-border/60 px-3 py-2">
+    <div className="mt-4 space-y-3 rounded-lg border border-border/60 px-4 py-3">
       <div className="flex items-start gap-2">
-        <Folder className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Folder className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-foreground">Bilgisayardaki yedek klasörü</p>
+          <p className="text-sm font-medium text-foreground">Bilgisayardaki yedek klasörü</p>
           {status === "unsupported" ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Bu tarayıcı bilgisayardaki bir klasöre yazmayı desteklemiyor; klasöre yedek için Chrome veya Edge kullanın.
               Yedekler şimdilik yalnızca bu tarayıcıda tutulur.
             </p>
           ) : status === "none" ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Henüz seçilmedi. Klasör Seç&apos;e basın, açılan pencerede Masaüstü&apos;nü seçip onaylayın; içinde
               &quot;{BACKUP_FOLDER_NAME}&quot; klasörü yoksa oluşturulur.
             </p>
           ) : (
             <>
-              <p className="break-words text-[11px] font-medium text-foreground">{location}</p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="break-words text-sm font-medium text-foreground">{location}</p>
+              <p className="text-sm text-muted-foreground">
                 {status === "needs-permission"
                   ? "Tarayıcı bu klasöre yazmak için tekrar izin istiyor."
                   : lastWrite
@@ -69,32 +65,32 @@ export function BackupFolderSection({ onMessage }: { onMessage: (text: string, t
               </p>
             </>
           )}
-          {error && <p className="text-[11px] text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       </div>
       {status !== "unsupported" && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {status === "none" && (
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void choose()}>
+            <Button size="sm" variant="outline" onClick={() => void choose()}>
               Klasör Seç
             </Button>
           )}
           {status === "needs-permission" && (
-            <Button size="sm" className="h-7 text-xs" onClick={() => void grantBackupFolderPermission()}>
+            <Button size="sm" onClick={() => void grantBackupFolderPermission()}>
               İzin Ver
             </Button>
           )}
           {status === "granted" && (
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void backupNow()}>
+            <Button size="sm" variant="outline" onClick={() => void backupNow()}>
               Şimdi Klasöre Yedekle
             </Button>
           )}
           {(status === "granted" || status === "needs-permission") && (
             <>
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => void choose()}>
+              <Button size="sm" variant="ghost" onClick={() => void choose()}>
                 Konumu Değiştir
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => void forgetBackupFolder()}>
+              <Button size="sm" variant="ghost" onClick={() => void forgetBackupFolder()}>
                 Klasörü Kaldır
               </Button>
             </>

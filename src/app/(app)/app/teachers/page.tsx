@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { TeacherFormDrawer } from "@/components/teachers/TeacherFormDrawer";
 import { TeacherMergeDrawer } from "@/components/teachers/TeacherMergeDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildTeacherListItems,
   findLikelyDuplicateTeachers,
@@ -45,7 +45,7 @@ const STATUS_FILTERS: { value: TeacherStatus | "all"; label: string }[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TeachersPage() {
-  const store = useMockStore();
+  const store = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TeacherStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -129,7 +129,7 @@ export default function TeachersPage() {
           onClick={(e) => e.stopPropagation()}
         >
           <Avatar className="h-7 w-7 shrink-0">
-            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
               {initialsOf(row.fullName)}
             </AvatarFallback>
           </Avatar>
@@ -171,7 +171,7 @@ export default function TeachersPage() {
             {row.educationTypeNames.map((name) => (
               <span
                 key={name}
-                className="inline-flex rounded-full bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-primary"
+                className="inline-flex rounded-full bg-primary/8 px-1.5 py-0.5 text-xs font-medium leading-tight text-primary"
               >
                 {name}
               </span>
@@ -189,7 +189,7 @@ export default function TeachersPage() {
       render: (row) => (
         <span
           className={cn(
-            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap",
+            "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
             // Ayarlar → Öğretmen ve Hakediş → Eksik hakediş yapılandırmasında uyar
             store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig &&
               (row.configurationStatus === "missing_pricing" || row.configurationStatus === "no_assignment")
@@ -244,7 +244,7 @@ export default function TeachersPage() {
           </span>
           {row.unknownSessionCount > 0 && (
             <span
-              className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 whitespace-nowrap"
+              className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 whitespace-nowrap"
               title={`${row.unknownSessionCount} geçmiş seansın hakedişi çözümlenmemiş`}
             >
               {row.unknownSessionCount} seans bekliyor
@@ -375,7 +375,7 @@ export default function TeachersPage() {
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-amber-700">
+            <p className="text-xs text-amber-700">
               Bu yalnızca bir öneridir — kayıtlar otomatik birleştirilmez veya silinmez.
               &quot;Birleştir&quot; ile açılan ekranda taşınacak kayıtları ve olası çakışmaları
               onaylamadan hiçbir veri değişmez.
@@ -387,7 +387,7 @@ export default function TeachersPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
+            <Input aria-label="Öğretmen ara"
               placeholder="Öğretmen, telefon veya uzmanlık ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

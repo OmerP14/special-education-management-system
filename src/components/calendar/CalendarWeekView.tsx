@@ -67,8 +67,8 @@ function EventBlock({
       style={{ top, height, ...position, ...appearance.style }}
       className={cn(
         "absolute rounded-lg pl-1 pr-1.5 py-1 text-left overflow-hidden z-0",
-        "transition-all duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
-        "focus:outline-none focus:ring-2 focus:ring-primary/50",
+        "transition-[transform,box-shadow] duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         appearance.className
       )}
     >
@@ -77,12 +77,12 @@ function EventBlock({
           <title>Geçmiş kayıt — borca dahil değil</title>
         </History>
       )}
-      <p className="text-[10px] font-bold leading-none truncate">{event.timeStr}</p>
-      <p className="text-[11px] font-semibold leading-tight mt-0.5 truncate">
+      <p className="text-xs font-bold leading-none truncate">{event.timeStr}</p>
+      <p className="text-xs font-semibold leading-tight mt-0.5 truncate">
         {event.studentName}
       </p>
       {height > 40 && totalCols === 1 && (
-        <p className="text-[10px] opacity-70 leading-tight truncate">
+        <p className="text-xs opacity-70 leading-tight truncate">
           {event.teacherName}
         </p>
       )}
@@ -181,7 +181,7 @@ export function LunchBand({
       className="pointer-events-none absolute left-0 right-0 bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,var(--color-border)_6px,var(--color-border)_7px)] opacity-70"
       style={{ top: (start - hourStart) * HOUR_HEIGHT, height: (end - start) * HOUR_HEIGHT }}
     >
-      <span className="absolute left-1 top-0.5 text-[9px] font-medium text-muted-foreground">Öğle arası</span>
+      <span className="absolute left-1 top-0.5 text-[11px] font-medium text-muted-foreground">Öğle arası</span>
     </div>
   );
 }
@@ -260,7 +260,7 @@ export function CalendarWeekView({
                 isToday && "bg-primary/8"
               )}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {getWeekdayShortLabel(day.getDay())}
               </p>
               <p
@@ -272,7 +272,7 @@ export function CalendarWeekView({
                 {day.getDate()}
               </p>
               {(meta.holiday || meta.closed) && (
-                <p className="mt-0.5 truncate px-1 text-[9px] font-medium text-muted-foreground" title={meta.holiday ?? undefined}>
+                <p className="mt-0.5 truncate px-1 text-[11px] font-medium text-muted-foreground" title={meta.holiday ?? undefined}>
                   {meta.holiday ?? "Kapalı"}
                 </p>
               )}
@@ -300,14 +300,14 @@ export function CalendarWeekView({
                 style={{ height: HOUR_HEIGHT }}
                 className="flex items-start justify-end pr-2 border-b border-border/40"
               >
-                <span className="text-[10px] text-muted-foreground tabular-nums -mt-2">
+                <span className="text-xs text-muted-foreground tabular-nums -mt-2">
                   {formatHourLabel(h)}
                 </span>
               </div>
             ))}
             {/* Closing label — marks where the visible range ends */}
             <div style={{ height: END_LABEL_HEIGHT }} className="flex items-start justify-end pr-2">
-              <span className="text-[10px] text-muted-foreground tabular-nums -mt-2">
+              <span className="text-xs text-muted-foreground tabular-nums -mt-2">
                 {formatHourLabel(hourEnd)}
               </span>
             </div>

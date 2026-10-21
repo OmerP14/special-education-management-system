@@ -14,7 +14,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { getStudentStatusLabel } from "@/lib/helpers/finance";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
@@ -26,6 +26,7 @@ import {
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import type { Student, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ export function StudentFormDrawer({
   initialData,
   defaultGuardianId,
 }: StudentFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
   const rules = store.institutionSettings.students;
 
@@ -153,8 +154,8 @@ export function StudentFormDrawer({
     setSubmitted(true);
     if (hasErrors) return;
 
-    const tenantId = initialData?.tenantId ?? "tenant-1";
-    const id = initialData?.id ?? `student-${Date.now()}`;
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
+    const id = initialData?.id ?? createId("student");
     const previousPrimary = initialData?.guardianIds[0];
     // The form edits the primary guardian; any additional guardians (added from
     // a guardian's own page) stay linked unless multiple guardians are off.
@@ -231,7 +232,6 @@ export function StudentFormDrawer({
       description="Öğrenci bilgilerini doldurun. Veli kaydı önceden oluşturulmuş olmalıdır."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Öğrenci Ekle"}
-      saveDisabled={submitted && hasErrors}
     >
       <div className="space-y-5">
         {/* Ad Soyad */}
@@ -282,7 +282,7 @@ export function StudentFormDrawer({
         <div className="space-y-1.5">
           <Label>Durum</Label>
           <Select value={form.status} onValueChange={(v) => set("status", v as StudentStatus)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Durum">
               <SelectValue>{(val: StudentStatus) => getStudentStatusLabel(val)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -316,7 +316,7 @@ export function StudentFormDrawer({
               value={form.guardianId || ""}
               onValueChange={(v) => { if (v) set("guardianId", v); }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Veli">
                 <SelectValue className={!form.guardianId ? "text-muted-foreground" : ""}>
                   {guardianDisplayName ?? "Veli seçin"}
                 </SelectValue>

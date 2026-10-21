@@ -8,20 +8,22 @@ import { SettingsField } from "@/components/settings/SettingsField";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatDateDMY } from "@/lib/helpers/finance";
 import type { CalendarSettings } from "@/types/settings";
+import { createId } from "@/lib/data/ids";
 
 const DAY_LABELS: { value: number; label: string }[] = [
-  { value: 1, label: "Pzt" },
-  { value: 2, label: "Sal" },
-  { value: 3, label: "Çar" },
-  { value: 4, label: "Per" },
-  { value: 5, label: "Cum" },
-  { value: 6, label: "Cmt" },
-  { value: 0, label: "Paz" },
+  { value: 1, label: "Pazartesi" },
+  { value: 2, label: "Salı" },
+  { value: 3, label: "Çarşamba" },
+  { value: 4, label: "Perşembe" },
+  { value: 5, label: "Cuma" },
+  { value: 6, label: "Cumartesi" },
+  { value: 0, label: "Pazar" },
 ];
 
 function CalendarSettingsContent() {
-  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
+  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel } =
     useSettingsSection("calendar");
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayLabel, setNewHolidayLabel] = useState("");
@@ -41,7 +43,7 @@ function CalendarSettingsContent() {
     if (!newHolidayDate || !newHolidayLabel.trim()) return;
     set("holidays", [
       ...draft.holidays,
-      { id: `holiday-${Date.now()}`, date: newHolidayDate, label: newHolidayLabel.trim() },
+      { id: createId("holiday"), date: newHolidayDate, label: newHolidayLabel.trim() },
     ]);
     setNewHolidayDate("");
     setNewHolidayLabel("");
@@ -53,26 +55,25 @@ function CalendarSettingsContent() {
 
   return (
     <SettingsFormSection
-      title="Takvim ve Çalışma Saatleri"
-      description="Takvim görünümünü ve seans planlamayı belirler: kapalı günler ve tatiller takvimde işaretlenir, bu günlere/saatlere seans girilirken uyarı verilir ve haftalık planlar resmi tatilleri atlar."
+      title="Çalışma Saatleri"
+      description="Kurumun açık olduğu günler ve saatler. Kapalı günlere, saatlere ve tatillere ders girilirken sistem uyarır; tekrarlanan dersler tatil günlerini atlar."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
-      metadata={metadata}
       onSave={save}
       onCancel={cancel}
-      onReset={resetToDefaults}
     >
       {/* Working days */}
-      <SettingsField label="Çalışma Günleri" error={errors.workingDays}>
-        <div className="flex flex-wrap gap-1.5">
+      <SettingsField label="Açık olduğunuz günler" description="Seçili günler koyu renkte görünür. Değiştirmek için güne dokunun." error={errors.workingDays}>
+        <div className="flex flex-wrap gap-2">
           {DAY_LABELS.map((d) => (
             <button
               key={d.value}
               type="button"
               onClick={() => toggleWorkingDay(d.value)}
+              aria-pressed={draft.workingDays.includes(d.value)}
               className={cn(
-                "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                "rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors",
                 draft.workingDays.includes(d.value)
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:text-foreground"
@@ -86,20 +87,20 @@ function CalendarSettingsContent() {
 
       {/* Hours */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SettingsField label="Gün Başlangıcı" error={errors.dayEndTime}>
+        <SettingsField label="Açılış saati" error={errors.dayEndTime}>
           <Input type="time" value={draft.dayStartTime} onChange={(e) => set("dayStartTime", e.target.value)} />
         </SettingsField>
-        <SettingsField label="Gün Bitişi">
+        <SettingsField label="Kapanış saati">
           <Input type="time" value={draft.dayEndTime} onChange={(e) => set("dayEndTime", e.target.value)} />
         </SettingsField>
-        <SettingsField label="Öğle Arası Başlangıç" description="Boş bırakılırsa öğle arası uygulanmaz.">
+        <SettingsField label="Öğle arası başlangıcı" description="Öğle arası yoksa boş bırakın.">
           <Input
             type="time"
             value={draft.lunchBreakStart ?? ""}
             onChange={(e) => set("lunchBreakStart", e.target.value || null)}
           />
         </SettingsField>
-        <SettingsField label="Öğle Arası Bitiş">
+        <SettingsField label="Öğle arası bitişi">
           <Input
             type="time"
             value={draft.lunchBreakEnd ?? ""}
@@ -110,45 +111,47 @@ function CalendarSettingsContent() {
 
       {/* Holidays */}
       <div className="space-y-3 border-t border-border/60 pt-5">
-        <p className="text-sm font-semibold text-foreground">Resmi Tatiller</p>
+        <p className="text-base font-semibold text-foreground">Tatil Günleri</p>
+        <p className="text-sm text-muted-foreground">Tarihi ve adını yazıp Ekle&apos;ye basın. Değişikliği en altta Kaydet ile saklayın.</p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Tarih</label>
-            <Input type="date" value={newHolidayDate} onChange={(e) => setNewHolidayDate(e.target.value)} className="w-40" />
+            <label className="text-sm font-medium text-foreground">Tarih</label>
+            <Input aria-label="Tatil tarihi" type="date" value={newHolidayDate} onChange={(e) => setNewHolidayDate(e.target.value)} className="w-40" />
           </div>
           <div className="min-w-0 flex-1 space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Açıklama</label>
-            <Input
+            <label className="text-sm font-medium text-foreground">Tatilin adı</label>
+            <Input aria-label="Tatil açıklaması"
               value={newHolidayLabel}
               onChange={(e) => setNewHolidayLabel(e.target.value)}
               placeholder="örn. Kurban Bayramı"
             />
           </div>
-          <Button type="button" size="sm" variant="outline" onClick={addHoliday} className="gap-1.5">
-            <Plus className="h-3.5 w-3.5" />
+          <Button type="button" size="lg" variant="outline" onClick={addHoliday} className="gap-1.5">
+            <Plus className="h-4 w-4" aria-hidden />
             Ekle
           </Button>
         </div>
 
         {draft.holidays.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Henüz tatil eklenmedi.</p>
+          <p className="text-sm text-muted-foreground">Henüz tatil eklenmedi.</p>
         ) : (
           <div className="divide-y divide-border/60 rounded-lg border border-border/60">
             {[...draft.holidays]
               .sort((a, b) => a.date.localeCompare(b.date))
               .map((h) => (
-                <div key={h.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <div key={h.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-medium tabular-nums text-muted-foreground">{h.date}</span>
+                    <span className="text-sm font-medium tabular-nums text-muted-foreground">{formatDateDMY(h.date)}</span>
                     <span className="text-sm text-foreground">{h.label}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => removeHoliday(h.id)}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    aria-label="Tatili kaldır"
+                    className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`${h.label} tatilini kaldır`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    Kaldır
                   </button>
                 </div>
               ))}

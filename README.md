@@ -172,7 +172,7 @@ Settings → Excel ve Veri Yönetimi → "Demo Verilerine Sıfırla" resets all 
 - [x] Calendar
 - [x] Excel Import
 - [x] Single shared account (client-side mock)
-- [ ] Backend and database — shared data and live sync across devices
+- [ ] Backend and database — shared data and live sync across devices (see [docs/BACKEND.md](docs/BACKEND.md): data source seam, data model, business rules, migration)
 - [ ] Multi-tenant Architecture
 - [ ] Production Deployment
 

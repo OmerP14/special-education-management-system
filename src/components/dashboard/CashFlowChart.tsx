@@ -85,8 +85,11 @@ export function CashFlowChart({ sessions, payments, monthsBack = 6 }: CashFlowCh
               axisLine={false}
               tickLine={false}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-              tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}K` : String(v))}
-              width={36}
+              // "1,5 bin" rather than a rounded "2K": nearby ticks must never read the same.
+              tickFormatter={(v: number) =>
+                v >= 1000 ? `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 }).format(v / 1000)} bin` : String(v)
+              }
+              width={56}
             />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
             <Legend

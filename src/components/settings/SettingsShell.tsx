@@ -4,12 +4,6 @@ import { useEffect, type ReactNode, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SETTINGS_SECTIONS } from "@/lib/settings/sections";
-import { useMockStore } from "@/lib/mock/store";
-import {
-  getSettingsSectionStatus,
-  SETTINGS_STATUS_DOT_CLASSES,
-  SETTINGS_STATUS_LABELS,
-} from "@/lib/settings/status";
 import { SettingsDirtyProvider, useSettingsDirty } from "@/components/settings/settings-dirty-context";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +11,6 @@ const LAST_SECTION_KEY = "settings-last-section";
 
 function SettingsNav() {
   const pathname = usePathname();
-  const store = useMockStore();
   const { isDirty } = useSettingsDirty();
 
   useEffect(() => {
@@ -48,26 +41,20 @@ function SettingsNav() {
         <div className="space-y-0.5">
           {SETTINGS_SECTIONS.map((section) => {
             const active = pathname === section.href;
-            const status = getSettingsSectionStatus(section.key, store);
             return (
               <Link
                 key={section.key}
                 href={section.href}
                 onClick={guardNav}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                   active
                     ? "bg-primary/10 font-medium text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <section.icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1 truncate">{section.label}</span>
-                <span
-                  className={cn("h-1.5 w-1.5 shrink-0 rounded-full", SETTINGS_STATUS_DOT_CLASSES[status])}
-                  title={SETTINGS_STATUS_LABELS[status]}
-                  aria-label={SETTINGS_STATUS_LABELS[status]}
-                />
+                <section.icon className="h-4.5 w-4.5 shrink-0" aria-hidden />
+                <span className="flex-1">{section.label}</span>
               </Link>
             );
           })}
@@ -87,13 +74,13 @@ function SettingsNav() {
               href={section.href}
               onClick={guardNav}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition-colors",
                 active
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
               )}
             >
-              <section.icon className="h-3.5 w-3.5 shrink-0" />
+              <section.icon className="h-4 w-4 shrink-0" aria-hidden />
               {section.label}
             </Link>
           );
@@ -104,8 +91,13 @@ function SettingsNav() {
 }
 
 export function SettingsShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  // The section pages only render card titles, so the page's <h1> lives here.
+  const section = SETTINGS_SECTIONS.find((s) => pathname?.startsWith(s.href));
+
   return (
     <SettingsDirtyProvider>
+      <h1 className="sr-only">{section ? `Ayarlar — ${section.label}` : "Ayarlar"}</h1>
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <SettingsNav />
         <div className="min-w-0 flex-1 space-y-5">{children}</div>

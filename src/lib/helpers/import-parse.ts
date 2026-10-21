@@ -270,10 +270,13 @@ function isValidCalendarDate(year: number, month: number, day: number): boolean 
 /** Turkish month names by their first three letters ("eki" → Ekim). */
 const MONTH_BY_PREFIX = ["oca", "şub", "mar", "nis", "may", "haz", "tem", "ağu", "eyl", "eki", "kas", "ara"];
 
+// SheetJS (cellDates:true) builds a cell's Date from the local wall-clock
+// value Excel shows — 06.10.2026 becomes local midnight, a 14:30 time cell
+// local 14:30 on 31.12.1899. Read LOCAL components: UTC ones shift the day
+// (and the hour) by the timezone offset — in Turkey every date cell landed a
+// day early and every time three hours off.
 function formatCellDateForDisplay(d: Date): string {
-  // SheetJS (cellDates:true) constructs dates from the serial number using UTC —
-  // read UTC components, never local, or the day can shift by a timezone offset.
-  return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
 }
 
 /**
@@ -287,7 +290,8 @@ export function parseCellAsDateString(cell: RawCell): string | null {
 
   if (cell instanceof Date) {
     if (Number.isNaN(cell.getTime())) return null;
-    return `${cell.getUTCFullYear()}-${pad2(cell.getUTCMonth() + 1)}-${pad2(cell.getUTCDate())}`;
+    // Local components — see formatCellDateForDisplay.
+    return `${cell.getFullYear()}-${pad2(cell.getMonth() + 1)}-${pad2(cell.getDate())}`;
   }
 
   if (typeof cell === "number") {
@@ -338,7 +342,13 @@ export function parseCellAsTimeString(cell: RawCell): string | null {
   if (cell === null || cell === undefined || cell === "") return null;
 
   if (cell instanceof Date) {
-    return `${pad2(cell.getUTCHours())}:${pad2(cell.getUTCMinutes())}`;
+    // Local components — see formatCellDateForDisplay. Rounded to the minute on
+    // the local clock (a time stored as 14:29:59.999 still reads 14:30); the
+    // epoch can't be rounded instead, since 1899 offsets carry odd seconds.
+    const minutes = Math.round(
+      (cell.getHours() * 3600 + cell.getMinutes() * 60 + cell.getSeconds() + cell.getMilliseconds() / 1000) / 60
+    ) % (24 * 60);
+    return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
   }
 
   if (typeof cell === "number") {

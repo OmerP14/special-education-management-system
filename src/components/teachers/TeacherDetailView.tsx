@@ -36,7 +36,7 @@ import { StatusBadge, EarningStatusBadge } from "@/components/shared/StatusBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildTeacherDetail,
   calculateTeacherMonthlyPayable,
@@ -143,7 +143,7 @@ function buildSessionColumns(
       header: "Hakediş",
       render: (row) =>
         resolveTeacherEarningStatus(row, teacher, assignments) === "unknown" ? (
-          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
             Hakediş bekliyor
           </span>
         ) : (
@@ -207,7 +207,7 @@ const studentRowColumns: Column<TeacherStudentRow>[] = [
           {row.educationTypeNames.map((name) => (
             <span
               key={name}
-              className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+              className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
             >
               {name}
             </span>
@@ -334,14 +334,14 @@ interface TeacherDetailViewProps {
 }
 
 export function TeacherDetailView({ teacherId }: TeacherDetailViewProps) {
-  const store = useMockStore();
+  const store = useStore();
   return <TeacherDetailViewContent teacherId={teacherId} store={store} />;
 }
 
 function TeacherDetailViewContent({
   teacherId,
   store,
-}: TeacherDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
+}: TeacherDetailViewProps & { store: ReturnType<typeof useStore> }) {
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
@@ -498,7 +498,7 @@ function TeacherDetailViewContent({
                 {detail.educationTypeNames.map((name) => (
                   <span
                     key={name}
-                    className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+                    className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
                   >
                     {name}
                   </span>
@@ -719,17 +719,17 @@ function TeacherDetailViewContent({
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {row.assignmentStatus === "inactive" && (
-                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                           Atama Pasif
                         </span>
                       )}
                       {row.educationTypeStatus === "inactive" && (
-                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                           Eğitim Türü Pasif
                         </span>
                       )}
                       {row.assignmentStatus === "active" && row.educationTypeStatus === "active" && (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
                           Aktif
                         </span>
                       )}
@@ -737,7 +737,7 @@ function TeacherDetailViewContent({
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">
                     {row.earningAmount === null ? (
-                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         Hakediş ayarı eksik
                       </span>
                     ) : (
@@ -850,7 +850,7 @@ function TeacherDetailViewContent({
                     {detail.configurationStatus !== "inactive_teacher" && (
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
                           store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig &&
                             (detail.configurationStatus === "missing_pricing" ||
                               detail.configurationStatus === "no_assignment")
@@ -879,7 +879,7 @@ function TeacherDetailViewContent({
                       {detail.educationTypeNames.map((name) => (
                         <span
                           key={name}
-                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                         >
                           {name}
                         </span>
@@ -997,15 +997,15 @@ function TeacherDetailViewContent({
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-lg bg-muted/40 p-3 text-center">
                   <p className="text-lg font-bold tabular-nums">{recalcPreview.length}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Yeniden Hesaplanacak</p>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Yeniden Hesaplanacak</p>
                 </div>
                 <div className="rounded-lg bg-emerald-50 p-3 text-center">
                   <p className="text-lg font-bold tabular-nums text-emerald-700">{recalcResolvable.length}</p>
-                  <p className="text-[10px] text-emerald-700 uppercase tracking-wide">Hesaplanabilir</p>
+                  <p className="text-xs text-emerald-700 uppercase tracking-wide">Hesaplanabilir</p>
                 </div>
                 <div className="rounded-lg bg-amber-50 p-3 text-center">
                   <p className="text-lg font-bold tabular-nums text-amber-700">{recalcStillUnresolved.length}</p>
-                  <p className="text-[10px] text-amber-700 uppercase tracking-wide">Ayarı Eksik</p>
+                  <p className="text-xs text-amber-700 uppercase tracking-wide">Ayarı Eksik</p>
                 </div>
               </div>
 
@@ -1047,7 +1047,7 @@ function TeacherDetailViewContent({
                         </span>
                       </div>
                     ) : (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         Ayar Eksik
                       </span>
                     )}

@@ -7,7 +7,7 @@ import { ChevronRight, GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_TOP_ITEMS, NAV_GROUPS, NAV_SETTINGS_ITEM, isNavItemActive, type NavGroup } from "@/lib/nav";
 import { useCollapsedNavGroups } from "@/hooks/use-collapsed-nav-groups";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   Sidebar,
   SidebarHeader,
@@ -99,7 +99,7 @@ export const AppSidebar = memo(function AppSidebar() {
   const { isCollapsed, toggle, ensureOpen, hydrated } = useCollapsedNavGroups();
   // Kurum Bilgileri (Settings → Kurum Bilgileri) drives this directly — see
   // lib/settings/defaults.ts for the starting name/logo before anyone edits it.
-  const { institution } = useMockStore().institutionSettings;
+  const { institution } = useStore().institutionSettings;
   const activeGroupId =
     NAV_GROUPS.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
       ?.id ?? null;
@@ -130,10 +130,10 @@ export const AppSidebar = memo(function AppSidebar() {
             )}
           </div>
           <div className="flex flex-col overflow-hidden">
-            <span className="truncate text-sm font-semibold leading-none text-sidebar-foreground">
+            <span className="truncate text-sm font-semibold leading-snug text-sidebar-foreground">
               {institution.name || "ÖzelEğitim"}
             </span>
-            <span className="truncate text-[10px] leading-tight text-sidebar-foreground/70">Yönetim Sistemi</span>
+            <span className="truncate text-xs leading-tight text-sidebar-foreground/70">Yönetim Sistemi</span>
           </div>
         </div>
       </SidebarHeader>
@@ -187,8 +187,8 @@ export const AppSidebar = memo(function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <p className="truncate px-2 pb-1 text-[10px] text-sidebar-foreground/60">
-          Demo Kurum · v1.0.0
+        <p className="truncate px-2 pb-1 text-xs text-sidebar-foreground/60">
+          Sürüm 1.0.0
         </p>
       </SidebarFooter>
     </Sidebar>

@@ -12,7 +12,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   EDUCATION_TYPE_COLOR_PALETTE,
   getDefaultEducationTypeColor,
@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { EducationType, EducationTypeStatus } from "@/types";
 import { getCurrencySymbol } from "@/lib/helpers/finance";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Form state ────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ export function EducationTypeFormDrawer({
   initialData,
   onSaved,
 }: EducationTypeFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
 
   const [form, setForm] = useState<FormState>(() =>
@@ -109,8 +110,8 @@ export function EducationTypeFormDrawer({
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) return;
 
-    const tenantId = initialData?.tenantId ?? "tenant-1";
-    const id = initialData?.id ?? `et-${Date.now()}`;
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
+    const id = initialData?.id ?? createId("et");
 
     const educationType: EducationType = {
       id,
@@ -224,7 +225,7 @@ export function EducationTypeFormDrawer({
             value={form.status}
             onValueChange={(val) => set("status", val as EducationTypeStatus)}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Durum">
               <SelectValue>{form.status === "active" ? "Aktif" : "Pasif"}</SelectValue>
             </SelectTrigger>
             <SelectContent>

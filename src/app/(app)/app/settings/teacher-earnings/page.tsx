@@ -3,8 +3,6 @@
 import { useSettingsSection } from "@/hooks/use-settings-section";
 import { SettingsFormSection } from "@/components/settings/SettingsFormSection";
 import { SettingsField } from "@/components/settings/SettingsField";
-import { NumericInput } from "@/components/ui/numeric-input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -12,84 +10,57 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import type {
   TeacherEarningsSettings,
-  TeacherEarningTypeOption,
-  EarningTriggerMoment,
   MakeupEarningBehavior,
   CancelledEarningBehavior,
   NoShowEarningBehavior,
-  EarningRoundingRule,
-  PostQuotaBehavior,
 } from "@/types/settings";
 
-const EARNING_TYPE_LABELS: Record<TeacherEarningTypeOption, string> = {
-  per_session: "Seans Başı",
-  monthly_salary: "Sabit Maaş",
-  salary_plus_quota: "Sabit Maaş + Kota Üstü Hakediş",
-  percentage: "Yüzde Hakediş",
-};
-
-const TRIGGER_LABELS: Record<EarningTriggerMoment, string> = {
-  on_completion: "Seans tamamlandığında",
-  on_admin_approval: "Yönetici onayladığında",
-};
+// Only the three choices that differ from one institution to the next stay
+// on screen; every other earning rule runs on a fixed value (FIXED_SETTINGS
+// in lib/settings/defaults.ts). How much a teacher earns per lesson is set
+// on the teacher's own page.
 
 const MAKEUP_LABELS: Record<MakeupEarningBehavior, string> = {
-  full: "Tam hakediş",
-  half: "Yarım hakediş (%50)",
-  none: "Hakediş oluşturma",
+  full: "Tam ücret ödensin",
+  half: "Yarım ücret ödensin",
+  none: "Ödeme yapılmasın",
 };
 
 const CANCELLED_LABELS: Record<CancelledEarningBehavior, string> = {
-  none: "Hakediş oluşturma",
-  partial: "Kısmi hakediş (%50)",
+  none: "Ödeme yapılmasın",
+  partial: "Yarım ücret ödensin",
 };
 
 const NO_SHOW_LABELS: Record<NoShowEarningBehavior, string> = {
-  none: "Hakediş oluşturma",
-  partial: "Kısmi hakediş (%50)",
-  full: "Tam hakediş oluştur",
+  none: "Ödeme yapılmasın",
+  partial: "Yarım ücret ödensin",
+  full: "Tam ücret ödensin",
 };
 
-const ROUNDING_LABELS: Record<EarningRoundingRule, string> = {
-  none: "Yuvarlama yok",
-  nearest_1: "1 TL'ye yuvarla",
-  nearest_5: "5 TL'ye yuvarla",
-  nearest_10: "10 TL'ye yuvarla",
-};
-
-const POST_QUOTA_LABELS: Record<PostQuotaBehavior, string> = {
-  extra_rate: "Ek (kota üstü) oranla öde",
-  same_rate: "Normal oranla öde (maaş ÷ kota)",
-  no_extra: "Ek ödeme yapma",
-};
-
-function SelectField<T extends string>({
+function ChoiceField<T extends string>({
   label,
+  description,
   value,
   onChange,
   labels,
-  className,
-  description,
 }: {
   label: string;
+  description: string;
   value: T;
   onChange: (v: T) => void;
   labels: Record<T, string>;
-  className?: string;
-  description?: string;
 }) {
   return (
-    <SettingsField label={label} className={className} description={description}>
+    <SettingsField label={label} description={description}>
       <Select value={value} onValueChange={(v) => { if (v) onChange(v as T); }}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="h-11 w-full text-base sm:max-w-sm">
           <SelectValue>{() => labels[value]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {(Object.keys(labels) as T[]).map((key) => (
-            <SelectItem key={key} value={key}>
+            <SelectItem key={key} value={key} className="py-2 text-base">
               {labels[key]}
             </SelectItem>
           ))}
@@ -100,170 +71,43 @@ function SelectField<T extends string>({
 }
 
 function TeacherEarningsSettingsContent() {
-  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
-    useSettingsSection("teacherEarnings");
+  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel } = useSettingsSection("teacherEarnings");
 
   const set = <K extends keyof TeacherEarningsSettings>(key: K, value: TeacherEarningsSettings[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
-  const toggleType = (t: TeacherEarningTypeOption) => {
-    const has = draft.availableEarningTypes.includes(t);
-    set(
-      "availableEarningTypes",
-      has ? draft.availableEarningTypes.filter((x) => x !== t) : [...draft.availableEarningTypes, t]
-    );
-  };
-
   return (
     <SettingsFormSection
-      title="Öğretmen ve Hakediş Ayarları"
-      description="Hakediş tutarı öğretmenin Eğitim Türü atamasından gelir; bu kurallar telafi/iptal/gelmedi seanslarının ne kadar hakediş doğuracağını, onay, yuvarlama, dönem ve ödeme kurallarını belirler. Seans durumuna bağlı kurallar seans kaydedildiği anda uygulanır."
+      title="Öğretmen Ödemeleri"
+      description="Öğretmenin bir dersten ne kadar kazanacağı, öğretmenin kendi sayfasından ayarlanır. Burada yalnızca özel durumlarda öğretmene ödeme yapılıp yapılmayacağını seçersiniz. Değişiklik, bundan sonra kaydedilen derslere uygulanır."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
-      metadata={metadata}
       onSave={save}
       onCancel={cancel}
-      onReset={resetToDefaults}
     >
-      {/* Earning types */}
-      <div className="space-y-3">
-        <SettingsField label="Kullanılabilir Ücretlendirme Türleri" error={errors.availableEarningTypes}>
-          <div className="flex flex-wrap gap-1.5">
-            {(Object.keys(EARNING_TYPE_LABELS) as TeacherEarningTypeOption[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => toggleType(t)}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-                  draft.availableEarningTypes.includes(t)
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {EARNING_TYPE_LABELS[t]}
-              </button>
-            ))}
-          </div>
-        </SettingsField>
-        <SelectField
-          label="Varsayılan Ücretlendirme Türü"
-          value={draft.defaultEarningType}
-          onChange={(v) => set("defaultEarningType", v)}
-          labels={EARNING_TYPE_LABELS}
-          className="sm:max-w-sm"
-          description={errors.defaultEarningType}
-        />
-      </div>
-
-      {/* Trigger & special cases */}
-      <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2">
-        <SelectField
-          label="Hakediş Oluşturma Anı"
-          value={draft.earningTriggerMoment}
-          onChange={(v) => set("earningTriggerMoment", v)}
-          labels={TRIGGER_LABELS}
-        />
-        <SelectField
-          label="Yuvarlama Kuralı"
-          value={draft.earningRoundingRule}
-          onChange={(v) => set("earningRoundingRule", v)}
-          labels={ROUNDING_LABELS}
-        />
-        <SelectField
-          label="Telafi Seansı Hakedişi"
-          value={draft.makeupSessionEarningBehavior}
-          onChange={(v) => set("makeupSessionEarningBehavior", v)}
-          labels={MAKEUP_LABELS}
-        />
-        <SelectField
-          label="İptal Edilen Seans Hakedişi"
-          value={draft.cancelledSessionEarning}
-          onChange={(v) => set("cancelledSessionEarning", v)}
-          labels={CANCELLED_LABELS}
-        />
-        <SelectField
-          label="Gelmedi (No-show) Hakedişi"
+      <div className="space-y-6">
+        <ChoiceField
+          label="Öğrenci derse gelmezse"
+          description="Öğretmen derse hazır olduğu halde öğrenci gelmediğinde."
           value={draft.noShowSessionEarning}
           onChange={(v) => set("noShowSessionEarning", v)}
           labels={NO_SHOW_LABELS}
         />
-        <SelectField
-          label="Kota Üstü Davranış"
-          value={draft.postQuotaBehavior}
-          onChange={(v) => set("postQuotaBehavior", v)}
-          labels={POST_QUOTA_LABELS}
+        <ChoiceField
+          label="Ders iptal edilirse"
+          description="Ders yapılmadan önce iptal edildiğinde."
+          value={draft.cancelledSessionEarning}
+          onChange={(v) => set("cancelledSessionEarning", v)}
+          labels={CANCELLED_LABELS}
         />
-      </div>
-
-      {/* Numbers */}
-      <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <SettingsField label="Varsayılan Kota (seans/ay)" description="Yeni 'Sabit Maaş + Kota' öğretmenlerine önerilir.">
-          <NumericInput min={0} value={draft.defaultQuota} onValueChange={(v) => set("defaultQuota", v ?? 0)} />
-        </SettingsField>
-        <SettingsField
-          label="Hakediş Dönemi Başlangıç Günü"
-          error={errors.payPeriodStartDay}
-          description="Örn. 15: dönem ayın 15'inden sonraki ayın 14'üne kadar sürer."
-        >
-          <NumericInput
-            min={1}
-            max={28}
-            value={draft.payPeriodStartDay}
-            onValueChange={(v) => set("payPeriodStartDay", v ?? 1)}
-          />
-        </SettingsField>
-      </div>
-
-      {/* Toggles */}
-      <div className="grid gap-3 border-t border-border/60 pt-5 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm text-foreground">Kesintilere izin ver</p>
-            <p className="text-xs text-muted-foreground">Kapalıysa öğretmen ödemesinde &quot;Kesinti&quot; türü sunulmaz.</p>
-          </div>
-          <Switch checked={draft.allowDeductions} onCheckedChange={(v) => set("allowDeductions", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm text-foreground">Avanslara izin ver</p>
-            <p className="text-xs text-muted-foreground">Avans, bekleyen hakedişi aşabilir; fazlası sonraki hakedişlerden düşülür.</p>
-          </div>
-          <Switch checked={draft.allowAdvances} onCheckedChange={(v) => set("allowAdvances", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Fazla ödemeyi engelle</p>
-            <p className="text-xs text-muted-foreground">Bekleyen hakedişi aşan ödemeyi (avans hariç) engeller.</p>
-          </div>
-          <Switch checked={draft.preventOverpayment} onCheckedChange={(v) => set("preventOverpayment", v)} />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3">
-          <div>
-            <p className="text-sm text-foreground">Geçmişe dönük yeniden hesaplamaya izin ver</p>
-            <p className="text-xs text-muted-foreground">
-              Açıksa bu sayfa kaydedildiğinde geçmiş seansların hakedişi yeni kurallarla yeniden hesaplanır; kapalıysa
-              yeni kurallar yalnızca bundan sonra kaydedilen seanslara uygulanır.
-            </p>
-          </div>
-          <Switch
-            checked={draft.allowHistoricalRecalculation}
-            onCheckedChange={(v) => set("allowHistoricalRecalculation", v)}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-4 py-3 sm:col-span-2">
-          <div>
-            <p className="text-sm font-medium text-foreground">Eksik hakediş yapılandırmasında uyar</p>
-            <p className="text-xs text-muted-foreground">
-              Hakediş tutarı tanımlanmamış öğretmen/eğitim türü eşleşmelerini listelerde ve seans formunda vurgular.
-            </p>
-          </div>
-          <Switch
-            checked={draft.warnOnMissingEarningConfig}
-            onCheckedChange={(v) => set("warnOnMissingEarningConfig", v)}
-          />
-        </div>
+        <ChoiceField
+          label="Telafi dersinde"
+          description="Kaçırılan bir dersin yerine yapılan telafi dersinde."
+          value={draft.makeupSessionEarningBehavior}
+          onChange={(v) => set("makeupSessionEarningBehavior", v)}
+          labels={MAKEUP_LABELS}
+        />
       </div>
     </SettingsFormSection>
   );

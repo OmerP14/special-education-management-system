@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   getStudentTotalBilled,
   getStudentNetBalance,
@@ -29,6 +29,7 @@ import type { Payment, PaymentMethod } from "@/types";
 import { cn } from "@/lib/utils";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { useConfirm } from "@/components/shared/ConfirmProvider";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ export function PaymentFormDrawer({
   preselectedStudentId,
   initialData,
 }: PaymentFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const confirm = useConfirm();
   const isEditing = !!initialData;
 
@@ -220,9 +221,9 @@ export function PaymentFormDrawer({
     ) {
       return;
     }
-    const tenantId = initialData?.tenantId ?? "tenant-1";
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
     const payment: Payment = {
-      id: initialData?.id ?? `payment-${Date.now()}`,
+      id: initialData?.id ?? createId("payment"),
       tenantId,
       studentId: single.studentId,
       amount: single.amount,
@@ -317,7 +318,7 @@ function SinglePaymentForm({
           onValueChange={(val) => { if (val) set("studentId", val); }}
           disabled={isEditing}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger aria-label="Öğrenci" className="w-full">
             <SelectValue placeholder="Öğrenci seçiniz">
               {(val: string) =>
                 students.find((s) => s.id === val)?.fullName ?? "Öğrenci seçiniz"
@@ -366,7 +367,7 @@ function SinglePaymentForm({
           value={form.method}
           onValueChange={(val) => set("method", val as PaymentMethod)}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger aria-label="Ödeme yöntemi" className="w-full">
             <SelectValue>{(val: PaymentMethod) => getPaymentMethodLabel(val)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -471,7 +472,7 @@ function GuardianInfo({
         <User className="h-3.5 w-3.5 text-primary" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
           Bağlı Veli
         </p>
         <Link

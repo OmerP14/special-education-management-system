@@ -22,15 +22,16 @@ export function PaymentSummaryCard({ sessions, payments, students, openingBalanc
   // active student with a balance, but only the top VISIBLE_LIMIT debtors
   // render as rows so a large imported student roster can't stretch the card.
   const summaries = useMemo(() => {
+    // Same set as the Finansal Panel total: a student who has left still owes
+    // what they owe, so they stay listed while a debt remains.
     return students
-      .filter((s) => s.status === "active")
       .map((student) => {
         const debt = getStudentDebt(student.id, sessions, payments, openingBalances);
         const paid = getStudentTotalPaid(student.id, payments);
         const total = debt + paid;
         return { student, debt, paid, total };
       })
-      .filter((s) => s.total > 0)
+      .filter((s) => (s.student.status === "active" ? s.total > 0 : s.debt > 0))
       .sort((a, b) => b.debt - a.debt);
   }, [students, sessions, payments, openingBalances]);
 
@@ -59,15 +60,11 @@ export function PaymentSummaryCard({ sessions, payments, students, openingBalanc
                     <span className="font-medium text-foreground truncate max-w-[140px]">
                       {student.fullName}
                     </span>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-3 shrink-0 text-xs tabular-nums">
                       {debt > 0 && (
-                        <span className="text-xs text-destructive tabular-nums">
-                          -{formatCurrency(debt)}
-                        </span>
+                        <span className="text-destructive">Borç {formatCurrency(debt)}</span>
                       )}
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {formatCurrency(paid)}
-                      </span>
+                      <span className="text-muted-foreground">Ödenen {formatCurrency(paid)}</span>
                     </div>
                   </div>
                   <Progress value={paidPercent} className="h-1.5" />

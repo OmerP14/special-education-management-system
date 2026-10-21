@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   getTeacherEarningTotals,
   formatCurrency,
@@ -26,6 +26,7 @@ import type { TeacherPayment, PaymentMethod, TeacherPaymentType } from "@/types"
 import { cn } from "@/lib/utils";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { canExceedPendingEarning, getAllowedTeacherPaymentTypes } from "@/lib/helpers/finance-rules";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 // Institutions pay teachers by cash or bank transfer only — no card option here.
@@ -43,7 +44,7 @@ function getMethodLabel(method: PaymentMethod): string {
 }
 
 function newTeacherPaymentId(): string {
-  return `tpmt-${Date.now()}`;
+  return createId("tpmt");
 }
 
 function today(): string {
@@ -97,7 +98,7 @@ export function TeacherPaymentFormDrawer({
   onOpenChange,
   preselectedTeacherId,
 }: TeacherPaymentFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
 
   const [teacherId, setTeacherId] = useState(preselectedTeacherId ?? "");
   const [date, setDate] = useState(today());
@@ -154,7 +155,7 @@ export function TeacherPaymentFormDrawer({
     if (!canSave) return;
     const payment: TeacherPayment = {
       id: newTeacherPaymentId(),
-      tenantId: selected?.teacher.tenantId ?? "tenant-1",
+      tenantId: selected?.teacher.tenantId ?? TENANT_ID,
       teacherId,
       amount,
       method,
@@ -188,7 +189,7 @@ export function TeacherPaymentFormDrawer({
             }}
             disabled={!!preselectedTeacherId}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Öğretmen" className="w-full">
               <SelectValue placeholder="Öğretmen seçin">
                 {(val: string) =>
                   store.teachers.find((t) => t.id === val)?.fullName ?? "Öğretmen seçin"
@@ -241,7 +242,7 @@ export function TeacherPaymentFormDrawer({
             value={paymentType}
             onValueChange={(val) => setPaymentType(val as TeacherPaymentType)}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Ödeme türü" className="w-full">
               <SelectValue>
                 {(val: TeacherPaymentType) => getTeacherPaymentTypeLabel(val)}
               </SelectValue>
@@ -268,7 +269,7 @@ export function TeacherPaymentFormDrawer({
           <div className="space-y-1.5">
             <Label>Ödeme Yöntemi</Label>
             <Select value={method} onValueChange={(val) => setMethod(val as PaymentMethod)}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger aria-label="Ödeme yöntemi" className="w-full">
                 <SelectValue>{(val: PaymentMethod) => getMethodLabel(val)}</SelectValue>
               </SelectTrigger>
               <SelectContent>

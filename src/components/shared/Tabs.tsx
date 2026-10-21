@@ -40,7 +40,7 @@ export function Tabs({ tabs, defaultTab, className }: TabsProps) {
             {tab.badge !== undefined && (
               <span
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                  "rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none",
                   active === tab.key
                     ? "bg-primary/10 text-primary"
                     : "bg-muted text-muted-foreground"

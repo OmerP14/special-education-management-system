@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import type { InstitutionSettings, InstitutionSettingsKey } from "@/types/settings";
 import {
   validateInstitutionSettingsSection,
@@ -18,7 +18,7 @@ import { useSettingsDirty } from "@/components/settings/settings-dirty-context";
  * first. Section-level save behavior only — nothing here autosaves a field.
  */
 export function useSettingsSection<K extends InstitutionSettingsKey>(key: K) {
-  const store = useMockStore();
+  const store = useStore();
   const saved = store.institutionSettings[key];
   const { setDirty } = useSettingsDirty();
 
@@ -44,7 +44,7 @@ export function useSettingsSection<K extends InstitutionSettingsKey>(key: K) {
 
   useEffect(() => {
     if (!savedMessage) return;
-    const t = setTimeout(() => setSavedMessage(null), 3000);
+    const t = setTimeout(() => setSavedMessage(null), 6000);
     return () => clearTimeout(t);
   }, [savedMessage]);
 

@@ -7,11 +7,11 @@ import { StatCard } from "@/components/shared/StatCard";
 import { CashFlowChart } from "@/components/dashboard/CashFlowChart";
 import { PaymentSummaryCard } from "@/components/dashboard/PaymentSummaryCard";
 import { TeacherEarningsCard } from "@/components/dashboard/TeacherEarningsCard";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { buildDashboardStats, formatCurrency } from "@/lib/helpers/finance";
 
 export default function FinancePage() {
-  const store = useMockStore();
+  const store = useStore();
 
   const currentMonthLabel = new Intl.DateTimeFormat("tr-TR", {
     month: "long",

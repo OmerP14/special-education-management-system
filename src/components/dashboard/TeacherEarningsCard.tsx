@@ -24,8 +24,10 @@ export function TeacherEarningsCard({ teacherPayments, teachers, sessions, teach
   // pending earnings) render as rows, so the card never grows past its fixed
   // height. See PaymentSummaryCard for the identical pattern.
   const summaries = useMemo(() => {
-    const activeTeachers = teachers.filter((t) => t.status === "active");
-    return activeTeachers
+    // Same set as the Finansal Panel total: everyone but merged-away records —
+    // a teacher who has left but is still owed money must stay on the list.
+    return teachers
+      .filter((t) => t.status !== "archived")
       .map((teacher) => {
         const totals = getTeacherEarningTotals(teacher, sessions, teacherPayments, teacherEducationTypeAssignments);
         return {
@@ -37,7 +39,7 @@ export function TeacherEarningsCard({ teacherPayments, teachers, sessions, teach
       })
       // A teacher whose entire history is unresolved earnings (total stays ₺0)
       // must still surface here — never silently disappear.
-      .filter((s) => s.total > 0 || s.unknownSessionCount > 0)
+      .filter((s) => (s.teacher.status === "active" ? s.total > 0 : s.pending > 0) || s.unknownSessionCount > 0)
       .sort((a, b) => b.pending - a.pending);
   }, [teachers, sessions, teacherPayments, teacherEducationTypeAssignments]);
 
@@ -82,7 +84,7 @@ export function TeacherEarningsCard({ teacherPayments, teachers, sessions, teach
                     Toplam: {formatCurrency(total)}
                   </p>
                   {unknownSessionCount > 0 && (
-                    <p className="text-[11px] text-amber-600">
+                    <p className="text-xs text-amber-600">
                       {unknownSessionCount} geçmiş seansın hakedişi çözümlenmemiş
                     </p>
                   )}
@@ -92,7 +94,7 @@ export function TeacherEarningsCard({ teacherPayments, teachers, sessions, teach
                     {formatCurrency(pending)}
                   </span>
                   {pending === 0 && unknownSessionCount > 0 ? (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                       Hakediş bekliyor
                     </span>
                   ) : (

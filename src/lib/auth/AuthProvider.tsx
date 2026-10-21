@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { createLocalAuthService } from "@/lib/auth/local-auth-service";
 import type { AuthResult, AuthUser } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
@@ -43,12 +43,12 @@ function hasBrowserSessionMark(): boolean {
 }
 
 /**
- * Mounted inside MockDataProvider (needs useMockStore()) and above both
+ * Mounted inside DataProvider (needs useStore()) and above both
  * (app)/layout.tsx's RouteGuard and /login — see src/app/providers.tsx.
  *
- * Session validity: MockDataProvider already hydrates `authSession` from
+ * Session validity: DataProvider already hydrates `authSession` from
  * localStorage synchronously (lazy useState initializers — see
- * lib/mock/persistence.ts), so by the time this component's body runs there
+ * lib/data/persistence.ts), so by the time this component's body runs there
  * is no "waiting for a second async read" the way a real cookie/token fetch
  * would need. `isLoading` here only covers the one expiry check that has to
  * happen after mount (never on the server, since Date.now() must be a client
@@ -63,8 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCredential,
     setAuthSession,
     setActorName,
-    logAuditEvent,
-  } = useMockStore();
+  } = useStore();
   const [isLoading, setIsLoading] = useState(true);
 
   const authService = useMemo(
@@ -76,9 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         saveAccountState,
         setCredential,
         setAuthSession,
-        logAuditEvent,
       }),
-    [account, credential, authSession, saveAccountState, setCredential, setAuthSession, logAuditEvent]
+    [account, credential, authSession, saveAccountState, setCredential, setAuthSession]
   );
 
   // One-time post-mount check — there is no idle timeout (see
@@ -98,9 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const user = authService.getCurrentUser();
 
-  // Keeps store.tsx's pre-existing internal audit calls (addEducationType,
-  // updateSession, addPayment, ...) attributed to the real signed-in user
-  // instead of a hardcoded name — see actorNameRef/FALLBACK_ACTOR_NAME there.
+  // Settings metadata records the signed-in account's name as "updatedBy" —
+  // see actorNameRef/FALLBACK_ACTOR_NAME in store.tsx.
   useEffect(() => {
     setActorName(user?.name ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps

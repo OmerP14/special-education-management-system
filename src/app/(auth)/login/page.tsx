@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { GraduationCap, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useMockStore } from "@/lib/mock/store";
 import { resolvePostLoginPath } from "@/lib/settings/landing-page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +15,6 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
   const { signIn, isAuthenticated, isLoading } = useAuth();
-  const { institutionSettings } = useMockStore();
-  const landingPage = institutionSettings.appearance.defaultLandingPage;
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -33,9 +30,9 @@ function LoginForm() {
   // redirect itself.
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace(resolvePostLoginPath(next, landingPage));
+      router.replace(resolvePostLoginPath(next));
     }
-  }, [isLoading, isAuthenticated, next, router, landingPage]);
+  }, [isLoading, isAuthenticated, next, router]);
 
   // Live lockout countdown — clears itself once the lock has run out.
   useEffect(() => {

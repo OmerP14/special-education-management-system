@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { cloneElement, isValidElement, useId, type ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -26,13 +26,21 @@ export function SettingsField({
   className,
   children,
 }: SettingsFieldProps) {
+  // Without an explicit htmlFor, link the label to a single child control by
+  // giving it a generated id, so clicking the label focuses it and screen
+  // readers announce the field name.
+  const autoId = useId();
+  const child = isValidElement<{ id?: string }>(children) ? children : null;
+  const controlId = htmlFor ?? child?.props.id ?? (child ? autoId : undefined);
+  const control = !htmlFor && child && !child.props.id ? cloneElement(child, { id: autoId }) : children;
+
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label htmlFor={htmlFor}>
+      <Label htmlFor={controlId}>
         {label}
         {required && <span className="text-destructive">*</span>}
       </Label>
-      {children}
+      {control}
       {error ? (
         <p className="text-xs font-medium text-destructive">{error}</p>
       ) : description ? (

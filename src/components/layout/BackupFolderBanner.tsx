@@ -2,13 +2,13 @@
 
 import { FolderLock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { grantBackupFolderPermission, useBackupFolder } from "@/lib/backup/backup-folder";
 
 /** After a browser restart the browser may ask again before the app can
  *  write to the backup folder — that needs a click, so it is asked here. */
 export function BackupFolderBanner() {
-  const enabled = useMockStore().institutionSettings.dataManagement.autoBackupEnabled;
+  const enabled = useStore().institutionSettings.dataManagement.autoBackupEnabled;
   const { status, location } = useBackupFolder();
   if (!enabled || status !== "needs-permission") return null;
   return (

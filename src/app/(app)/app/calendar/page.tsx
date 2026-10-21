@@ -20,7 +20,7 @@ import { CalendarMonthView } from "@/components/calendar/CalendarMonthView";
 import { CalendarWeekView } from "@/components/calendar/CalendarWeekView";
 import { CalendarDayView } from "@/components/calendar/CalendarDayView";
 import { CalendarAgendaView } from "@/components/calendar/CalendarAgendaView";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   buildCalendarEvents,
@@ -28,6 +28,7 @@ import {
   getCalendarEventRelations,
   getWeekDays,
   getVisibleHourRange,
+  isSameDay,
   getCalendarLegend,
   type CalendarDisplayOptions,
 } from "@/lib/helpers/calendar";
@@ -119,7 +120,7 @@ function CompactStat({
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="line-clamp-2 text-xs font-medium uppercase leading-tight tracking-wide text-muted-foreground">
           {label}
         </p>
         <p className="text-base font-bold leading-tight tabular-nums text-foreground">{value}</p>
@@ -157,7 +158,7 @@ function ChipButton({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const store = useMockStore();
+  const store = useStore();
   const isMobile = useIsMobile();
 
   // View & navigation — opens on the week view (freely switchable).
@@ -299,8 +300,14 @@ export default function CalendarPage() {
   const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const navLabel = getNavLabel(view, currentDate);
 
-  // Week/Day hour range — the configured working hours.
-  const { hourStart, hourEnd } = getVisibleHourRange(calendarSettings);
+  // Week/Day hour range — the configured working hours, widened for any lesson
+  // on screen that falls outside them.
+  const { hourStart, hourEnd } = getVisibleHourRange(
+    calendarSettings,
+    filteredEvents.filter((e) =>
+      view === "day" ? isSameDay(e.date, currentDate) : weekDays.some((d) => isSameDay(d, e.date))
+    )
+  );
   const legend = getCalendarLegend(store.educationTypes);
 
   return (
@@ -440,10 +447,10 @@ export default function CalendarPage() {
 
             <div className="flex flex-wrap gap-2">
               {/* Teacher dropdown */}
-              <select
+              <select aria-label="Öğretmene göre filtrele"
                 value={teacherFilter}
                 onChange={(e) => setTeacherFilter(e.target.value)}
-                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="all">Tüm Öğretmenler</option>
                 {store.teachers.map((t) => (
@@ -454,10 +461,10 @@ export default function CalendarPage() {
               </select>
 
               {/* Student dropdown */}
-              <select
+              <select aria-label="Öğrenciye göre filtrele"
                 value={studentFilter}
                 onChange={(e) => setStudentFilter(e.target.value)}
-                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="all">Tüm Öğrenciler</option>
                 {store.students.map((s) => (
@@ -468,10 +475,10 @@ export default function CalendarPage() {
               </select>
 
               {/* Education type dropdown */}
-              <select
+              <select aria-label="Eğitim türüne göre filtrele"
                 value={edTypeFilter}
                 onChange={(e) => setEdTypeFilter(e.target.value)}
-                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="all">Tüm Eğitim Türleri</option>
                 {store.educationTypes.map((et) => (

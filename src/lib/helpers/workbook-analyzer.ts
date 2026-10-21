@@ -33,6 +33,7 @@ import {
 } from "@/lib/helpers/session-conflict";
 import { calculateTeacherSessionEarning } from "@/lib/helpers/finance";
 import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
+import { TENANT_ID } from "@/lib/data/ids";
 
 // ─── Signals ─────────────────────────────────────────────────────────────────
 
@@ -471,8 +472,8 @@ export function convertMatrixSheetToSessionCandidates(
       }
 
       const session: Session = {
-        id: newId("session", rowNumber),
-        tenantId: "tenant-1",
+        id: newId("session"),
+        tenantId: TENANT_ID,
         studentId: studentRes.student.id,
         teacherId: impliedTeacher.id,
         educationTypeId,

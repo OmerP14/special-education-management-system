@@ -13,13 +13,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <RouteGuard>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-md focus:ring-2 focus:ring-ring"
+      >
+        İçeriğe geç
+      </a>
       <SidebarProvider open={visible} onOpenChange={setVisible}>
         <AppSidebar />
         <SidebarInset className="flex h-svh flex-col overflow-hidden">
           <StorageFullBanner />
           <BackupFolderBanner />
           <AppTopbar sidebarVisible={visible} onToggleSidebar={toggle} />
-          <div className="flex-1 overflow-y-auto bg-muted/20">
+          <div id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto bg-muted/20 outline-none">
             {/* max-w keeps content at a comfortable reading/table width — wide
                 enough to fill 1366/1440 with the sidebar open, but capped so
                 a collapsed sidebar or an ultra-wide monitor doesn't stretch a

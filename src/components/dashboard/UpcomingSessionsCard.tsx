@@ -55,7 +55,7 @@ export function UpcomingSessionsCard({ sessions, students, teachers }: UpcomingS
                   className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50"
                 >
                   <div className="flex w-14 shrink-0 flex-col items-center rounded-md bg-primary/8 py-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-primary">
                       {DAY_FMT.format(date)}
                     </span>
                     <span className="text-xs font-bold tabular-nums text-primary">

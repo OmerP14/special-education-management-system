@@ -47,7 +47,7 @@ function InfoRow({
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none mb-0.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground leading-none mb-0.5">
           {label}
         </p>
         <div className="text-sm font-medium text-foreground">{children}</div>
@@ -209,7 +209,7 @@ export function SessionDetailDrawer({
 
           {/* Financials */}
           <div className="rounded-lg bg-muted/40 px-3 py-2.5 space-y-0.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
               Finansal Özet
             </p>
             <FinanceRow
@@ -219,7 +219,7 @@ export function SessionDetailDrawer({
             {earningStatus === "unknown" ? (
               <div className="flex items-center justify-between text-sm py-1">
                 <span className="text-muted-foreground">Öğretmen Hakedişi</span>
-                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                   Hakediş bekliyor
                 </span>
               </div>
@@ -237,13 +237,13 @@ export function SessionDetailDrawer({
                 variant="success"
               />
               {earningStatus === "unknown" && (
-                <p className="text-[10px] text-amber-700">
+                <p className="text-xs text-amber-700">
                   Öğretmen hakedişi hesaplanamadığı için bu tutar kesin değildir.
                 </p>
               )}
             </div>
             {session.billingMode === "historical_non_billable" && (
-              <p className="pt-1.5 text-[10px] text-muted-foreground">
+              <p className="pt-1.5 text-xs text-muted-foreground">
                 Bu seans geçmiş kayıt olarak aktarıldı — yukarıdaki tutarlar öğrenci borcuna/tahakkuka dahil edilmez.
               </p>
             )}

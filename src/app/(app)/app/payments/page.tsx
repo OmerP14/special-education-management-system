@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/shared/StatCard";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildPaymentListItems,
   buildStudentDebtItems,
@@ -248,7 +248,7 @@ function DebtProgressBar({
   return (
     <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
       <div
-        className={cn("h-full rounded-full transition-all", barClass)}
+        className={cn("h-full rounded-full transition-[width]", barClass)}
         style={{ width: `${Math.max(pct, pct > 0 ? 3 : 0)}%` }}
       />
     </div>
@@ -305,15 +305,15 @@ function ZeroActivityStudentCard({
 
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-lg bg-muted/40 p-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahakkuk</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahakkuk</p>
           <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalBilled)}</p>
         </div>
         <div className="rounded-lg bg-muted/40 p-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahsilat</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahsilat</p>
           <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalPaid)}</p>
         </div>
         <div className="rounded-lg bg-muted/40 p-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Kalan Borç</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kalan Borç</p>
           <p className={cn("mt-0.5 text-sm font-bold tabular-nums", hasOverpayment ? "text-emerald-600" : "text-foreground")}>
             {formatCurrency(Math.max(0, netBalance))}
           </p>
@@ -342,7 +342,7 @@ function ZeroActivityStudentCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const store = useMockStore();
+  const store = useStore();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
@@ -625,7 +625,7 @@ export default function PaymentsPage() {
                       <span className="text-xs text-muted-foreground">
                         Tahakkuk: <span className="font-medium text-foreground">{formatCurrency(item.totalBilled)}</span>
                       </span>
-                      <span className="text-[10px] text-muted-foreground">{pct}% ödendi</span>
+                      <span className="text-xs text-muted-foreground">{pct}% ödendi</span>
                     </div>
 
                     {/* Remaining + badge */}
@@ -671,17 +671,17 @@ export default function PaymentsPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1 max-w-xs">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-              <Input
+              <Input aria-label="Ödeme ara"
                 placeholder="Öğrenci, veli, yöntem veya açıklama ara…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-8 h-9 text-sm"
               />
             </div>
-            <select
+            <select aria-label="Aya göre filtrele"
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {monthOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -711,10 +711,10 @@ export default function PaymentsPage() {
 
           {/* Row 3: entity dropdowns + clear */}
           <div className="flex flex-wrap gap-2">
-            <select
+            <select aria-label="Ödeme yöntemine göre filtrele"
               value={methodFilter}
               onChange={(e) => setMethodFilter(e.target.value as PaymentMethod | "all")}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {METHOD_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -722,10 +722,10 @@ export default function PaymentsPage() {
                 </option>
               ))}
             </select>
-            <select
+            <select aria-label="Öğrenciye göre filtrele"
               value={studentFilter}
               onChange={(e) => setStudentFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
               {store.students.map((s) => (

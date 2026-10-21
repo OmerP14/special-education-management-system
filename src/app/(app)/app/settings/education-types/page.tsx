@@ -3,14 +3,13 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EducationTypeFormDrawer } from "@/components/settings/EducationTypeFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   getEducationTypeUsage,
   canDeleteEducationType,
@@ -47,7 +46,7 @@ function usageBreakdownText(usage: EducationTypeUsage): string {
 }
 
 export default function EducationTypesSettingsPage() {
-  const store = useMockStore();
+  const store = useStore();
   const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<EducationTypeStatus | "all">("all");
@@ -85,7 +84,6 @@ export default function EducationTypesSettingsPage() {
     });
   }, [rows, search, statusFilter]);
 
-  const activeCount = rows.filter((r) => r.status === "active").length;
 
   const handleEdit = (row: EducationTypeRow) => {
     setEditingType(row);
@@ -147,7 +145,7 @@ export default function EducationTypesSettingsPage() {
       header: "Renk",
       render: (row) => (
         <span
-          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
           style={{ backgroundColor: row.color, color: getReadableTextColor(row.color) }}
         >
           {row.color}
@@ -232,21 +230,17 @@ export default function EducationTypesSettingsPage() {
           Ayarlar
         </Link>
 
-        <PageHeader
-          title="Eğitim Türleri"
-          description={`Kurumun sunduğu eğitim türlerini yönetin. ${activeCount} aktif · ${rows.length} toplam.`}
-          actions={
-            <Button size="sm" onClick={() => { setEditingType(null); setDrawerOpen(true); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Eğitim Türü Ekle
-            </Button>
-          }
-        />
+        <div className="flex items-center justify-end gap-2">
+          <Button size="sm" onClick={() => { setEditingType(null); setDrawerOpen(true); }}>
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Eğitim Türü Ekle
+          </Button>
+        </div>
 
         {/* Filters */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="max-w-xs flex-1">
-            <Input
+            <Input aria-label="Eğitim türü ara"
               placeholder="Eğitim türü ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

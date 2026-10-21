@@ -60,10 +60,10 @@ export function CompactStatBar({ items, className }: CompactStatBarProps) {
             <item.icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="line-clamp-2 text-xs font-medium uppercase leading-tight tracking-wide text-muted-foreground">
               {item.label}
             </p>
-            <p className="truncate text-base font-bold leading-tight tabular-nums text-foreground">
+            <p className="text-base font-bold leading-tight tabular-nums text-foreground [overflow-wrap:anywhere]">
               {item.value}
             </p>
           </div>

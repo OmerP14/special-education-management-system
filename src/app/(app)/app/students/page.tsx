@@ -11,7 +11,7 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,7 @@ const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StudentsPage() {
-  const store = useMockStore();
+  const store = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -108,14 +108,14 @@ export default function StudentsPage() {
           onClick={(e) => e.stopPropagation()}
         >
           <Avatar className="h-7 w-7 shrink-0">
-            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
               {initialsOf(row.fullName)}
             </AvatarFallback>
           </Avatar>
           <span className="min-w-0">
             <span className="block truncate">{row.fullName}</span>
             {row.studentNumber && (
-              <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">{row.studentNumber}</span>
+              <span className="block text-xs font-normal tabular-nums text-muted-foreground">{row.studentNumber}</span>
             )}
           </span>
         </Link>
@@ -162,7 +162,7 @@ export default function StudentsPage() {
             {row.educationTypeNames.map((name) => (
               <span
                 key={name}
-                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
               >
                 {name}
               </span>
@@ -296,7 +296,7 @@ export default function StudentsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
+            <Input aria-label="Öğrenci ara"
               placeholder="Öğrenci, numara veya veli ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

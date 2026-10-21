@@ -347,10 +347,21 @@ export function getOverlapPosition(layout: EventLayout, gutterPx: number): { lef
   };
 }
 
-/** Hour range for Week/Day grids: the configured working hours. */
-export function getVisibleHourRange(calendar: CalendarSettings): { hourStart: number; hourEnd: number } {
-  const hourStart = Number(calendar.dayStartTime.split(":")[0]);
+/** Hour range for Week/Day grids: the configured working hours, widened to
+ *  fit any shown lesson outside them — a 19:00 lesson must sit at 19:00, not be
+ *  squeezed against the bottom edge of an 08–18 grid. */
+export function getVisibleHourRange(
+  calendar: CalendarSettings,
+  events: { date: Date; durationMinutes?: number }[] = []
+): { hourStart: number; hourEnd: number } {
+  let hourStart = Number(calendar.dayStartTime.split(":")[0]);
   const [endH, endM] = calendar.dayEndTime.split(":").map(Number);
-  const hourEnd = (endH ?? 21) + ((endM ?? 0) > 0 ? 1 : 0);
+  let hourEnd = (endH ?? 21) + ((endM ?? 0) > 0 ? 1 : 0);
+  for (const e of events) {
+    const start = e.date.getHours() + e.date.getMinutes() / 60;
+    const end = start + (e.durationMinutes ?? 40) / 60;
+    hourStart = Math.min(hourStart, Math.floor(start));
+    hourEnd = Math.max(hourEnd, Math.min(24, Math.ceil(end)));
+  }
   return { hourStart, hourEnd };
 }

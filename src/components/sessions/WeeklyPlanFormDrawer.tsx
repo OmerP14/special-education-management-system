@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
@@ -50,6 +50,7 @@ import {
 } from "@/lib/helpers/scheduling-rules";
 import type { WeeklySessionPlan } from "@/types";
 import { cn } from "@/lib/utils";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Day config (Mon-first display order) ─────────────────────────────────────
 
@@ -141,7 +142,7 @@ export function WeeklyPlanFormDrawer({
   copyFromPlan,
   preselectedStudentId,
 }: WeeklyPlanFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
 
   const buildInitial = (): FormState => {
@@ -387,8 +388,8 @@ export function WeeklyPlanFormDrawer({
       });
     } else {
       // Create plan
-      const planId = `wsp-${Date.now()}`;
-      const tenantId = "tenant-1";
+      const planId = createId("wsp");
+      const tenantId = TENANT_ID;
 
       const plan: WeeklySessionPlan = {
         id: planId,
@@ -412,7 +413,7 @@ export function WeeklyPlanFormDrawer({
       // Generate sessions (duplicates already filtered out of datesToCreate)
       for (const dateStr of datesToCreate) {
         store.addSession({
-          id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id: createId("session"),
           tenantId,
           studentId: form.studentId,
           teacherId: form.teacherId,
@@ -480,7 +481,7 @@ export function WeeklyPlanFormDrawer({
             onValueChange={(val) => { if (val) set("studentId", val); }}
             disabled={isEditing}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Öğrenci" className="w-full">
               <SelectValue className={!form.studentId ? "text-muted-foreground" : ""}>
                 {studentDisplayName ?? "Öğrenci seçin"}
               </SelectValue>
@@ -490,7 +491,7 @@ export function WeeklyPlanFormDrawer({
                 <SelectItem key={s.id} value={s.id}>
                   {s.fullName}
                   {s.status === "on_hold" && (
-                    <span className="ml-1.5 text-[11px] text-amber-500">· Beklemede</span>
+                    <span className="ml-1.5 text-xs text-amber-500">· Beklemede</span>
                   )}
                 </SelectItem>
               ))}
@@ -505,7 +506,7 @@ export function WeeklyPlanFormDrawer({
               <User className="h-3.5 w-3.5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Bağlı Veli</p>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Bağlı Veli</p>
               <Link
                 href={`/app/guardians/${connectedGuardian.id}`}
                 className="text-sm font-medium text-foreground hover:text-primary transition-colors"
@@ -524,7 +525,7 @@ export function WeeklyPlanFormDrawer({
         <div className="space-y-1.5">
           <Label>Öğretmen</Label>
           <Select value={form.teacherId} onValueChange={(val) => { if (val) handleTeacherChange(val); }}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Öğretmen" className="w-full">
               <SelectValue className={!form.teacherId ? "text-muted-foreground" : ""}>
                 {teacherDisplayName ?? "Öğretmen seçin"}
               </SelectValue>
@@ -541,7 +542,7 @@ export function WeeklyPlanFormDrawer({
         <div className="space-y-1.5">
           <Label>Eğitim Türü</Label>
           <Select value={form.educationTypeId} onValueChange={(val) => { if (val) handleEducationTypeChange(val); }}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Eğitim türü" className="w-full">
               <SelectValue className={!form.educationTypeId ? "text-muted-foreground" : ""}>
                 {educationTypeDisplayName ?? "Eğitim türü seçin"}
               </SelectValue>
@@ -691,7 +692,7 @@ export function WeeklyPlanFormDrawer({
                   </span>
                 </label>
                 {day.enabled && (
-                  <Input
+                  <Input aria-label={`${day.name} saati`}
                     type="time"
                     step={300}
                     value={day.time}
@@ -789,7 +790,7 @@ export function WeeklyPlanFormDrawer({
                       <p className="text-2xl font-bold text-foreground tabular-nums">
                         {datesToCreate.length}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                         Toplam Seans
                       </p>
                     </div>
@@ -797,7 +798,7 @@ export function WeeklyPlanFormDrawer({
                       <p className="text-lg font-bold text-foreground tabular-nums">
                         {formatCurrency(totalBilling)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                         Potansiyel Tahakkuk
                       </p>
                     </div>
@@ -805,7 +806,7 @@ export function WeeklyPlanFormDrawer({
                       <p className="text-lg font-bold text-amber-600 tabular-nums">
                         {formatCurrency(totalTeacherEarning)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
                         Öğretmen Hakedişi
                       </p>
                     </div>

@@ -1,8 +1,8 @@
-import { mockGuardians } from "@/lib/mock/students";
 import { GuardianDetailView } from "@/components/guardians/GuardianDetailView";
 
 export function generateStaticParams() {
-  return mockGuardians.map((g) => ({ id: g.id }));
+  // Records live in the browser, so every detail page renders on first visit.
+  return [];
 }
 
 export default async function GuardianDetailPage({

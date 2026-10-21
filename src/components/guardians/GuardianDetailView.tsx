@@ -39,7 +39,7 @@ import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { getGuardianContactLink } from "@/lib/helpers/student-rules";
 import {
   buildGuardianDetail,
@@ -58,6 +58,7 @@ import {
 import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
 import type { Student, Session, Payment, PaymentMethod, OpeningBalance, EducationType } from "@/types";
 import { cn, formatTitleCase } from "@/lib/utils";
+import { createId } from "@/lib/data/ids";
 
 // ─── Local types ──────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ function buildStudentColumns(
             {names.map((name) => (
               <span
                 key={name}
-                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary"
+                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
               >
                 {name}
               </span>
@@ -334,7 +335,7 @@ function buildSessionColumns(
       render: (row) => {
         const et = educationTypes.find((e) => e.id === row.educationTypeId);
         return (
-          <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+          <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
             {et?.name ?? "—"}
           </span>
         );
@@ -412,7 +413,7 @@ function ActivityDot({
       <div className="pb-4 flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
           <p className="text-sm font-medium text-foreground">{event.title}</p>
-          <time className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+          <time className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {formatDateTime(event.date)}
           </time>
         </div>
@@ -431,14 +432,14 @@ interface GuardianDetailViewProps {
 }
 
 export function GuardianDetailView({ guardianId }: GuardianDetailViewProps) {
-  const store = useMockStore();
+  const store = useStore();
   return <GuardianDetailViewContent guardianId={guardianId} store={store} />;
 }
 
 function GuardianDetailViewContent({
   guardianId,
   store,
-}: GuardianDetailViewProps & { store: ReturnType<typeof useMockStore> }) {
+}: GuardianDetailViewProps & { store: ReturnType<typeof useStore> }) {
   // ── Column builders ────────────────────────────────────────────────────────
   const studentColumns = buildStudentColumns(
     store.sessions,
@@ -469,7 +470,7 @@ function GuardianDetailViewContent({
   // ── Notes state ────────────────────────────────────────────────────────────
   // Persisted into the guardian record's single `notes` string field (JSON-encoded),
   // via store.updateGuardian — not local-only state, so notes survive navigation/
-  // refresh within the mock store session. Falls back to treating a legacy plain-text
+  // refresh like every other record. Falls back to treating a legacy plain-text
   // note (pre-dating this structured format) as a single entry.
   const [notes, setNotes] = useState<NoteEntry[]>(() => parseNoteEntries(rawGuardian?.notes));
 
@@ -488,7 +489,7 @@ function GuardianDetailViewContent({
     const text = noteInput.trim();
     if (!text) return;
     const newNote: NoteEntry = {
-      id: `note-${Date.now()}`,
+      id: createId("note"),
       text,
       author: "Kullanıcı",
       createdAt: new Date().toISOString(),
@@ -738,7 +739,7 @@ function GuardianDetailViewContent({
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 Bağlı Öğrenciler
                 {detail.students.length > 0 && (
-                  <span className="ml-2 inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-bold text-primary">
+                  <span className="ml-2 inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 py-px text-xs font-bold text-primary">
                     {detail.students.length}
                   </span>
                 )}
@@ -793,7 +794,7 @@ function GuardianDetailViewContent({
                           {educationTypeNames.map((name) => (
                             <span
                               key={name}
-                              className="inline-flex rounded-full bg-primary/8 border border-primary/20 px-1.5 py-px text-[10px] font-medium text-primary"
+                              className="inline-flex rounded-full bg-primary/8 border border-primary/20 px-1.5 py-px text-xs font-medium text-primary"
                             >
                               {name}
                             </span>
@@ -803,7 +804,7 @@ function GuardianDetailViewContent({
                       {studentTeachers.length > 0 && (
                         <div className="flex items-center gap-1 flex-wrap">
                           <UserCheck className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {studentTeachers.join(", ")}
                           </span>
                         </div>
@@ -811,7 +812,7 @@ function GuardianDetailViewContent({
                       {lastCompletedSession && (
                         <div className="flex items-center gap-1">
                           <CalendarDays className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             Son seans: {formatDate(lastCompletedSession.date)}
                           </span>
                         </div>
@@ -848,22 +849,22 @@ function GuardianDetailViewContent({
                   )}
                 </CardTitle>
               </div>
-              <p className="text-[11px] text-muted-foreground/60 pl-6">
+              <p className="text-xs text-muted-foreground/60 pl-6">
                 Önceki devir + bu ay tahakkuk − bu ay ödeme = güncel bakiye
               </p>
             </div>
-            <input
+            <input aria-label="Ay seçin"
               type="month"
               value={selectedMonthStr}
               onChange={(e) => e.target.value && setSelectedMonthStr(e.target.value)}
-              className="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-7 rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-3">
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Önceki Devir
               </p>
               <p
@@ -876,7 +877,7 @@ function GuardianDetailViewContent({
               </p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Bu Ay Tahakkuk
               </p>
               <p className="mt-1 text-base font-bold tabular-nums text-foreground">
@@ -884,7 +885,7 @@ function GuardianDetailViewContent({
               </p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Bu Ay Ödeme
               </p>
               <p className="mt-1 text-base font-bold tabular-nums text-emerald-600">
@@ -892,7 +893,7 @@ function GuardianDetailViewContent({
               </p>
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Güncel Bakiye
               </p>
               <p
@@ -930,7 +931,7 @@ function GuardianDetailViewContent({
             if (movements.length === 0) return null;
             return (
               <div className="mt-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                   Cari Hareketler
                 </p>
                 <div className="divide-y divide-border/60 rounded-lg border border-border/60">
@@ -938,7 +939,7 @@ function GuardianDetailViewContent({
                     <div key={mov.id} className="flex items-center justify-between px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground">{mov.description}</p>
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="tabular-nums">{formatDate(mov.date)}</span>
                           {mov.studentName && (
                             <>
@@ -981,7 +982,7 @@ function GuardianDetailViewContent({
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 space-y-2">
-              <textarea
+              <textarea aria-label="Yeni not"
                 rows={3}
                 value={noteInput}
                 onChange={(e) => setNoteInput(e.target.value)}
@@ -1028,7 +1029,7 @@ function GuardianDetailViewContent({
                     <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">{note.author}</span>
-                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
                           <Clock className="h-3 w-3" />
                           {formatDateTime(note.createdAt)}
                           {note.updatedAt && " (düzenlendi)"}
@@ -1041,14 +1042,14 @@ function GuardianDetailViewContent({
                               setEditingNoteId(note.id);
                               setEditingNoteText(note.text);
                             }}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
                           >
                             <Edit3 className="h-3 w-3" />
                             Düzenle
                           </button>
                           <button
                             onClick={() => handleDeleteNote(note.id)}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors"
                           >
                             <Trash2 className="h-3 w-3" />
                             Sil
@@ -1059,7 +1060,7 @@ function GuardianDetailViewContent({
 
                     {editingNoteId === note.id ? (
                       <div className="space-y-2">
-                        <textarea
+                        <textarea aria-label="Notu düzenle"
                           rows={3}
                           value={editingNoteText}
                           onChange={(e) => setEditingNoteText(e.target.value)}
@@ -1226,7 +1227,7 @@ function GuardianDetailViewContent({
                       {detail.relationship}
                     </span>
                     {detail.students.length === 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
                         <AlertCircle className="h-2.5 w-2.5" />
                         Öğrenci yok
                       </span>
@@ -1279,7 +1280,7 @@ function GuardianDetailViewContent({
                         <Link
                           key={s.id}
                           href={`/app/students/${s.id}`}
-                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                         >
                           {s.fullName}
                         </Link>

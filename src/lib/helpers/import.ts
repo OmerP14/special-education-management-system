@@ -25,7 +25,7 @@ import type {
   EducationType,
   TeacherEducationTypeAssignment,
 } from "@/types";
-import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, sheetRowNumber, type ParsedSheet } from "@/lib/helpers/import-parse";
+import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, sheetRowNumber, type ParsedSheet, type RawCell } from "@/lib/helpers/import-parse";
 import {
   normalizeName,
   matchStudent,
@@ -62,6 +62,7 @@ import {
   isDeductionPaymentType,
 } from "@/lib/helpers/finance";
 import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Entity type labels ─────────────────────────────────────────────────────────
 
@@ -336,10 +337,28 @@ const STATUS_ALIASES: Record<string, SessionStatus> = {
   "telafi": "makeup", "makeup": "makeup", "make-up": "makeup", "make up": "makeup",
 };
 
+// What people actually write in a "Durum" column, matched by word start after
+// the exact aliases above miss ("Geldi", "Raporlu", "Gelmedi (habersiz)",
+// "Tamamlandı ✓"). Order matters: "gelmedi" must win over "geldi"-like words.
+const STATUS_KEYWORDS: [SessionStatus, string[]][] = [
+  ["no_show", ["gelmedi", "gelmeyen", "katılmadı", "katilmadi", "devamsız", "devamsiz", "noshow"]],
+  ["makeup", ["telafi", "makeup"]],
+  ["cancelled", ["iptal", "izin", "rapor", "hasta", "mazeret", "ertelen", "tatil", "cancel"]],
+  ["completed", ["tamam", "yapıldı", "yapildi", "geldi", "katıldı", "katildi", "işlendi", "islendi", "done", "complet"]],
+  ["planned", ["plan", "bekl", "sched"]],
+];
+
 export function resolveSessionStatusValue(raw: string): { status: SessionStatus; recognized: boolean } {
   const key = raw.trim().toLocaleLowerCase("tr-TR");
-  const status = STATUS_ALIASES[key];
-  return status ? { status, recognized: true } : { status: "planned", recognized: false };
+  const exact = STATUS_ALIASES[key];
+  if (exact) return { status: exact, recognized: true };
+  const folded = key.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (folded.includes("no show")) return { status: "no_show", recognized: true };
+  const words = folded.split(" ");
+  for (const [status, prefixes] of STATUS_KEYWORDS) {
+    if (words.some((w) => prefixes.some((p) => w.startsWith(p)))) return { status, recognized: true };
+  }
+  return { status: "planned", recognized: false };
 }
 
 const METHOD_ALIASES: Record<string, PaymentMethod> = {
@@ -384,6 +403,34 @@ export function resolveOpeningBalanceTypeValue(raw: string): { type: OpeningBala
   return type ? { type, recognized: true } : { type: "debt", recognized: false };
 }
 
+/** "  zeynep   DEMİR " → "Zeynep Demir" (Turkish casing, hyphenated parts
+ *  too) — imported names are stored the way the rest of the app writes them.
+ *  Matching never depends on this: it always compares normalizeName(). */
+function personName(raw: string): string {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word
+        .split("-")
+        .map((p) => (p ? p[0]!.toLocaleUpperCase("tr-TR") + p.slice(1).toLocaleLowerCase("tr-TR") : p))
+        .join("-")
+    )
+    .join(" ");
+}
+
+/** The clock time a date cell carries, if any — a Date with a time part or a
+ *  "13.10.2026 14:30" string. Midnight means "no time given". */
+function timeInDateCell(cell: RawCell): string | null {
+  if (cell instanceof Date) {
+    const t = parseCellAsTimeString(cell);
+    return t === "00:00" ? null : t;
+  }
+  if (typeof cell === "number") return cell % 1 === 0 ? null : parseCellAsTimeString(cell % 1);
+  const m = typeof cell === "string" ? cell.trim().match(/[T\s](\d{1,2}[:.]\d{2})(:\d{2})?$/) : null;
+  return m ? parseCellAsTimeString(m[1]!.replace(".", ":")) : null;
+}
+
 // ─── Staged records (resolved, not-yet-committed rows) ──────────────────────────
 
 export type StagedRecord =
@@ -408,8 +455,8 @@ function cellAt(row: (string | number | boolean | Date | null | undefined)[], in
   return index >= 0 ? cellToDisplayString(row[index]) : "";
 }
 
-export function newId(prefix: string, rowNumber: number): string {
-  return `${prefix}-import-${Date.now()}-${rowNumber}-${Math.random().toString(36).slice(2, 6)}`;
+export function newId(prefix: string): string {
+  return createId(`${prefix}-import`);
 }
 
 // ─── Students ────────────────────────────────────────────────────────────────────
@@ -476,9 +523,9 @@ export function buildStagedStudentRows(
         matches.push({ entityType: "Veli", value: guardianName, matched: true });
       } else if (allowGuardianAutoCreate) {
         const guardian: Guardian = {
-          id: newId("guardian", rowNumber),
-          tenantId: "tenant-1",
-          fullName: guardianName,
+          id: newId("guardian"),
+          tenantId: TENANT_ID,
+          fullName: personName(guardianName),
           phone: guardianPhone || "—",
           relationship: "Veli",
           studentIds: [],
@@ -514,9 +561,9 @@ export function buildStagedStudentRows(
     const notes = cellAt(raw, iNotes) || undefined;
 
     const student: Student = {
-      id: newId("student", rowNumber),
-      tenantId: "tenant-1",
-      fullName,
+      id: newId("student"),
+      tenantId: TENANT_ID,
+      fullName: personName(fullName),
       birthDate,
       status,
       guardianIds: guardianId ? [guardianId] : [],
@@ -582,9 +629,9 @@ export function buildStagedGuardianRows(sheet: ParsedSheet, mapping: ImportColum
     if (match.tier === "possible") issues.push("Bu isimde bir veli zaten sistemde kayıtlı; farklı kişi olarak içe aktarılacak");
 
     const guardian: Guardian = {
-      id: newId("guardian", rowNumber),
-      tenantId: "tenant-1",
-      fullName,
+      id: newId("guardian"),
+      tenantId: TENANT_ID,
+      fullName: personName(fullName),
       phone,
       email: cellAt(raw, iEmail) || undefined,
       relationship: cellAt(raw, iRelationship) || "Veli",
@@ -639,9 +686,9 @@ export function buildStagedTeacherRows(sheet: ParsedSheet, mapping: ImportColumn
     const status = statusRaw.includes("pasif") || statusRaw === "inactive" ? "inactive" : "active";
 
     const teacher: Teacher = {
-      id: newId("teacher", rowNumber),
-      tenantId: "tenant-1",
-      fullName,
+      id: newId("teacher"),
+      tenantId: TENANT_ID,
+      fullName: personName(fullName),
       phone: phone || "—",
       email: cellAt(raw, iEmail) || undefined,
       status,
@@ -668,7 +715,10 @@ export function buildStagedSessionRows(
   students: Student[],
   teachers: Teacher[],
   educationTypes: EducationType[],
-  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[] = []
+  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[] = [],
+  /** Teachers created by this same import — they can't have an education
+   *  type assignment yet, so their lessons assign them instead of being held. */
+  newTeacherIds: ReadonlySet<string> = new Set()
 ): StagedRow[] {
   const iStudent = col(mapping, "studentName");
   const iTeacher = col(mapping, "teacherName");
@@ -697,7 +747,10 @@ export function buildStagedSessionRows(
     const teacherName = cellAt(raw, iTeacher);
     const eduTypeName = cellAt(raw, iEduType);
     const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
-    const timeStr = parseCellAsTimeString(iTime >= 0 ? raw[iTime] : null) ?? "09:00";
+    // No time column (or an empty cell): a "06.10.2026 11:00" date cell still
+    // carries the hour; only a bare date falls back to 09:00.
+    const timeStr =
+      parseCellAsTimeString(iTime >= 0 ? raw[iTime] : null) ?? timeInDateCell(iDate >= 0 ? raw[iDate] : null) ?? "09:00";
     const priceRaw = iPrice >= 0 ? parseCellAsNumber(raw[iPrice]) : null;
 
     const displayText = `${studentName || "?"} / ${teacherName || "?"} / ${dateStr ?? cellAt(raw, iDate)}`;
@@ -762,12 +815,16 @@ export function buildStagedSessionRows(
     // (section 13: never silently create an arbitrary earning for an
     // unassigned pair). Operational imports need repair before committing;
     // historical imports may proceed but only as an explicitly unresolved row.
-    const assignmentIncompatible = !isTeacherAssignedToEducationType(
-      teacherId,
-      educationTypeId,
-      teacherEducationTypeAssignments
-    );
-    if (assignmentIncompatible) {
+    const teacherEarningRaw = iEarning >= 0 ? parseCellAsNumber(raw[iEarning]) : null;
+    const assigned = isTeacherAssignedToEducationType(teacherId, educationTypeId, teacherEducationTypeAssignments);
+    // The file itself pairs them when the teacher is new in this import or the
+    // row states the teacher's earning: the lesson goes in and the teacher is
+    // assigned to the type on commit (see collectImportedTeacherAssignments).
+    const assignOnCommit = !assigned && (newTeacherIds.has(teacherId) || teacherEarningRaw !== null);
+    const assignmentIncompatible = !assigned && !assignOnCommit;
+    if (assignOnCommit) {
+      issues.push(`'${teacherRes!.teacher!.fullName}' öğretmeni '${eduType!.name}' eğitim türüne tanımlanacak`);
+    } else if (assignmentIncompatible) {
       issues.push(
         `'${teacherRes!.teacher!.fullName}' adlı öğretmen '${eduType!.name}' eğitim türünü vermek üzere tanımlanmamış`
       );
@@ -775,14 +832,19 @@ export function buildStagedSessionRows(
     const startsAt = `${dateStr}T${timeStr}:00`;
     const sessionCount = iCount >= 0 ? Math.max(1, parseCellAsNumber(raw[iCount]) ?? 1) : 1;
     const studentPrice = priceRaw ?? priceFromType!;
-    const teacherEarningRaw = iEarning >= 0 ? parseCellAsNumber(raw[iEarning]) : null;
     // No status in the file: a lesson already past was held, a future one is planned.
     const defaultStatus: SessionStatus = new Date(startsAt).getTime() < Date.now() ? "completed" : "planned";
-    const { status, recognized } =
+    const resolved =
       iStatus >= 0 && cellAt(raw, iStatus) ? resolveSessionStatusValue(cellAt(raw, iStatus)) : { status: defaultStatus, recognized: true };
+    // An unreadable status falls back to the date rule, same as an empty cell —
+    // a past lesson left "planned" would be auto-completed (and billed) anyway,
+    // so say so plainly instead of promising "Planlandı".
+    const status = resolved.recognized ? resolved.status : defaultStatus;
 
-    if (iStatus >= 0 && !recognized) {
-      issues.push(`Bilinmeyen durum değeri: '${cellAt(raw, iStatus)}' → Planlandı olarak içe aktarılacak`);
+    if (iStatus >= 0 && !resolved.recognized) {
+      issues.push(
+        `Bilinmeyen durum değeri: '${cellAt(raw, iStatus)}' → ${status === "completed" ? "Tamamlandı (ücretli)" : "Planlandı"} olarak içe aktarılacak; gerekirse düzeltin`
+      );
     }
 
     // Exact duplicate (already exists — same student+teacher+educationType+instant).
@@ -818,7 +880,7 @@ export function buildStagedSessionRows(
     // An incompatible teacher/education-type pair always forces this, even if the
     // sheet supplied an explicit hakediş value — that value can't be trusted for
     // a pairing the teacher was never actually assigned to.
-    const calculatedTeacherEarning = assignmentIncompatible
+    const calculatedTeacherEarning = assignmentIncompatible || assignOnCommit
       ? null
       : calculateTeacherSessionEarning(teacherRes!.teacher!, educationTypeId, studentPrice, teacherEducationTypeAssignments);
     const teacherEarningUnknown =
@@ -826,8 +888,8 @@ export function buildStagedSessionRows(
     const teacherEarning = assignmentIncompatible ? 0 : teacherEarningRaw ?? calculatedTeacherEarning ?? 0;
 
     const session: Session = {
-      id: newId("session", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("session"),
+      tenantId: TENANT_ID,
       studentId,
       teacherId,
       educationTypeId,
@@ -920,8 +982,8 @@ export function buildStagedPaymentRows(
     }
 
     const payment: Payment = {
-      id: newId("payment", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("payment"),
+      tenantId: TENANT_ID,
       studentId,
       amount: amount!,
       method,
@@ -1002,8 +1064,8 @@ export function buildStagedTeacherPaymentRows(
     }
 
     const teacherPayment: TeacherPayment = {
-      id: newId("tpayment", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("tpayment"),
+      tenantId: TENANT_ID,
       teacherId,
       amount: amount!,
       method,
@@ -1100,8 +1162,8 @@ export function buildStagedOpeningBalanceRows(
     const guardianMatch = guardianName ? matchGuardian(guardianName, undefined, guardianIndex) : null;
 
     const balance: OpeningBalance = {
-      id: newId("obal", rowNumber),
-      tenantId: "tenant-1",
+      id: newId("obal"),
+      tenantId: TENANT_ID,
       studentId,
       guardianId: guardianMatch?.guardian?.id,
       amount: amount!,
@@ -1183,7 +1245,8 @@ function stageMultiImportTask(
   snapshot: ImportStoreSnapshot,
   mode: ImportMode,
   educationTypes: EducationType[],
-  allowGuardianAutoCreate: boolean
+  allowGuardianAutoCreate: boolean,
+  newTeacherIds: ReadonlySet<string>
 ): StagedRow[] {
   switch (task.type) {
     case "students":
@@ -1201,7 +1264,8 @@ function stageMultiImportTask(
         snapshot.students,
         snapshot.teachers,
         educationTypes,
-        snapshot.teacherEducationTypeAssignments ?? []
+        snapshot.teacherEducationTypeAssignments ?? [],
+        newTeacherIds
       );
     case "payments":
       return buildStagedPaymentRows(task.sheet, task.mapping, snapshot.payments, snapshot.students);
@@ -1235,8 +1299,8 @@ function appendCommittableRecordsToSnapshot(snapshot: ImportStoreSnapshot, rows:
  * before staging the next task. This is what lets a Student row reference a Guardian
  * that only exists earlier in the SAME upload — no separate guardian import required.
  *
- * When "guardians" isn't one of the selected tasks, student rows never fabricate a new
- * Guardian for an unmatched name — they leave the guardian slot empty with a warning.
+ * A student row whose guardian isn't found creates that guardian from the row's own
+ * name/phone columns.
  */
 export function buildMultiImportPreview(
   tasks: MultiImportTaskInput[],
@@ -1245,7 +1309,10 @@ export function buildMultiImportPreview(
   educationTypes: EducationType[]
 ): MultiImportTaskResult[] {
   const orderedTasks = sortByDependencyOrder(tasks, (t) => t.type);
-  const allowGuardianAutoCreate = orderedTasks.some((t) => t.type === "guardians");
+  // A student list's own "Veli Adı / Veli Telefon" columns create the guardian
+  // even without a separate guardians sheet — every student needs one, and
+  // dropping what the file says would leave it blank.
+  const allowGuardianAutoCreate = true;
 
   const snapshot: ImportStoreSnapshot = {
     students: [...store.students],
@@ -1258,9 +1325,11 @@ export function buildMultiImportPreview(
     teacherEducationTypeAssignments: store.teacherEducationTypeAssignments ? [...store.teacherEducationTypeAssignments] : [],
   };
 
+  const existingTeacherIds = new Set(store.teachers.map((t) => t.id));
   const results: MultiImportTaskResult[] = [];
   for (const task of orderedTasks) {
-    const rows = stageMultiImportTask(task, snapshot, mode, educationTypes, allowGuardianAutoCreate);
+    const newTeacherIds = new Set(snapshot.teachers.filter((t) => !existingTeacherIds.has(t.id)).map((t) => t.id));
+    const rows = stageMultiImportTask(task, snapshot, mode, educationTypes, allowGuardianAutoCreate, newTeacherIds);
     results.push({ type: task.type, sheet: task.sheet, rows });
     appendCommittableRecordsToSnapshot(snapshot, rows);
   }
@@ -1386,6 +1455,35 @@ export function buildCreationBreakdown(rows: StagedRow[]): Record<ImportEntityTy
   }
 
   return counts;
+}
+
+/** Teacher ↔ education type pairs the committed lessons use but that have no
+ *  assignment yet (see `assignOnCommit` in buildStagedSessionRows). Each pair's
+ *  earning is the amount its lessons carry when they all agree, otherwise left
+ *  for the user to fill in (null) — never a guess. */
+export function collectImportedTeacherAssignments(
+  rowSets: { rows: StagedRow[] }[],
+  existing: TeacherEducationTypeAssignment[]
+): { teacherId: string; educationTypeId: string; earningAmount: number | null }[] {
+  const amounts = new Map<string, Set<number | null>>();
+  for (const { rows } of rowSets) {
+    for (const row of rows) {
+      if (!row.preview.include || (row.preview.status !== "valid" && row.preview.status !== "warning")) continue;
+      for (const staged of row.staged) {
+        if (staged.kind !== "sessions") continue;
+        const s = staged.record;
+        if (isTeacherAssignedToEducationType(s.teacherId, s.educationTypeId, existing)) continue;
+        const key = `${s.teacherId}\u0000${s.educationTypeId}`;
+        if (!amounts.has(key)) amounts.set(key, new Set());
+        amounts.get(key)!.add(s.teacherEarningStatus === "unknown" ? null : s.teacherEarning);
+      }
+    }
+  }
+  return [...amounts].map(([key, values]) => {
+    const [teacherId, educationTypeId] = key.split("\u0000") as [string, string];
+    const only = values.size === 1 ? [...values][0]! : null;
+    return { teacherId, educationTypeId, earningAmount: only };
+  });
 }
 
 interface CommitStore {
@@ -1521,7 +1619,7 @@ export function commitImportBatch(
   store: CommitStore,
   meta: CommitBatchMeta
 ): { result: ImportResult; batch: ImportBatch } {
-  const batchId = newId("batch", 0);
+  const batchId = newId("batch");
   const entityIds = emptyImportBatchEntityIds();
   const result = commitRowsIntoBatch(rows, store, batchId, entityIds);
   const summary = buildImportSummary(rows);
@@ -1529,7 +1627,7 @@ export function commitImportBatch(
 
   const batch: ImportBatch = {
     id: batchId,
-    tenantId: "tenant-1",
+    tenantId: TENANT_ID,
     fileName: meta.fileName,
     importedAt: new Date().toISOString(),
     importMode: meta.importMode,
@@ -1560,7 +1658,7 @@ export function commitMultiImportBatch(
     devirDate?: string;
   }
 ): { result: ImportResult; batch: ImportBatch } {
-  const batchId = newId("batch", 0);
+  const batchId = newId("batch");
   const entityIds = emptyImportBatchEntityIds();
 
   let result: ImportResult = { imported: 0, skippedDuplicates: 0, skippedErrors: 0, warnings: 0 };
@@ -1614,7 +1712,7 @@ export function commitMultiImportBatch(
 
   const batch: ImportBatch = {
     id: batchId,
-    tenantId: "tenant-1",
+    tenantId: TENANT_ID,
     fileName: meta.fileName,
     importedAt: new Date().toISOString(),
     importMode: meta.importMode,

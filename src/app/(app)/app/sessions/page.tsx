@@ -23,7 +23,7 @@ import { DataTable, type Column } from "@/components/shared/DataTable";
 import { DonutChart, type DonutSegment } from "@/components/shared/DonutChart";
 import { SessionFormDrawer } from "@/components/sessions/SessionFormDrawer";
 import { WeeklyPlanFormDrawer } from "@/components/sessions/WeeklyPlanFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildSessionListItems,
   buildSessionPageStats,
@@ -88,7 +88,7 @@ const columns: Column<SessionListItem>[] = [
     key: "educationType",
     header: "Eğitim Türü",
     render: (row) => (
-      <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+      <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
         {row.educationTypeName}
       </span>
     ),
@@ -133,7 +133,7 @@ const columns: Column<SessionListItem>[] = [
     header: "Öğretmen Hakedişi",
     render: (row) =>
       row.teacherEarningStatus === "unknown" ? (
-        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 float-right">
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 float-right">
           Hakediş bekliyor
         </span>
       ) : (
@@ -207,7 +207,7 @@ export default function SessionsPage() {
 }
 
 function SessionsPageContent() {
-  const store = useMockStore();
+  const store = useStore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -435,7 +435,7 @@ function SessionsPageContent() {
 
         {/* Status breakdown donut */}
         <div className="rounded-lg border border-border bg-card px-4 py-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {thisMonthLabel} Dağılımı
           </p>
           <DonutChart segments={statusDonutSegments} centerUnitLabel="Seans" />
@@ -447,17 +447,17 @@ function SessionsPageContent() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1 max-w-xs">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-              <Input
+              <Input aria-label="Seans ara"
                 placeholder="Öğrenci, öğretmen veya eğitim türü ara…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-8 h-9 text-sm"
               />
             </div>
-            <select
+            <select aria-label="Aya göre filtrele"
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {monthOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -487,10 +487,10 @@ function SessionsPageContent() {
 
           {/* Row 3: entity dropdowns */}
           <div className="flex flex-wrap gap-2">
-            <select
+            <select aria-label="Öğretmene göre filtrele"
               value={teacherFilter}
               onChange={(e) => setTeacherFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="all">Tüm Öğretmenler</option>
               {store.teachers.map((t) => (
@@ -499,10 +499,10 @@ function SessionsPageContent() {
                 </option>
               ))}
             </select>
-            <select
+            <select aria-label="Öğrenciye göre filtrele"
               value={studentFilter}
               onChange={(e) => setStudentFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="all">Tüm Öğrenciler</option>
               {store.students.map((s) => (
@@ -511,10 +511,10 @@ function SessionsPageContent() {
                 </option>
               ))}
             </select>
-            <select
+            <select aria-label="Eğitim türüne göre filtrele"
               value={edTypeFilter}
               onChange={(e) => setEdTypeFilter(e.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="all">Tüm Eğitim Türleri</option>
               {store.educationTypes.map((et) => (

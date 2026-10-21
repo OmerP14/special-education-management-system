@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
@@ -46,6 +46,7 @@ import {
 import { SessionConflictError } from "@/components/sessions/SessionConflictError";
 import type { Session, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
+import { createId, TENANT_ID } from "@/lib/data/ids";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ export function SessionFormDrawer({
   initialData,
   preselectedStudentId,
 }: SessionFormDrawerProps) {
-  const store = useMockStore();
+  const store = useStore();
   const isEditing = !!initialData;
 
   const buildInitial = (): FormState => {
@@ -355,8 +356,8 @@ export function SessionFormDrawer({
     if (scheduleIssues.length > 0 && !scheduleAcknowledged) return;
     if (lateCancellation && !lateCancelAcknowledged) return;
 
-    const tenantId = initialData?.tenantId ?? "tenant-1";
-    const id = initialData?.id ?? `session-${Date.now()}`;
+    const tenantId = initialData?.tenantId ?? TENANT_ID;
+    const id = initialData?.id ?? createId("session");
     const dateStr = startsAt!;
 
     const session: Session = {
@@ -548,7 +549,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Öğrenci</Label>
           <Select value={form.studentId} onValueChange={(val) => { if (val) set("studentId", val); }}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Öğrenci" className="w-full">
               <SelectValue className={!form.studentId ? "text-muted-foreground" : ""}>
                 {studentDisplayName ?? "Öğrenci seçin"}
               </SelectValue>
@@ -558,7 +559,7 @@ export function SessionFormDrawer({
                 <SelectItem key={s.id} value={s.id}>
                   {s.fullName}
                   {s.status === "on_hold" && (
-                    <span className="ml-1.5 text-[11px] text-amber-500">· Beklemede</span>
+                    <span className="ml-1.5 text-xs text-amber-500">· Beklemede</span>
                   )}
                 </SelectItem>
               ))}
@@ -573,7 +574,7 @@ export function SessionFormDrawer({
               <User className="h-3.5 w-3.5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Bağlı Veli</p>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Bağlı Veli</p>
               <Link
                 href={`/app/guardians/${connectedGuardian.id}`}
                 className="text-sm font-medium text-foreground hover:text-primary transition-colors"
@@ -592,7 +593,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Öğretmen</Label>
           <Select value={form.teacherId} onValueChange={(val) => { if (val) handleTeacherChange(val); }}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Öğretmen" className="w-full">
               <SelectValue className={!form.teacherId ? "text-muted-foreground" : ""}>
                 {teacherDisplayName ?? "Öğretmen seçin"}
               </SelectValue>
@@ -607,7 +608,7 @@ export function SessionFormDrawer({
                   <SelectItem key={t.id} value={t.id}>
                     {t.fullName}
                     {t.status === "inactive" && (
-                      <span className="ml-1.5 text-[11px] text-muted-foreground">· Pasif</span>
+                      <span className="ml-1.5 text-xs text-muted-foreground">· Pasif</span>
                     )}
                   </SelectItem>
                 ))
@@ -623,7 +624,7 @@ export function SessionFormDrawer({
         <div className="space-y-1.5">
           <Label>Eğitim Türü</Label>
           <Select value={form.educationTypeId} onValueChange={(val) => { if (val) handleEducationTypeChange(val); }}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger aria-label="Eğitim türü" className="w-full">
               <SelectValue className={!form.educationTypeId ? "text-muted-foreground" : ""}>
                 {educationTypeDisplayName ?? "Eğitim türü seçin"}
               </SelectValue>
@@ -793,12 +794,12 @@ export function SessionFormDrawer({
             <Label htmlFor="teacher-earning" className="flex items-center gap-1.5">
               Öğretmen Hakedişi ({getCurrencySymbol()})
               {hasCustomPrice && !manualEarningMode && (
-                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary leading-none">
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary leading-none">
                   Özel
                 </span>
               )}
               {manualEarningMode && (
-                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-400 leading-none">
+                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 leading-none">
                   Manuel
                 </span>
               )}
@@ -899,7 +900,7 @@ export function SessionFormDrawer({
           <div className="space-y-1.5">
             <Label>Durum</Label>
             <Select value={form.status} onValueChange={(val) => handleStatusChange(val as SessionStatus)}>
-              <SelectTrigger className="w-full">
+              <SelectTrigger aria-label="Durum" className="w-full">
                 <SelectValue>{statusDisplayLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>

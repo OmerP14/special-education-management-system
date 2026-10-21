@@ -91,7 +91,7 @@ export function DonutChart({
           ) : (
             <>
               <span className="text-2xl font-semibold text-foreground">{total}</span>
-              <span className="text-[11px] text-muted-foreground">{centerUnitLabel}</span>
+              <span className="text-xs text-muted-foreground">{centerUnitLabel}</span>
             </>
           )}
         </div>

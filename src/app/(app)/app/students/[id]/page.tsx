@@ -1,12 +1,12 @@
 import { StudentDetailView } from "@/components/students/StudentDetailView";
-import { mockStudents } from "@/lib/mock/students";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
 export function generateStaticParams() {
-  return mockStudents.map((s) => ({ id: s.id }));
+  // Records live in the browser, so every detail page renders on first visit.
+  return [];
 }
 
 export default async function StudentDetailPage({ params }: Props) {

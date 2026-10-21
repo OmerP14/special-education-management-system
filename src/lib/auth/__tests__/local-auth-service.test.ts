@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createLocalAuthService } from "@/lib/auth/local-auth-service";
 import { hashPassword, validatePasswordPolicy, verifyPassword } from "@/lib/auth/password";
 import { MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-policy";
-import { mockAccount, mockCredential } from "@/lib/mock/account";
-import type { AuditLogEntry } from "@/types/settings";
+import { seedAccount, seedCredential } from "@/lib/data/seed-account";
 import type { Account, AuthSession, Credential } from "@/types/auth";
 
 // A tiny in-memory stand-in for the mock store. Each "device" has its own
@@ -16,7 +15,6 @@ interface Db {
   account: Account;
   credential: Credential;
   sessions: Record<string, AuthSession | null>;
-  audit: Omit<AuditLogEntry, "id" | "tenantId" | "occurredAt">[];
 }
 
 let db: Db;
@@ -29,7 +27,6 @@ function service(device = "laptop") {
     saveAccountState: (a) => (db.account = a),
     setCredential: (c) => (db.credential = c),
     setAuthSession: (s) => (db.sessions[device] = s),
-    logAuditEvent: (e) => db.audit.push(e),
   });
 }
 
@@ -39,14 +36,13 @@ beforeEach(async () => {
     account: { username: "admin", name: "Yönetici" },
     credential: { salt, hash, updatedAt: "2026-01-01T00:00:00.000Z" },
     sessions: {},
-    audit: [],
   };
 });
 
 describe("seed account", () => {
   it("signs in as admin with password 1", async () => {
-    expect(mockAccount.username).toBe("admin");
-    expect(await verifyPassword("1", mockCredential)).toBe(true);
+    expect(seedAccount.username).toBe("admin");
+    expect(await verifyPassword("1", seedCredential)).toBe(true);
   });
 });
 

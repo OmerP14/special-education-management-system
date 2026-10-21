@@ -1,7 +1,0 @@
-Kullanıcı adı: admin
-Şifre: 1
-
-Sistemde tek bir kurum hesabı var, tam yetkili. Birden fazla kişi aynı anda,
-farklı cihazlardan bu hesapla girebilir. Kullanıcı adı, görünen ad ve şifre
-Profil sayfasından değiştirilir. Şifre değişince diğer cihazlardaki oturumlar
-kapanır.

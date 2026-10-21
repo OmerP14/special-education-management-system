@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { InstitutionProfileSettings } from "@/types/settings";
 
 function InstitutionSettingsContent() {
-  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel, resetToDefaults, metadata } =
+  const { draft, setDraft, isDirty, errors, savedMessage, save, cancel } =
     useSettingsSection("institution");
 
   const set = <K extends keyof InstitutionProfileSettings>(key: K, value: InstitutionProfileSettings[K]) =>
@@ -27,14 +27,12 @@ function InstitutionSettingsContent() {
   return (
     <SettingsFormSection
       title="Kurum Bilgileri"
-      description="Kurum adı ve logo, sidebar ve belgelerde otomatik olarak kullanılır."
+      description="Kurumun adı ve logosu menüde, makbuzlarda ve raporlarda görünür."
       isDirty={isDirty}
       errors={errors}
       savedMessage={savedMessage}
-      metadata={metadata}
       onSave={save}
       onCancel={cancel}
-      onReset={resetToDefaults}
     >
       {/* Logo */}
       <div className="flex items-center gap-4">
@@ -47,10 +45,10 @@ function InstitutionSettingsContent() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-muted">
-            <Upload className="h-3.5 w-3.5" />
+          <label className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-muted focus-within:ring-2 focus-within:ring-ring">
+            <Upload className="h-4 w-4" aria-hidden />
             Logo Yükle
-            <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+            <input type="file" accept="image/*" className="sr-only" onChange={handleLogoUpload} />
           </label>
           {draft.logoUrl && (
             <Button variant="ghost" size="sm" onClick={() => set("logoUrl", null)} className="gap-1.5">
@@ -63,7 +61,7 @@ function InstitutionSettingsContent() {
 
       {/* Identity */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <SettingsField label="Kurum Adı" required error={errors.name} description="Menüde ve belgelerde görünür.">
+        <SettingsField label="Kurum Adı" required error={errors.name}>
           <Input value={draft.name} onChange={(e) => set("name", e.target.value)} aria-invalid={!!errors.name} />
         </SettingsField>
       </div>

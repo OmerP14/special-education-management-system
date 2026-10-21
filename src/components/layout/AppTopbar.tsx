@@ -15,7 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/components/ui/sidebar";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import { formatTime, formatDate } from "@/lib/helpers/finance";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,7 @@ interface AppTopbarProps {
 // profile only. No breadcrumb, no title, no bottom divider (see task: the
 // sidebar's active item is already enough wayfinding).
 export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
-  const store = useMockStore();
+  const store = useStore();
   const { user, signOut } = useAuth();
   const notifications = store.notifications;
   const markAllNotificationsRead = () =>
@@ -93,6 +93,7 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
         {/* ── Notification bell ──────────────────────────────────────────────── */}
         <DropdownMenu onOpenChange={(open) => { if (open && hasUnread) markAllNotificationsRead(); }}>
           <DropdownMenuTrigger
+            aria-label={hasUnread ? `Bildirimler, ${unreadCount} okunmamış` : "Bildirimler"}
             className="relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell className="h-4 w-4" />
@@ -112,7 +113,7 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
               <DropdownMenuLabel className="flex items-center justify-between font-semibold text-foreground text-sm">
                 Bildirimler
                 {hasUnread && (
-                  <span className="text-[11px] font-normal text-muted-foreground">
+                  <span className="text-xs font-normal text-muted-foreground">
                     {unreadCount} okunmadı
                   </span>
                 )}
@@ -180,8 +181,8 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
                     >
                       {n.title}
                     </p>
-                    {n.message && <p className="text-[11px] text-muted-foreground mt-0.5">{n.message}</p>}
-                    <p className="text-[10px] text-muted-foreground/70">
+                    {n.message && <p className="text-xs text-muted-foreground mt-0.5">{n.message}</p>}
+                    <p className="text-xs text-muted-foreground/70">
                       {formatDate(n.createdAt)} {formatTime(n.createdAt)}
                     </p>
                   </div>

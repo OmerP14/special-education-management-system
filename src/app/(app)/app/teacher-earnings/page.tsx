@@ -17,7 +17,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { TeacherPaymentFormDrawer } from "@/components/teachers/TeacherPaymentFormDrawer";
-import { useMockStore } from "@/lib/mock/store";
+import { useStore } from "@/lib/data/store";
 import {
   buildTeacherEarningListItems,
   buildTeacherEarningOverviewItems,
@@ -83,7 +83,7 @@ const columns: Column<TeacherEarningListItem>[] = [
     key: "educationType",
     header: "Eğitim Türü",
     render: (row) => (
-      <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">
+      <span className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary">
         {row.educationTypeName}
       </span>
     ),
@@ -117,7 +117,7 @@ const columns: Column<TeacherEarningListItem>[] = [
     header: "Toplam Hakediş",
     render: (row) =>
       row.teacherEarningStatus === "unknown" ? (
-        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 float-right">
+        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 float-right">
           Hakediş bekliyor
         </span>
       ) : (
@@ -207,7 +207,7 @@ function monthLabel(key: string): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TeacherEarningsPage() {
-  const store = useMockStore();
+  const store = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<EarningStatus | "all">("all");
   const [teacherFilter, setTeacherFilter] = useState("all");
@@ -399,13 +399,13 @@ export default function TeacherEarningsPage() {
                       {item.earningCount} hakediş kaydı
                     </p>
                     {item.unknownSessionCount > 0 && (
-                      <p className="text-[11px] text-amber-600">
+                      <p className="text-xs text-amber-600">
                         Hakediş ayarı bekleniyor — {item.unknownSessionCount} seans
                       </p>
                     )}
                     <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                       <div
-                        className={cn("h-full rounded-full transition-all", barClass)}
+                        className={cn("h-full rounded-full transition-[width]", barClass)}
                         style={{ width: `${Math.max(pct, pct > 0 ? 3 : 0)}%` }}
                       />
                     </div>
@@ -420,7 +420,7 @@ export default function TeacherEarningsPage() {
                     <span className="text-xs text-muted-foreground">
                       Bilinen Hakediş: {formatCurrency(item.totalEarning)}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">{pct}% ödendi</span>
+                    <span className="text-xs text-muted-foreground">{pct}% ödendi</span>
                   </div>
 
                   {/* Pending + action */}
@@ -430,13 +430,13 @@ export default function TeacherEarningsPage() {
                         {formatCurrency(item.pendingEarning)}
                       </span>
                     ) : item.unknownSessionCount > 0 ? (
-                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         Hakediş bekliyor
                       </span>
                     ) : (
                       <span className="text-xs text-emerald-600 font-medium">Tamamı ödendi</span>
                     )}
-                    <span className="text-[10px] text-muted-foreground">bekliyor</span>
+                    <span className="text-xs text-muted-foreground">bekliyor</span>
                   </div>
                   {item.pendingEarning > 0 && (
                     <Button
@@ -463,6 +463,7 @@ export default function TeacherEarningsPage() {
               {thisMonthLabel} — Öğretmen Bazlı Özet
             </p>
           </div>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/40 border-b border-border">
@@ -501,7 +502,7 @@ export default function TeacherEarningsPage() {
                         {row.teacherName}
                       </Link>
                       {row.earningType && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5">
                           {row.earningType === "per_session" && "Seans Başı"}
                           {row.earningType === "monthly_salary" && "Sabit Maaş"}
                           {row.earningType === "salary_plus_quota" && "Sabit Maaş + Kota Üstü"}
@@ -515,7 +516,7 @@ export default function TeacherEarningsPage() {
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">
                       {formatCurrency(row.totalEarning)}
                       {row.unknownSessionCount > 0 && (
-                        <p className="text-[10px] font-normal text-amber-600">
+                        <p className="text-xs font-normal text-amber-600">
                           Hakediş ayarı bekleniyor — {row.unknownSessionCount} seans
                         </p>
                       )}
@@ -569,6 +570,7 @@ export default function TeacherEarningsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -578,17 +580,17 @@ export default function TeacherEarningsPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
+            <Input aria-label="Hakediş ara"
               placeholder="Öğretmen, öğrenci veya eğitim türü ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-9 text-sm"
             />
           </div>
-          <select
+          <select aria-label="Aya göre filtrele"
             value={monthFilter}
             onChange={(e) => setMonthFilter(e.target.value)}
-            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {monthOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -618,10 +620,10 @@ export default function TeacherEarningsPage() {
 
         {/* Row 3: entity dropdowns + clear */}
         <div className="flex flex-wrap gap-2">
-          <select
+          <select aria-label="Öğretmene göre filtrele"
             value={teacherFilter}
             onChange={(e) => setTeacherFilter(e.target.value)}
-            className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="all">Tüm Öğretmenler</option>
             {store.teachers.map((t) => (
@@ -630,10 +632,10 @@ export default function TeacherEarningsPage() {
               </option>
             ))}
           </select>
-          <select
+          <select aria-label="Eğitim türüne göre filtrele"
             value={edTypeFilter}
             onChange={(e) => setEdTypeFilter(e.target.value)}
-            className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="all">Tüm Eğitim Türleri</option>
             {store.educationTypes.map((et) => (

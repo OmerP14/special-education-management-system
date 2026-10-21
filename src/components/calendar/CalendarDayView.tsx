@@ -82,8 +82,8 @@ function EventBlock({
       style={{ top, height, ...position, ...appearance.style }}
       className={cn(
         "absolute rounded-xl pl-2 pr-2.5 py-1.5 text-left overflow-hidden z-0",
-        "transition-all duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
-        "focus:outline-none focus:ring-2 focus:ring-primary/50",
+        "transition-[transform,box-shadow] duration-200 ease-out hover:z-10 hover:shadow-md hover:scale-[1.015]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         appearance.className
       )}
     >
@@ -101,7 +101,7 @@ function EventBlock({
         <p className="text-xs opacity-70 leading-tight mt-0.5 truncate">{event.teacherName}</p>
       )}
       {height > 68 && (
-        <p className="text-[10px] opacity-60 leading-tight mt-0.5 truncate">
+        <p className="text-xs opacity-60 leading-tight mt-0.5 truncate">
           {event.educationTypeName}
         </p>
       )}
@@ -175,7 +175,7 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
         >
           {dateLabel}
           {isToday && (
-            <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+            <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-primary">
               Bugün
             </span>
           )}
@@ -206,14 +206,14 @@ export function CalendarDayView({ date, events, onEventClick, hourStart, hourEnd
                 style={{ height: HOUR_HEIGHT }}
                 className="flex items-start justify-end pr-3 border-b border-border/40"
               >
-                <span className="text-[10px] text-muted-foreground tabular-nums -mt-2">
+                <span className="text-xs text-muted-foreground tabular-nums -mt-2">
                   {formatHourLabel(h)}
                 </span>
               </div>
             ))}
             {/* Closing label — marks where the visible range ends */}
             <div style={{ height: END_LABEL_HEIGHT }} className="flex items-start justify-end pr-3">
-              <span className="text-[10px] text-muted-foreground tabular-nums -mt-2">
+              <span className="text-xs text-muted-foreground tabular-nums -mt-2">
                 {formatHourLabel(hourEnd)}
               </span>
             </div>

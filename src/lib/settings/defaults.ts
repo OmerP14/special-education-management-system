@@ -1,4 +1,4 @@
-import type { InstitutionSettings } from "@/types/settings";
+import type { InstitutionSettings, InstitutionSettingsKey } from "@/types/settings";
 import { normalizeBreakMinutes } from "@/lib/helpers/scheduling-rules";
 
 // The one place every default value lives — getSettingsDefaults() and every
@@ -21,7 +21,7 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     autoCompleteDelayMinutes: 60,
     cancellationMinNoticeHours: 24,
     allowPastDateSessions: true,
-    allowEditingCompletedSessions: false,
+    allowEditingCompletedSessions: true,
     makeupSessionBehavior: "billable",
   },
   calendar: {
@@ -68,16 +68,44 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
     requireHealthInfo: false,
     requireEmergencyContact: false,
   },
-  appearance: {
-    theme: "light",
-    defaultLandingPage: "dashboard",
-  },
   dataManagement: {
     lastBackupAt: null,
     backupCount: 0,
     autoBackupEnabled: true,
   },
   metadata: {},
+};
+
+/** Options taken off the Ayarlar screens so they stay simple for
+ *  non-technical users. They always run on these values — whatever an older
+ *  version or a backup file saved — so what the screens show is the whole
+ *  story. Must match DEFAULT_INSTITUTION_SETTINGS above. */
+export const FIXED_SETTINGS: { [K in InstitutionSettingsKey]?: Partial<InstitutionSettings[K]> } = {
+  sessions: {
+    autoCompleteEnabled: true,
+    autoCompleteDelayMinutes: 60,
+    cancellationMinNoticeHours: 24,
+    allowPastDateSessions: true,
+    // Sessions auto-complete an hour after they end, so a completed session
+    // must stay editable — otherwise a missed "Gelmedi" could never be fixed.
+    allowEditingCompletedSessions: true,
+  },
+  teacherEarnings: {
+    availableEarningTypes: ["per_session", "monthly_salary", "salary_plus_quota", "percentage"],
+    defaultEarningType: "per_session",
+    earningTriggerMoment: "on_completion",
+    allowDeductions: true,
+    allowAdvances: true,
+    preventOverpayment: true,
+    earningRoundingRule: "none",
+    payPeriodStartDay: 1,
+    defaultQuota: 20,
+    postQuotaBehavior: "extra_rate",
+    allowHistoricalRecalculation: false,
+    warnOnMissingEarningConfig: true,
+  },
+  students: DEFAULT_INSTITUTION_SETTINGS.students,
+  dataManagement: { autoBackupEnabled: true },
 };
 
 /** Returns a fresh (never-shared) copy of the defaults, whole or for one
@@ -125,10 +153,9 @@ export function normalizeInstitutionSettings(raw: unknown): InstitutionSettings 
   if (typeof savedBreak === "number") defaults.sessions.breakMinutes = savedBreak;
   defaults.sessions.breakMinutes = normalizeBreakMinutes(defaults.sessions.breakMinutes);
 
-  // Old "darkModeReady" flag maps onto the real theme switch.
-  const oldAppearance = source.appearance as { darkModeReady?: unknown } | undefined;
-  if (oldAppearance?.darkModeReady === true && !("theme" in (oldAppearance as object))) {
-    defaults.appearance.theme = "dark";
+  for (const key of Object.keys(FIXED_SETTINGS) as InstitutionSettingsKey[]) {
+    Object.assign(defaults[key], structuredClone(FIXED_SETTINGS[key]));
   }
+
   return defaults;
 }

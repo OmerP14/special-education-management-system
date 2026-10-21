@@ -1,5 +1,5 @@
 import { PASSWORD_MIN_LENGTH, PASSWORD_RULES_TEXT } from "@/lib/auth/security-policy";
-// ─── Mock-only password hashing ─────────────────────────────────────────────
+// ─── Browser-only password hashing ──────────────────────────────────────────
 //
 // SHA-256 via the browser's native Web Crypto API — no npm dependency. This
 // is NOT how a real backend should ever hash passwords (no bcrypt/argon2,

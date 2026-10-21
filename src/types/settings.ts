@@ -14,8 +14,8 @@ import type { PaymentMethod, StudentStatus } from "@/types";
 
 // ─── Section keys ───────────────────────────────────────────────────────────
 // Every settings nav entry, including ones with no literal InstitutionSettings
-// sub-object (educationTypes/data/audit are their own store domains or pure
-// action/log screens, but still need a nav entry + status).
+// sub-object (educationTypes/data are their own store domain or a pure
+// action screen, but still need a nav entry + status).
 
 export type SettingsSectionKey =
   | "institution"
@@ -24,11 +24,7 @@ export type SettingsSectionKey =
   | "calendar"
   | "finance"
   | "teacherEarnings"
-  | "students"
-  | "data"
-  | "appearance"
-  | "security"
-  | "audit";
+  | "data";
 
 export type SettingsSectionStatus = "complete" | "incomplete" | "attention";
 
@@ -148,21 +144,12 @@ export type NotificationEventKey =
   | "payment_received"
   | "teacher_payment_made";
 
-// ─── 8. Görünüm Ayarları ────────────────────────────────────────────
-
-export type ThemePreference = "light" | "dark" | "system";
-export type LandingPage = "dashboard" | "calendar" | "sessions";
-
-/** Colors, density, corner radius, animations and the sidebar's first state
- *  are fixed by the theme; only these two are choices. */
-export interface AppearanceSettings {
-  theme: ThemePreference;
-  defaultLandingPage: LandingPage;
-}
+// ─── 8. Görünüm ─────────────────────────────────────────────────────────────
+// Not a settings section: the app is always light and opens on the dashboard.
 
 // ─── 9. Güvenlik ve Sistem ────────────────────────────────────────────────────
 // Not a settings object: password policy, login lockout, session lifetime,
-// audit logging (always on) and confirmations are fixed system rules
+// and confirmations are fixed system rules
 // (lib/auth/security-policy.ts, components/shared/ConfirmProvider.tsx).
 
 // ─── 10. Excel ve Veri Yönetimi ──────────────────────────────────────────────
@@ -184,7 +171,7 @@ export interface SettingsSectionMetadataEntry {
 }
 
 // Keyed by the data-model field (InstitutionSettingsKey), not the nav
-// SettingsSectionKey — audit history references what data actually changed.
+// SettingsSectionKey.
 export type SettingsMetadataMap = Partial<
   Record<InstitutionSettingsKey, SettingsSectionMetadataEntry>
 >;
@@ -198,38 +185,13 @@ export interface InstitutionSettings {
   finance: FinanceSettings;
   teacherEarnings: TeacherEarningsSettings;
   students: StudentSettings;
-  appearance: AppearanceSettings;
   dataManagement: DataManagementSettings;
   metadata: SettingsMetadataMap;
 }
 
 /** The subset of SettingsSectionKey that maps to a literal InstitutionSettings
- *  field — excludes educationTypes/security/data/audit, which are their own
- *  store domains or pure action/log screens with no single settings object. */
+ *  field — excludes educationTypes/data, which are their own
+ *  store domain or pure action screens with no single settings object. */
 export type InstitutionSettingsKey = keyof Omit<InstitutionSettings, "metadata">;
 
-// ─── İşlem Geçmişi (audit log) ────────────────────────────────────────────────
-
-export type AuditModule =
-  | "settings"
-  | "education_types"
-  | "sessions"
-  | "payments"
-  | "teacher_earnings"
-  | "import"
-  | "users"
-  | "data"
-  | "auth";
-
-export interface AuditLogEntry {
-  id: string;
-  tenantId: string;
-  occurredAt: string;
-  userName: string;
-  action: string;
-  module: AuditModule;
-  recordLabel?: string;
-  oldValueSummary?: string;
-  newValueSummary?: string;
-}
 
