@@ -77,6 +77,11 @@ describe("fixed formats", () => {
     expect(csv).toBe('Ad;Tutar\r\n"Ali; Veli";1234.5');
   });
 
+  it("neutralises cells Excel would run as formulas, but keeps negative amounts", () => {
+    const csv = buildCsv(["A"], [["=HYPERLINK(\"x\")"], ["+1"], ["@SUM(A1)"], ["-cmd"], ["-1.250,00 ₺"], [-5]]).replace(/^﻿/, "");
+    expect(csv.split("\r\n").slice(1)).toEqual(['"\'=HYPERLINK(""x"")"', "'+1", "'@SUM(A1)", "'-cmd", "-1.250,00 ₺", "-5"]);
+  });
+
   it("formats document dates as GG.AA.YYYY", () => {
     expect(formatDateDMY("2026-03-07")).toBe("07.03.2026");
     expect(formatDateDMY("2026-03-07T10:00:00")).toBe("07.03.2026");

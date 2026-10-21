@@ -1,8 +1,9 @@
 import { getAuth } from "@/lib/server/auth-repo";
 import { clearSessionToken, readSessionToken } from "@/lib/server/session-cookie";
-import { serverError } from "@/lib/server/http";
+import { forbidden, isSameOrigin, serverError } from "@/lib/server/http";
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return forbidden();
   try {
     await (await getAuth()).signOut(await readSessionToken());
     await clearSessionToken();

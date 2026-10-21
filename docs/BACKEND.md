@@ -1,45 +1,32 @@
-# Backend'e Geçiş Rehberi
+# Sunucu (Backend) Rehberi
 
-Bu belge, sisteme sunucu tarafı (backend) ekleyecek geliştirici içindir. Uygulamanın verisi bugün kullanıcının tarayıcısında (localStorage) duruyor. Aşağıdakiler, bu veriyi bir sunucuya taşımak için gereken her şeyi anlatır.
+Bu belge sistemi geliştirecek kişi içindir. Site Vercel'de çalışır; giriş bilgileri ve kurumun bütün kayıtları **Neon Postgres** veritabanındadır. Bağlantı adresi `DATABASE_URL` ortam değişkenindedir (Vercel ↔ Neon entegrasyonu ayarlar; geliştirme için `npx vercel env pull .env.local`). Tablolar ilk istekte kendiliğinden oluşur.
 
-## 1. Bugünkü yapı
+## 1. Yapı
 
 | Katman | Dosya | Görevi |
 |---|---|---|
-| Veri kaynağı | `src/lib/data/source.ts` | Verinin **nerede** durduğu: `load`, `save`, `watch`. Sunucu bağlantısı yalnızca buraya yazılır. |
-| Tarayıcı deposu | `src/lib/data/persistence.ts` | Bugünkü `DataSource` uygulaması (localStorage, sekmeler arası koruma, otomatik yedek). |
-| Uygulama durumu | `src/lib/data/store.tsx` | Tüm kayıtlar ve onları değiştiren eylemler (`addStudent`, `updateSession`…). Sayfalar veriye yalnızca `useStore()` ile ulaşır. |
-| İş kuralları | `src/lib/helpers/*.ts` | Borç, öğretmen hakedişi, devir, Excel aktarımı, çakışma kontrolü. Saf fonksiyonlar, testli. |
-| Kimlik doğrulama | `src/lib/server/auth-core.ts`, `src/app/api/auth/*` | **Sunucuda (Neon Postgres).** Tarayıcı tarafı: `auth-service.ts` → `http-auth-service.ts`. |
-| Kimlik numaraları | `src/lib/data/ids.ts` | Tüm kayıt kimlikleri (`createId`) ve kurum kimliği (`TENANT_ID`). |
+| Veri kaynağı | `src/lib/data/source.ts` → `server-source.ts` | Verinin sunucuyla eşitlenmesi: `load`, `save`, `flush`, `watch`. |
+| Birleştirme | `src/lib/data/merge.ts` | İki cihaz aynı anda kaydedince değişiklikleri kayıt kayıt (`id` ile) birleştirir. Testli. |
+| Uygulama durumu | `src/lib/data/store.tsx` | Tüm kayıtlar ve onları değiştiren eylemler. Sayfalar veriye yalnızca `useStore()` ile ulaşır. Giriş yapılmadan yüklenmez. |
+| İş kuralları | `src/lib/helpers/*.ts` | Borç, öğretmen hakedişi, devir, Excel aktarımı, çakışma kontrolü. Tarayıcıda çalışır, testli. |
+| Kimlik doğrulama | `src/lib/server/auth-core.ts`, `src/app/api/auth/*`, `src/app/api/setup` | Hesap, şifre, oturum (bkz. Bölüm 5). |
+| Veri uç noktaları | `src/app/api/state`, `src/lib/server/state-repo.ts` | Kurumun verisi (aşağıda). |
+| Yedekler | `src/lib/data/persistence.ts`, `src/lib/backup/backup-folder.ts` | Yedek dosyası, tarayıcıda günlük otomatik yedek, klasöre yedek. |
 
-Uygulama açılırken `DataProvider` veriyi `dataSource.load()` ile **asenkron** yükler (bu sırada "Yükleniyor…" ekranı görünür), her değişiklikten sonra durumun tamamını `dataSource.save()` ile kaydeder. Kaydetme başarısız olursa üst bantta uyarı çıkar.
+## 2. Veri nasıl saklanıyor
 
-## 2. Önerilen yol
+**Bugün (Aşama 1):** Kurumun bütün verisi `app_state` tablosunda tek satırda, `jsonb` olarak durur; yanında bir `version` sayısı vardır.
 
-### Aşama 1 — Tek belge olarak sunucuda saklama (en hızlı, en az risk)
+- `GET /api/state` → `{ data, version }` (gzip). `GET /api/state/version` → yalnızca sürüm (cihazlar 8 saniyede bir sorar).
+- `PUT /api/state` gövdesi `{ data, baseVersion }` (gzip). Sürüm tutuyorsa kaydedilir ve sürüm bir artar. Tutmuyorsa `409` ile güncel veri döner; tarayıcı kendi değişikliklerini onun üstüne birleştirip (`merge.ts`) yeniden gönderir.
+- Gövdeler gzip'li gider gelir; Vercel'in 4,5 MB istek sınırına bu sayede uzun süre takılmaz.
+- Her istek oturum çerezi ister; veri değiştiren istekler yalnızca sitenin kendi sayfalarından kabul edilir (`isSameOrigin`).
+- Değişiklikler 0,4 sn bekletilip toplu gönderilir. Kaydedilemezse üstte uyarı çıkar, 5 sn'de bir yeniden denenir; gönderilmemiş değişiklik varken sekme kapatılırsa tarayıcı uyarır.
 
-Uygulamanın tüm iş kuralları tarayıcıda çalıştığı için sunucunun ilk aşamada hesap yapması gerekmez; sadece veriyi saklaması yeter.
+**Bilinen sınırlar:** İki cihaz aynı kaydı aynı anda düzenlerse sonra kaydedenin hali kalır. Makbuz ve öğrenci numaraları tarayıcıda verilir; iki cihaz aynı saniyede yeni kayıt açarsa aynı numara çıkabilir.
 
-1. Sunucuda iki uç nokta:
-   - `GET /api/state` → kayıtlı durumu döner (yoksa `null`).
-   - `PUT /api/state` → gövdedeki durumun tamamını kaydeder.
-2. `src/lib/data/source.ts` içine bir `serverDataSource` yazın ve `dataSource` sabitini ona çevirin:
-
-   ```ts
-   export const serverDataSource: DataSource = {
-     load: async () => (await fetch("/api/state")).json(),
-     save: async (state) => (await fetch("/api/state", { method: "PUT", body: JSON.stringify(state) })).ok,
-     watch: () => () => {},
-   };
-   export const dataSource: DataSource = serverDataSource;
-   ```
-3. **Eş zamanlı düzenleme:** Birden fazla kişi aynı anda çalışabilir. Her kayda bir sürüm numarası (veya `ETag`) ekleyin; `PUT` eski sürüme dayanıyorsa `409` dönün. `save` bu durumda `false` döndürsün, `watch` ise belirli aralıklarla sürümü kontrol edip yeni sürüm varsa sayfayı yenilesin. Bugünkü tarayıcı uygulaması (`watchOtherTabWrites`) aynı şeyi sekmeler arasında yapıyor.
-4. Kaydedilen durumda giriş bilgisi yoktur; hesap ve oturumlar ayrı tablolardadır (bkz. Bölüm 5). `/api/state` yalnızca oturum çereziyle çalışmalı.
-
-### Aşama 2 — Tablolara ayırma
-
-Veri büyüdükçe (binlerce ders) her değişiklikte tüm durumu göndermek ağırlaşır. O zaman her kayıt türü ayrı tabloya ve ayrı uç noktalara ayrılır; `store.tsx` içindeki eylemler (`addSession`, `updatePayment`…) ilgili uç noktayı çağırır.
+**Aşama 2 (ileride):** Veri çok büyüyünce (on binlerce ders) her kayıt türü ayrı tabloya ve ayrı uç noktalara ayrılır; numaralar veritabanı dizisinden verilir.
 
 ## 3. Veri modeli
 
@@ -90,22 +77,22 @@ Bu kurallar bugün uygulamada uygulanıyor ve testli (`npm test`). Sunucu veriyi
 - `TENANT_ID` bugün sabit (`"tenant-1"`). Birden fazla kurum olacaksa sunucu bu değeri oturumdan belirlemeli ve **her sorguda** filtrelemelidir.
 - Kayıt kimlikleri `<önek>-<uuid>` biçiminde (`student-6f1c…`). İstemcide üretilir; sunucu aynen kabul edebilir. Eski kayıtlarda `student-1729…` gibi zaman damgalı kimlikler de vardır, ikisi de geçerli metindir.
 
-## 7. Mevcut verinin taşınması
+## 7. Yedek dosyası
 
-Kurumun tarayıcısındaki veri **Ayarlar → Yedekleme ve Excel → Yedek Al** ile bir JSON dosyasına alınır. Bu dosyanın biçimi:
+**Ayarlar → Yedekleme ve Excel → Yedek Al** bütün veriyi bir JSON dosyasına indirir; **Yedekten Geri Yükle** aynı dosyayı geri yükler (sunucuya kaydedilir). Biçim:
 
 ```json
 { "app": "ozel-egitim-yonetim", "schemaVersion": 1, "createdAt": "…", "data": { "students": [], "guardians": [], "…": [] } }
 ```
 
-`data`, giriş bilgileri hariç `PersistedState` ile birebir aynıdır (`BackupData`, `store.tsx`). Sunucuya bir "yedekten içeri al" uç noktası eklemek, taşımanın en güvenli yoludur. Yükleme sırasında `normalizeInstitutionSettings` mantığı uygulanmalı: eski sürüm yedeklerindeki kaldırılmış alanlar (işlem geçmişi, roller, görünüm) atılır.
+`data`, `PersistedState` ile birebir aynıdır (`BackupData`, `store.tsx`); giriş bilgileri yedekte yoktur. Yüklerken `normalizeInstitutionSettings` eski sürüm yedeklerindeki kaldırılmış alanları atar.
 
 ## 8. Testler
 
 ```bash
-npm test        # 149 test: hakediş, borç, finans paneli, Excel aktarımı uçtan uca, yedek
+npm test        # hakediş, borç, finans paneli, Excel aktarımı, giriş kuralları, birleştirme
 npm run typecheck
 npm run build
 ```
 
-Sunucu tarafı yazıldıktan sonra aynı senaryolar (`src/lib/helpers/__tests__/money.test.ts`, `finance-panel.test.ts`, `import-pipeline.test.ts`) sunucunun döndürdüğü veriyle de geçmelidir.
+Güvenlik başlıkları (CSP, çerçeveye gömme yasağı, HSTS) `next.config.ts` içindedir. Yerelde deneme yaparken canlı veritabanını kullanmamak için `DATABASE_URL`'i ayrı bir veritabanına yönlendirin.

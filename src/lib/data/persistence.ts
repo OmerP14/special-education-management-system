@@ -1,130 +1,14 @@
-// ─── Versioned localStorage persistence for the data store ──────────────────
+// ─── Backup files ────────────────────────────────────────────────────────────
 //
-// One generic load/save pair, not per-field bespoke code — DataProvider
-// hydrates every domain's useState from loadPersistedStore() (via a lazy
-// initializer, same pattern institutionSettings already used for its
-// structuredClone default) and a single debounced effect writes the whole
-// aggregate state back on change. See DataProvider in store.tsx.
-//
-// SCHEMA_VERSION exists so a future shape change can invalidate old snapshots
-// outright (start empty) instead of crashing on a mismatched
-// shape — bump it whenever a field is added/removed/renamed in a
-// non-backward-compatible way.
+// The live data lives on the server (lib/data/server-source.ts). What stays
+// in the browser is the backup side: backup files the user downloads or
+// restores, and a few daily automatic backups kept in this browser as an
+// extra safety net.
 
-// Key names predate the lib/mock → lib/data rename; kept so data already saved
-// in a browser is still found.
-const STORAGE_KEY = "mock-store-v1";
-const SCHEMA_VERSION = 1;
+// Key name predates the lib/mock → lib/data rename; kept so backups already
+// saved in a browser are still found.
 const AUTO_BACKUP_KEY = "mock-store-auto-backups-v1";
-
-interface PersistedEnvelope<T> {
-  version: number;
-  savedAt: string;
-  data: T;
-}
-
-// ─── Cross-tab safety ───────────────────────────────────────────────────────
-//
-// Every open tab holds the whole store in memory and writes it back on each
-// change. Without coordination a tab left open on an old snapshot silently
-// overwrites what another tab just saved. So: once another tab writes, this tab stops
-// writing and reloads to pick the new snapshot up. Writes whose data didn't
-// actually change are skipped, so a reload's first save never bounces back
-// and reloads the other tab in turn.
-let lastSavedData: string | null = null;
-let staleFromOtherTab = false;
-
-export function loadPersistedStore<T>(): T | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    let parsed: PersistedEnvelope<T> | null = null;
-    try {
-      parsed = JSON.parse(raw) as PersistedEnvelope<T>;
-    } catch {
-      parsed = null;
-    }
-    if (!parsed || parsed.version !== SCHEMA_VERSION || !parsed.data) {
-      // The app starts empty and its first save overwrites this
-      // key — keep the unreadable snapshot aside instead of losing it.
-      preserveUnreadable(raw);
-      return null;
-    }
-    lastSavedData = JSON.stringify(parsed.data);
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
-
-const UNREADABLE_KEY = `${STORAGE_KEY}-unreadable`;
-
-function preserveUnreadable(raw: string) {
-  try {
-    if (!window.localStorage.getItem(UNREADABLE_KEY)) window.localStorage.setItem(UNREADABLE_KEY, raw);
-  } catch {
-    // Nothing more we can do without storage space.
-  }
-}
-
-/** Returns false when the data could not be written (storage full or
- *  unavailable) — the caller must tell the user, since everything changed
- *  from then on is lost on reload. */
-export function savePersistedStore<T>(data: T): boolean {
-  if (typeof window === "undefined" || staleFromOtherTab) return true;
-  const serialized = JSON.stringify(data);
-  if (serialized === lastSavedData) return true;
-  const write = () => {
-    const envelope: PersistedEnvelope<T> = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
-    lastSavedData = serialized;
-  };
-  try {
-    write();
-    return true;
-  } catch {
-    // The live data matters more than the in-browser automatic backups that
-    // share the same quota: drop those and try once more.
-    try {
-      window.localStorage.removeItem(AUTO_BACKUP_KEY);
-      write();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-export function clearPersistedStore(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(STORAGE_KEY);
-    lastSavedData = null;
-  } catch {
-    // Nothing to do if storage itself is unavailable.
-  }
-}
-
-/** Starts the cross-tab guard described above; returns its cleanup. A tab
- *  in the background reloads when it is next shown, a visible one at once. */
-export function watchOtherTabWrites(): () => void {
-  if (typeof window === "undefined") return () => {};
-  const reloadWhenVisible = () => {
-    if (document.visibilityState === "visible") window.location.reload();
-  };
-  const onStorage = (e: StorageEvent) => {
-    if (e.key !== STORAGE_KEY && e.key !== null) return;
-    staleFromOtherTab = true;
-    reloadWhenVisible();
-    document.addEventListener("visibilitychange", reloadWhenVisible);
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    document.removeEventListener("visibilitychange", reloadWhenVisible);
-  };
-}
+const SCHEMA_VERSION = 1;
 
 // ─── Backups (Ayarlar → Yedekleme ve Excel) ─────────────────────────────
 

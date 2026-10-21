@@ -4,7 +4,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { GraduationCap, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { useStore } from "@/lib/data/store";
 import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/password";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export default function SetupPage() {
   const router = useRouter();
   const { setup, needsSetup, isAuthenticated, isLoading } = useAuth();
-  const { institutionSettings, updateSettingsSection } = useStore();
 
   const [institutionName, setInstitutionName] = useState("");
   const [phone, setPhone] = useState("");
@@ -56,17 +54,12 @@ export default function SetupPage() {
     }
     setSubmitting(true);
     setError(null);
-    const result = await setup({ name, username, password });
+    const result = await setup({ name, username, password, institutionName, institutionPhone: phone });
     if (!result.success) {
       setSubmitting(false);
       setError(result.errorMessage ?? "Kurulum tamamlanamadı.");
       return;
     }
-    updateSettingsSection(
-      "institution",
-      { ...institutionSettings.institution, name: institutionName.trim(), phone: phone.trim() },
-      name.trim()
-    );
     router.replace("/app/dashboard");
   };
 

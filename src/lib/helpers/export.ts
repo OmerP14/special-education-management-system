@@ -9,8 +9,15 @@ import { getActiveSettings } from "@/lib/settings/runtime";
 import { formatCurrency, formatDateDMY, getPaymentMethodLabel } from "@/lib/helpers/finance";
 import type { Payment } from "@/types";
 
+/** Text Excel would run as a formula (CSV injection: a guardian named
+ *  "=HYPERLINK(…)"). Negative amounts like "-1.250,00 ₺" stay as they are. */
+function looksLikeFormula(s: string): boolean {
+  return /^[=+@\t\r]/.test(s) || (s.startsWith("-") && !/^-[\d.,\s₺%]+$/.test(s));
+}
+
 function escapeCsvCell(value: string | number, delimiter: string): string {
-  const s = String(value);
+  let s = String(value);
+  if (typeof value === "string" && looksLikeFormula(s)) s = `'${s}`;
   return s.includes(delimiter) || /["\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

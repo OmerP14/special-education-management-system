@@ -17,3 +17,20 @@ export function serverError(err: unknown): Response {
     { status: 500 }
   );
 }
+
+/** Requests that change data must come from this site's own pages. The
+ *  session cookie is SameSite=Lax already; this also stops a cross-site form
+ *  or script from riding on it. */
+export function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return request.headers.get("sec-fetch-site") !== "cross-site";
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
+
+export function forbidden(): Response {
+  return Response.json({ success: false, error: "unknown", errorMessage: "İzin verilmeyen istek." }, { status: 403 });
+}

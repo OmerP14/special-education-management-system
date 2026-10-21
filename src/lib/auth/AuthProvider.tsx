@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { useStore } from "@/lib/data/store";
+import { dataSource } from "@/lib/data/source";
 import { httpAuthService } from "@/lib/auth/http-auth-service";
 import type { AuthResult, AuthUser } from "@/types/auth";
 import type { AuthService } from "@/lib/auth/auth-service";
@@ -18,13 +18,17 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   changePassword: AuthService["changePassword"];
   updateProfile: AuthService["updateProfile"];
+  /** Asks the server again who is signed in (e.g. after a request came back
+   *  "signed out"). */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
- * Mounted inside DataProvider and above both (app)/layout.tsx's RouteGuard
- * and /login — see src/app/providers.tsx.
+ * Mounted at the root, above /login, /setup and (app)/layout.tsx's RouteGuard
+ * (whose DataProvider only loads data once signed in) — see
+ * src/app/providers.tsx.
  *
  * The session is an httpOnly cookie the page can't read, so the signed-in
  * user is asked from the server once on load and again whenever the tab
@@ -32,7 +36,6 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * changed elsewhere (its session then no longer counts).
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { setActorName } = useStore();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -57,13 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
-  // Settings metadata records the signed-in account's name as "updatedBy" —
-  // see actorNameRef/FALLBACK_ACTOR_NAME in store.tsx.
-  useEffect(() => {
-    setActorName(user?.name ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.name]);
-
   const value: AuthContextValue = {
     user,
     isAuthenticated: !!user,
@@ -83,6 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return result;
     },
     signOut: async () => {
+      // Changes still on their way are sent with this session first.
+      await dataSource.flush();
       await httpAuthService.signOut();
       setUser(null);
     },
@@ -97,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (result.success && result.data) setUser(result.data.user);
       return result;
     },
+    refresh,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

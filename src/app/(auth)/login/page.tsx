@@ -154,7 +154,7 @@ function LoginForm() {
           </form>
           <CardFooter className="border-t pt-4">
             <p className="w-full text-center text-xs text-muted-foreground">
-              Verileriniz bu tarayıcıda saklanır · Düzenli yedek alın
+              Kurum hesabınızla her cihazdan giriş yapabilirsiniz
             </p>
           </CardFooter>
         </Card>

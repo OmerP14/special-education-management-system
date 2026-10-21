@@ -25,6 +25,8 @@ import type {
 import { getSettingsDefaults, normalizeInstitutionSettings } from "@/lib/settings/defaults";
 import { getActiveSettings, setActiveSettings } from "@/lib/settings/runtime";
 import { dataSource } from "@/lib/data/source";
+import { SignedOutError } from "@/lib/data/server-source";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   DEFAULT_SESSION_DURATION_MINUTES,
   getSessionEarningAmount,
@@ -91,9 +93,8 @@ function upsertEarningForSession(
 }
 
 // ─── Actor name ─────────────────────────────────────────────────────────────
-// Stamped as "updatedBy" on settings metadata — see actorNameRef in
-// DataProvider, kept fresh by AuthProvider via setActorName. Only used
-// before AuthProvider has synced.
+// Stamped as "updatedBy" on settings metadata — the signed-in account's name
+// (see actorNameRef in StoreProvider). Only used before it is known.
 const FALLBACK_ACTOR_NAME = "Sistem Kullanıcısı";
 
 // ─── Notification types ────────────────────────────────────────────────────────
@@ -211,8 +212,9 @@ interface DataStore {
    *  earnings...). Institution info, education types, settings, the account
    *  and the open session are kept. */
   clearAllRecords: () => void;
-  /** True while changes can't be saved to this browser (storage full). */
-  storageFull: boolean;
+  /** True while the latest changes could not reach the server (offline or a
+   *  server error); saving is retried automatically. */
+  saveFailed: boolean;
   /** All institution data — what a backup file contains. The account and
    *  password are never part of a backup. */
   getBackupSnapshot: () => BackupData;
@@ -238,14 +240,10 @@ interface DataStore {
   ) => void;
   resetSettingsSection: (key: InstitutionSettingsKey) => void;
 
-  /** Kept in sync by AuthProvider — settings metadata records the account's
-   *  name as "updatedBy". See actorNameRef below. */
-  setActorName: (name: string | null) => void;
-
 }
 
-/** Everything persisted to localStorage — see lib/data/persistence.ts. One
- *  shape, not per-field bespoke persistence code. */
+/** Everything saved on the server — see lib/data/source.ts. One shape, not
+ *  per-field bespoke persistence code. */
 export interface PersistedState {
   students: Student[];
   guardians: Guardian[];
@@ -274,21 +272,51 @@ const StoreContext = createContext<DataStore | null>(null);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-/** Loads the data from the data source (lib/data/source.ts), then provides the
- *  store. Until the data is in, a plain loading screen shows — a backend
- *  answers asynchronously, and no screen may render on half-loaded data. */
+/** Loads the data from the server (lib/data/source.ts), then provides the
+ *  store. Mounted inside RouteGuard, so it only runs once signed in. Until
+ *  the data is in, a loading screen shows; if it can't be loaded the app
+ *  offers a retry instead of starting empty — an empty start would be saved
+ *  over the real data. */
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { refresh } = useAuth();
   const [loaded, setLoaded] = useState<{ data: PersistedState | null } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     let active = true;
-    void dataSource.load().then((data) => {
-      if (active) setLoaded({ data });
-    });
+    dataSource.load().then(
+      (data) => {
+        if (active) setLoaded({ data });
+      },
+      (err) => {
+        if (!active) return;
+        if (err instanceof SignedOutError) void refresh();
+        else setFailed(true);
+      }
+    );
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt, refresh]);
 
+  if (failed) {
+    return (
+      <div role="alert" className="flex h-svh flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+        <p className="text-base text-foreground">Veriler yüklenemedi. İnternet bağlantınızı kontrol edin.</p>
+        <button
+          type="button"
+          onClick={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Tekrar dene
+        </button>
+      </div>
+    );
+  }
   if (!loaded) {
     return (
       <div role="status" className="flex h-svh items-center justify-center bg-background text-base text-muted-foreground">
@@ -375,9 +403,9 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   // in this same pass already formats/calculates with the new values.
   setActiveSettings(institutionSettings);
 
-  // Not persisted (ephemeral per-tab) — kept fresh by AuthProvider via
-  // setActorName. See FALLBACK_ACTOR_NAME / the DataStore interface comment.
-  const [actorName, setActorName] = useState<string | null>(null);
+  // Settings metadata records the signed-in account's name as "updatedBy".
+  const { user, refresh: refreshAuth } = useAuth();
+  const actorName = user?.name ?? null;
   const actorNameRef = useRef(actorName);
 
   // Keep the *Ref mirrors current for mutators/effects that read state at
@@ -452,20 +480,48 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     return () => clearInterval(timer);
   }, [notify]);
 
-  useEffect(() => dataSource.watch(), []);
-  /** True while the latest change could not be written to this browser. */
-  const [storageFull, setStorageFull] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  /** Replaces every record and setting at once — a restored backup, or
+   *  another device's changes arriving from the server. */
+  const applyState = useCallback((d: PersistedState) => {
+    const settings = normalizeInstitutionSettings(d.institutionSettings);
+    setStudents(backfillStudentNumbers(d.students ?? [], settings.students));
+    setGuardians(d.guardians ?? []);
+    setTeachers(d.teachers ?? []);
+    setEducationTypes(d.educationTypes ?? []);
+    setSessions((d.sessions ?? []).map((s) => (s.earningFactor === undefined ? withEarningFactor(s, settings.teacherEarnings) : s)));
+    setPayments(d.payments ?? []);
+    setTeacherEarnings(d.teacherEarnings ?? []);
+    setTeacherPayments(d.teacherPayments ?? []);
+    setTeacherEducationTypeAssignments(d.teacherEducationTypeAssignments ?? []);
+    setOpeningBalances(d.openingBalances ?? []);
+    setImportBatches(d.importBatches ?? []);
+    setTeacherMergeHistory(d.teacherMergeHistory ?? []);
+    setWeeklySessionPlans(d.weeklySessionPlans ?? []);
+    setNotifications(normalizeNotifications(d.notifications));
+    setInstitutionSettings(settings);
+  }, []);
+
+  useEffect(
+    () =>
+      dataSource.watch({
+        onStatus: (status) => {
+          setSaveFailed(status === "error");
+          if (status === "signed_out") void refreshAuth();
+        },
+        onRemoteChange: applyState,
+      }),
+    [applyState, refreshAuth]
+  );
 
   // Full-store persistence — one write path for every domain instead of
   // per-field bespoke code, mirrored by the lazy `useState` initializers
   // above reading the loaded snapshot. See lib/data/source.ts.
   //
-  // Deliberately NOT debounced: a reload right after a change must never
-  // lose it, and localStorage.setItem on data this size is cheap enough that
-  // writing on every change is not a real cost here.
+  // The data source batches rapid changes itself (lib/data/server-source.ts).
   useEffect(() => {
-    let active = true;
-    void dataSource.save({
+    dataSource.save({
       students,
       guardians,
       teachers,
@@ -481,13 +537,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       weeklySessionPlans,
       notifications,
       institutionSettings,
-    }).then((saved) => {
-      // Mirrors the data source into state so the layout can warn.
-      if (active) setStorageFull(!saved);
     });
-    return () => {
-      active = false;
-    };
   }, [
     students,
     guardians,
@@ -1075,7 +1125,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       }));
     },
 
-    setActorName: (name) => setActorName(name),
 
     getBackupSnapshot: () => ({
       students,
@@ -1104,22 +1153,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       ];
       const missing = arrays.filter((k) => !Array.isArray(d[k]));
       if (missing.length > 0) return `Yedekte eksik veri var: ${missing.join(", ")}`;
-      const settings = normalizeInstitutionSettings(d.institutionSettings);
-      setStudents(backfillStudentNumbers(d.students, settings.students));
-      setGuardians(d.guardians);
-      setTeachers(d.teachers);
-      setEducationTypes(d.educationTypes);
-      setSessions(d.sessions.map((s) => (s.earningFactor === undefined ? withEarningFactor(s, settings.teacherEarnings) : s)));
-      setPayments(d.payments);
-      setTeacherEarnings(d.teacherEarnings ?? []);
-      setTeacherPayments(d.teacherPayments);
-      setTeacherEducationTypeAssignments(d.teacherEducationTypeAssignments);
-      setOpeningBalances(d.openingBalances ?? []);
-      setImportBatches(d.importBatches ?? []);
-      setTeacherMergeHistory(d.teacherMergeHistory ?? []);
-      setWeeklySessionPlans(d.weeklySessionPlans ?? []);
-      setNotifications(normalizeNotifications(d.notifications));
-      setInstitutionSettings(settings);
+      applyState(d);
       return null;
     },
 
@@ -1133,7 +1167,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
         },
       })),
 
-    storageFull,
+    saveFailed,
     // Clears every record; institution info, education types and settings stay.
     clearAllRecords: () => {
       setStudents([]);
@@ -1164,7 +1198,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     // `value` for why that's safe (each one only closes over a stable setState
     // function or a ref read).
     [
-      storageFull,
+      saveFailed,
       students,
       guardians,
       teachers,
@@ -1185,6 +1219,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       notifications,
       institutionSettings,
       applyEarningPolicy,
+      applyState,
       notify,
     ]
   );

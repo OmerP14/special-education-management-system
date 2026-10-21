@@ -314,8 +314,8 @@ function DataManagementContent() {
         title="Yedekleme"
         description={
           <>
-            Bütün kayıtlarınız bu bilgisayarın tarayıcısında durur. Sistem her gün kendiliğinden yedek alır; yine de
-            önemli işlerden sonra <strong>Yedek Al</strong> düğmesine basmanız iyi olur.
+            Bütün kayıtlarınız sunucuda güvenle saklanır ve her cihazdan görünür. Ek güvence için sistem her gün
+            kendiliğinden yedek alır; önemli işlerden sonra <strong>Yedek Al</strong> ile bir kopyayı bilgisayarınıza da indirebilirsiniz.
             <span className="mt-1 block font-medium text-foreground">
               {dataManagement.lastBackupAt
                 ? `Son yedek: ${formatDateTime(dataManagement.lastBackupAt)}`

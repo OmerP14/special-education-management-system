@@ -1,8 +1,9 @@
 import { getAuth } from "@/lib/server/auth-repo";
 import { clearSessionToken, readSessionToken } from "@/lib/server/session-cookie";
-import { readJson, serverError } from "@/lib/server/http";
+import { forbidden, isSameOrigin, readJson, serverError } from "@/lib/server/http";
 
 export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return forbidden();
   const body = await readJson<{ currentPassword?: string; newPassword?: string }>(request);
   if (!body || typeof body.currentPassword !== "string" || typeof body.newPassword !== "string") {
     return Response.json({ success: false, error: "unknown", errorMessage: "Şifre alanları gereklidir." }, { status: 400 });

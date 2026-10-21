@@ -17,7 +17,13 @@ export interface AuthService {
   getStatus(): Promise<{ user: AuthUser | null; needsSetup: boolean } | undefined>;
 
   /** First run only: creates the institution's account and signs in. */
-  setup(input: { name: string; username: string; password: string }): Promise<AuthResult<{ user: AuthUser }>>;
+  setup(input: {
+    name: string;
+    username: string;
+    password: string;
+    institutionName: string;
+    institutionPhone: string;
+  }): Promise<AuthResult<{ user: AuthUser }>>;
 
   changePassword(input: { currentPassword: string; newPassword: string }): Promise<AuthResult>;
 

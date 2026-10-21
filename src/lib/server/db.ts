@@ -50,4 +50,13 @@ async function createSchema(): Promise<void> {
       created_at text not null,
       expires_at text not null
     )`;
+  // All institution data as one document; `version` goes up by one on every
+  // save so two devices can't silently overwrite each other (see state-repo.ts).
+  await db`
+    create table if not exists app_state (
+      id smallint primary key default 1 check (id = 1),
+      data jsonb not null,
+      version integer not null,
+      updated_at text not null
+    )`;
 }

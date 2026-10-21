@@ -12,14 +12,11 @@
 - **Excel'den aktarma** — herhangi bir Excel dosyasını sütun eşleştirerek alma, devir tarihi, önizleme ve geri alma
 - **Yedekleme** — yedek dosyası alma / geri yükleme, günlük otomatik yedek ve bilgisayardaki bir klasöre yedek (Chrome / Edge)
 
-## Önemli: veriler nerede duruyor
+## Veriler nerede duruyor
 
-Giriş bilgileri sunucuda (Neon veritabanı) durur. Öğrenci, ders ve ödeme kayıtları ise şimdilik **kullanılan tarayıcının içinde** saklanır:
+Giriş bilgileri ve kurumun bütün kayıtları sunucuda (Neon Postgres) saklanır. Aynı hesapla giren her cihaz aynı kayıtları görür; bir cihazda yapılan değişiklik diğerlerine birkaç saniye içinde yansır. Ek güvence için **Ayarlar → Yedekleme ve Excel → Yedek Al** ile bilgisayara yedek indirilebilir.
 
-- Farklı bilgisayarlar veya tarayıcılar birbirinin verisini görmez.
-- Tarayıcı verisi silinirse kayıtlar da gider. Bu yüzden **Ayarlar → Yedekleme ve Excel → Yedek Al** ile düzenli yedek alın.
-
-Sunucuya geçiş planı: [docs/BACKEND.md](docs/BACKEND.md).
+Sunucu yapısı: [docs/BACKEND.md](docs/BACKEND.md).
 
 ## İlk açılış
 
