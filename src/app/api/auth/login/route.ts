@@ -1,6 +1,6 @@
 import { getAuth } from "@/lib/server/auth-repo";
 import { writeSessionToken } from "@/lib/server/session-cookie";
-import { forbidden, isSameOrigin, readJson, serverError } from "@/lib/server/http";
+import { clientKeyFor, forbidden, isSameOrigin, readJson, serverError } from "@/lib/server/http";
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return forbidden();
@@ -11,7 +11,12 @@ export async function POST(request: Request) {
   try {
     const auth = await getAuth();
     const remember = body.remember !== false;
-    const { result, token } = await auth.signIn({ username: body.username, password: body.password, remember });
+    const { result, token } = await auth.signIn({
+      username: body.username,
+      password: body.password,
+      remember,
+      clientKey: clientKeyFor(request),
+    });
     if (token) await writeSessionToken(token, remember);
     return Response.json(result, { status: result.success ? 200 : 401 });
   } catch (err) {

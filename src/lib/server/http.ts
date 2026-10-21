@@ -1,4 +1,15 @@
+import { createHash } from "node:crypto";
+
 // ─── Small helpers shared by the API routes ─────────────────────────────────
+
+/** Who is typing a password, for the per-client lock (auth-core.ts): the
+ *  caller's network address, hashed so no IP is stored. On Vercel the
+ *  first x-forwarded-for entry is set by the platform itself. */
+export function clientKeyFor(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const ip = forwarded || request.headers.get("x-real-ip") || "local";
+  return createHash("sha256").update(`login:${ip}`).digest("hex");
+}
 
 export async function readJson<T>(request: Request): Promise<T | null> {
   try {

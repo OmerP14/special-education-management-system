@@ -50,6 +50,14 @@ async function createSchema(): Promise<void> {
       created_at text not null,
       expires_at text not null
     )`;
+  // Wrong-password counts per client (hashed network address) — see auth-core.ts.
+  await db`
+    create table if not exists login_failures (
+      client_key text primary key,
+      failures integer not null,
+      locked_until text,
+      updated_at text not null
+    )`;
   // All institution data as one document; `version` goes up by one on every
   // save so two devices can't silently overwrite each other (see state-repo.ts).
   await db`

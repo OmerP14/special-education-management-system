@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { AuthResult, AuthUser } from "@/types/auth";
 import { validatePasswordPolicy } from "@/lib/auth/password";
-import { LOCKOUT_MINUTES, MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-policy";
+import {
+  ACCOUNT_LOCKOUT_MINUTES,
+  ACCOUNT_MAX_FAILED_ATTEMPTS,
+  LOCKOUT_MINUTES,
+  MAX_FAILED_LOGIN_ATTEMPTS,
+} from "@/lib/auth/security-policy";
 import { hashPassword, verifyPassword } from "@/lib/server/password-hash";
 
 // ─── Sign-in rules for the single institution account ──────────────────────
@@ -18,6 +23,12 @@ import { hashPassword, verifyPassword } from "@/lib/server/password-hash";
 // password change ends every OTHER device's session while the device that
 // made the change stays signed in. The browser only ever holds a random
 // token; the database keeps its SHA-256, so a leaked table can't be replayed.
+//
+// Wrong passwords lock the CLIENT that typed them (its network address), not
+// the account: two or three people share this one login, and one person's
+// typos must not lock the others out. Failures from every client together
+// still lock the whole account past a much higher bar, so guessing from many
+// addresses gets nowhere either.
 
 export interface AccountRow {
   username: string;
@@ -38,6 +49,12 @@ export interface SessionRow {
   expiresAt: string;
 }
 
+/** Wrong-password bookkeeping for one client (hashed network address). */
+export interface ClientLockRow {
+  failures: number;
+  lockedUntil: string | null;
+}
+
 export interface AuthRepo {
   /** Null until the first-run setup has created the account. */
   getAccount(): Promise<AccountRow | null>;
@@ -48,6 +65,9 @@ export interface AuthRepo {
   getSession(tokenHash: string): Promise<SessionRow | null>;
   updateSession(tokenHash: string, patch: Partial<SessionRow>): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
+  getClientLock(clientKey: string): Promise<ClientLockRow | null>;
+  saveClientLock(clientKey: string, lock: ClientLockRow): Promise<void>;
+  clearClientLock(clientKey: string): Promise<void>;
 }
 
 /** Sessions are refreshed on every sign-in; this only bounds a forgotten one. */
@@ -75,9 +95,11 @@ function minutesUntil(iso: string): number {
   return Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000));
 }
 
-function isLockActive(account: AccountRow): boolean {
-  return !!account.lockedUntil && new Date(account.lockedUntil).getTime() > Date.now();
+function isActive(lockedUntil: string | null | undefined): lockedUntil is string {
+  return !!lockedUntil && new Date(lockedUntil).getTime() > Date.now();
 }
+
+const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 function lockedMessage(minutes: number): string {
   return `Çok sayıda hatalı giriş yapıldı. ${minutes} dakika sonra tekrar deneyin.`;
@@ -106,14 +128,29 @@ export function createAuthCore(repo: AuthRepo) {
     return { user: toAuthUser(account, session), token };
   };
 
-  /** Counts one wrong password; `lockedUntil` is set when this one locks. */
-  const registerFailure = async (account: AccountRow): Promise<{ attempts: number; lockedUntil?: string }> => {
-    const expired = !!account.lockedUntil && !isLockActive(account);
-    const attempts = (expired ? 0 : account.failedAttempts) + 1;
-    const lockedUntil =
-      attempts >= MAX_FAILED_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString() : undefined;
-    await repo.updateAccount({ failedAttempts: attempts, lockedUntil: lockedUntil ?? null });
-    return { attempts, lockedUntil };
+  /** The lock that currently refuses this client, if any (its own, or the
+   *  account-wide one). */
+  const activeLock = async (account: AccountRow, clientKey: string): Promise<string | null> => {
+    if (isActive(account.lockedUntil)) return account.lockedUntil;
+    const client = await repo.getClientLock(clientKey);
+    return isActive(client?.lockedUntil) ? client.lockedUntil : null;
+  };
+
+  /** Counts one wrong password for this client and for the account.
+   *  `attempts` is this client's count; `lockedUntil` is set when this one
+   *  locked the client (or the whole account). */
+  const registerFailure = async (account: AccountRow, clientKey: string): Promise<{ attempts: number; lockedUntil?: string }> => {
+    const client = await repo.getClientLock(clientKey);
+    const clientExpired = !!client?.lockedUntil && !isActive(client.lockedUntil);
+    const attempts = (client && !clientExpired ? client.failures : 0) + 1;
+    const clientLock = attempts >= MAX_FAILED_LOGIN_ATTEMPTS ? minutesFromNow(LOCKOUT_MINUTES) : null;
+    await repo.saveClientLock(clientKey, { failures: attempts, lockedUntil: clientLock });
+
+    const accountExpired = !!account.lockedUntil && !isActive(account.lockedUntil);
+    const total = (accountExpired ? 0 : account.failedAttempts) + 1;
+    const accountLock = total >= ACCOUNT_MAX_FAILED_ATTEMPTS ? minutesFromNow(ACCOUNT_LOCKOUT_MINUTES) : null;
+    await repo.updateAccount({ failedAttempts: total, lockedUntil: accountLock });
+    return { attempts, lockedUntil: accountLock ?? clientLock ?? undefined };
   };
 
   /** The session behind a token, or null when it is unknown, expired or was
@@ -164,22 +201,20 @@ export function createAuthCore(repo: AuthRepo) {
       return { result: { success: true, data: { user } }, token };
     },
 
+    /** `clientKey` identifies who is typing (see clientKeyFor in the route). */
     async signIn(input: {
       username: string;
       password: string;
       remember: boolean;
+      clientKey: string;
     }): Promise<{ result: AuthResult<{ user: AuthUser }>; token?: string }> {
       const account = await repo.getAccount();
       if (!account) return { result: { success: false, error: "unknown", errorMessage: NOT_SET_UP_MESSAGE } };
 
-      if (isLockActive(account) && account.lockedUntil) {
+      const locked = await activeLock(account, input.clientKey);
+      if (locked) {
         return {
-          result: {
-            success: false,
-            error: "account_locked",
-            lockedUntil: account.lockedUntil,
-            errorMessage: lockedMessage(minutesUntil(account.lockedUntil)),
-          },
+          result: { success: false, error: "account_locked", lockedUntil: locked, errorMessage: lockedMessage(minutesUntil(locked)) },
         };
       }
 
@@ -188,14 +223,15 @@ export function createAuthCore(repo: AuthRepo) {
       const passwordOk = await verifyPassword(input.password, account.passwordHash);
 
       if (!usernameOk || !passwordOk) {
-        const { lockedUntil } = await registerFailure(account);
+        const { lockedUntil } = await registerFailure(account, input.clientKey);
         if (lockedUntil) {
-          return { result: { success: false, error: "account_locked", lockedUntil, errorMessage: lockedMessage(LOCKOUT_MINUTES) } };
+          return { result: { success: false, error: "account_locked", lockedUntil, errorMessage: lockedMessage(minutesUntil(lockedUntil)) } };
         }
         return { result: { success: false, error: "invalid_credentials", errorMessage: INVALID_MESSAGE } };
       }
 
       const { user, token } = await openSession(account, input.remember);
+      await repo.clearClientLock(input.clientKey);
       await repo.updateAccount({ failedAttempts: 0, lockedUntil: null, lastLoginAt: user.loginAt });
       return { result: { success: true, data: { user } }, token };
     },
@@ -212,7 +248,7 @@ export function createAuthCore(repo: AuthRepo) {
     /** `signedOut` tells the route to clear this device's cookie. */
     async changePassword(
       token: string | undefined,
-      input: { currentPassword: string; newPassword: string }
+      input: { currentPassword: string; newPassword: string; clientKey: string }
     ): Promise<AuthResult & { signedOut?: boolean }> {
       const found = await resolve(token);
       if (!found) return { success: false, error: "unknown", errorMessage: NO_SESSION_MESSAGE, signedOut: true };
@@ -221,14 +257,14 @@ export function createAuthCore(repo: AuthRepo) {
       if (!(await verifyPassword(input.currentPassword, account.passwordHash))) {
         // A wrong current password counts like a failed sign-in, so an open
         // session can't be used to guess the password.
-        const { attempts, lockedUntil } = await registerFailure(account);
+        const { attempts, lockedUntil } = await registerFailure(account, input.clientKey);
         if (lockedUntil) {
           await repo.deleteSession(session.tokenHash);
           return {
             success: false,
             error: "account_locked",
             signedOut: true,
-            errorMessage: `Mevcut şifre ${MAX_FAILED_LOGIN_ATTEMPTS} kez hatalı girildi. Giriş ${LOCKOUT_MINUTES} dakika kilitlendi.`,
+            errorMessage: `Mevcut şifre ${MAX_FAILED_LOGIN_ATTEMPTS} kez hatalı girildi. Bu cihazdan giriş ${LOCKOUT_MINUTES} dakika kilitlendi.`,
           };
         }
         const left = MAX_FAILED_LOGIN_ATTEMPTS - attempts;
@@ -242,6 +278,7 @@ export function createAuthCore(repo: AuthRepo) {
 
       const credentialVersion = new Date().toISOString();
       await repo.updateAccount({ passwordHash: await hashPassword(input.newPassword), credentialVersion, failedAttempts: 0 });
+      await repo.clearClientLock(input.clientKey);
       // This device stays signed in; every other device's session is now stale.
       await repo.updateSession(session.tokenHash, { credentialVersion });
       return { success: true };

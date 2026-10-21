@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createAuthCore, hashToken, type AccountRow, type AuthRepo, type SessionRow } from "@/lib/server/auth-core";
+import { createAuthCore, hashToken, type AccountRow, type AuthRepo, type ClientLockRow, type SessionRow } from "@/lib/server/auth-core";
 import { hashPassword, verifyPassword } from "@/lib/server/password-hash";
-import { MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-policy";
+import { ACCOUNT_MAX_FAILED_ATTEMPTS, MAX_FAILED_LOGIN_ATTEMPTS } from "@/lib/auth/security-policy";
 import { validatePasswordPolicy } from "@/lib/auth/password";
 
-// An in-memory AuthRepo standing in for Postgres. Each "device" is just the
-// token its cookie would hold.
+// An in-memory AuthRepo standing in for Postgres. Each "device" is the token
+// its cookie would hold, and its name doubles as its network address.
 
 const PASSWORD = "Demo1234!";
 
 let stored: AccountRow | null;
 let sessions: Map<string, SessionRow>;
+let clientLocks: Map<string, ClientLockRow>;
 const tokens: Record<string, string | undefined> = {};
 
 const repo: AuthRepo = {
@@ -30,12 +31,15 @@ const repo: AuthRepo = {
     if (s) sessions.set(h, { ...s, ...patch });
   },
   deleteSession: async (h) => void sessions.delete(h),
+  getClientLock: async (k) => clientLocks.get(k) ?? null,
+  saveClientLock: async (k, lock) => void clientLocks.set(k, { ...lock }),
+  clearClientLock: async (k) => void clientLocks.delete(k),
 };
 
 const auth = createAuthCore(repo);
 
 async function signIn(device = "laptop", password = PASSWORD, username = "admin") {
-  const { result, token } = await auth.signIn({ username, password, remember: true });
+  const { result, token } = await auth.signIn({ username, password, remember: true, clientKey: device });
   if (token) tokens[device] = token;
   return result;
 }
@@ -53,6 +57,7 @@ beforeEach(async () => {
     lastLoginAt: null,
   };
   sessions = new Map();
+  clientLocks = new Map();
   for (const k of Object.keys(tokens)) delete tokens[k];
 });
 
@@ -121,9 +126,9 @@ describe("signIn", () => {
     expect(wrongUser.errorMessage).toBe(wrongPassword.errorMessage);
   });
 
-  it("locks for 5 minutes after 3 wrong passwords and rejects even the right one", async () => {
+  it("locks the device for 5 minutes after 5 wrong passwords and rejects even the right one", async () => {
     for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS; i++) await signIn("laptop", "Yanlis1!");
-    const lockedFor = new Date(stored!.lockedUntil!).getTime() - Date.now();
+    const lockedFor = new Date(clientLocks.get("laptop")!.lockedUntil!).getTime() - Date.now();
     expect(lockedFor).toBeGreaterThan(4 * 60_000);
     expect(lockedFor).toBeLessThanOrEqual(5 * 60_000);
     const result = await signIn();
@@ -131,12 +136,25 @@ describe("signIn", () => {
     expect(result.lockedUntil).toBeDefined();
   });
 
+  it("one person's wrong passwords don't lock the others sharing the account", async () => {
+    for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS; i++) await signIn("laptop", "Yanlis1!");
+    expect((await signIn("laptop")).success).toBe(false);
+    expect((await signIn("phone")).success).toBe(true);
+    expect((await signIn("tablet")).success).toBe(true);
+  });
+
+  it("locks the whole account when wrong passwords pile up from many addresses", async () => {
+    for (let i = 0; i < ACCOUNT_MAX_FAILED_ATTEMPTS; i++) await signIn(`attacker-${i}`, "Yanlis1!");
+    expect(stored!.lockedUntil).not.toBeNull();
+    expect((await signIn("office")).error).toBe("account_locked");
+  });
+
   it("unlocks silently once the lock has expired, with a fresh attempt count", async () => {
-    stored!.failedAttempts = 3;
-    stored!.lockedUntil = new Date(Date.now() - 1000).toISOString();
+    clientLocks.set("laptop", { failures: 5, lockedUntil: new Date(Date.now() - 1000).toISOString() });
     await signIn("laptop", "Yanlis1!");
-    expect(stored!.failedAttempts).toBe(1);
+    expect(clientLocks.get("laptop")!.failures).toBe(1);
     expect((await signIn()).success).toBe(true);
+    expect(clientLocks.has("laptop")).toBe(false);
   });
 
   it("keeps only a hash of the token in the database", async () => {
@@ -167,7 +185,7 @@ describe("sessions", () => {
   it("a password change keeps this device signed in and signs every other device out", async () => {
     await signIn("laptop");
     await signIn("phone");
-    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: "Yeni123!" })).success).toBe(true);
+    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: "Yeni123!", clientKey: "laptop" })).success).toBe(true);
     expect(await userOn("laptop")).not.toBeNull();
     expect(await userOn("phone")).toBeNull();
     expect((await signIn("phone", "Yeni123!")).success).toBe(true);
@@ -179,26 +197,26 @@ describe("changePassword", () => {
 
   it("changes the password; the old one stops working", async () => {
     await signIn();
-    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: NEW })).success).toBe(true);
+    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: NEW, clientKey: "laptop" })).success).toBe(true);
     expect((await signIn("x", PASSWORD)).success).toBe(false);
     expect((await signIn("x", NEW)).success).toBe(true);
   });
 
   it("refuses without a session", async () => {
-    const result = await auth.changePassword(undefined, { currentPassword: PASSWORD, newPassword: NEW });
+    const result = await auth.changePassword(undefined, { currentPassword: PASSWORD, newPassword: NEW, clientKey: "laptop" });
     expect(result.success).toBe(false);
     expect(result.signedOut).toBe(true);
   });
 
   it("rejects reusing the current password and passwords outside the policy", async () => {
     await signIn();
-    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: PASSWORD })).errorMessage).toContain("aynı olamaz");
-    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: "kisa" })).success).toBe(false);
+    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: PASSWORD, clientKey: "laptop" })).errorMessage).toContain("aynı olamaz");
+    expect((await auth.changePassword(tokens.laptop, { currentPassword: PASSWORD, newPassword: "kisa", clientKey: "laptop" })).success).toBe(false);
   });
 
   it("counts down the remaining attempts on a wrong current password", async () => {
     await signIn();
-    const result = await auth.changePassword(tokens.laptop, { currentPassword: "Yanlis1!", newPassword: NEW });
+    const result = await auth.changePassword(tokens.laptop, { currentPassword: "Yanlis1!", newPassword: NEW, clientKey: "laptop" });
     expect(result.errorMessage).toContain(`${MAX_FAILED_LOGIN_ATTEMPTS - 1} deneme`);
   });
 
@@ -206,9 +224,9 @@ describe("changePassword", () => {
     await signIn();
     let last;
     for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS; i++) {
-      last = await auth.changePassword(tokens.laptop, { currentPassword: "Yanlis1!", newPassword: NEW });
+      last = await auth.changePassword(tokens.laptop, { currentPassword: "Yanlis1!", newPassword: NEW, clientKey: "laptop" });
     }
-    expect(stored!.lockedUntil).not.toBeNull();
+    expect(clientLocks.get("laptop")?.lockedUntil).toBeTruthy();
     expect(last?.signedOut).toBe(true);
     expect(await userOn()).toBeNull();
   });

@@ -1,4 +1,8 @@
 import type { PersistedState } from "@/lib/data/store";
+import type { Payment, Student } from "@/types";
+import { assignReceiptNumber } from "@/lib/helpers/finance-rules";
+import { assignStudentNumber } from "@/lib/helpers/student-rules";
+import { normalizeInstitutionSettings } from "@/lib/settings/defaults";
 
 // ─── Merging two devices' changes ───────────────────────────────────────────
 //
@@ -13,7 +17,12 @@ import type { PersistedState } from "@/lib/data/store";
 // Records are matched by `id`: a record this device added or edited replaces
 // the remote one, a record it deleted is removed, everything else comes from
 // the remote state. Settings merge per section the same way. When both
-// devices edited the same record, this device's version wins.
+// devices edited the same record, their edits are combined field by field;
+// only a field both of them changed takes this device's value.
+//
+// Receipt and student numbers are handed out on the device, so two devices
+// adding at the same moment can pick the same one; a record this device added
+// whose number is already taken gets the next free one.
 
 type Json = unknown;
 
@@ -32,6 +41,20 @@ export function stableStringify(value: Json): string {
 const same = (a: Json, b: Json) => stableStringify(a) === stableStringify(b);
 
 type WithId = { id: string };
+
+/** Both sides edited one record: start from the remote version and apply
+ *  only the fields this device changed. */
+function mergeFields(base: WithId, local: WithId, remote: WithId): WithId {
+  const b = base as Record<string, unknown>;
+  const l = local as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...(remote as Record<string, unknown>) };
+  for (const key of new Set([...Object.keys(b), ...Object.keys(l)])) {
+    if (same(l[key], b[key])) continue;
+    if (l[key] === undefined) delete out[key];
+    else out[key] = l[key];
+  }
+  return out as WithId;
+}
 
 function hasIds(list: unknown): list is WithId[] {
   return Array.isArray(list) && list.every((r) => r && typeof r === "object" && typeof (r as WithId).id === "string");
@@ -55,7 +78,9 @@ function mergeRecords(base: unknown, local: unknown, remote: unknown): unknown {
   const placed = new Set<string>();
   for (const r of remote) {
     if (deleted.has(r.id)) continue;
-    result.push(changed.get(r.id) ?? r);
+    const mine = changed.get(r.id);
+    const before = baseById.get(r.id);
+    result.push(!mine ? r : before && !same(before, r) ? mergeFields(before, mine, r) : mine);
     placed.add(r.id);
   }
   for (const r of local) {
@@ -85,6 +110,34 @@ function mergeSettings(base: unknown, local: unknown, remote: unknown): unknown 
   return out;
 }
 
+/** Re-numbers this device's new records whose number another record holds. */
+function fixNumberClashes(merged: PersistedState, local: PersistedState, base: PersistedState, remote: PersistedState): PersistedState {
+  const isNew = (id: string, ...lists: { id: string }[][]) => lists.every((l) => !l.some((r) => r.id === id));
+
+  let payments = merged.payments ?? [];
+  for (const p of local.payments ?? []) {
+    if (!p.receiptNumber || !isNew(p.id, base.payments ?? [], remote.payments ?? [])) continue;
+    const others = payments.filter((x) => x.id !== p.id);
+    if (!others.some((x) => x.receiptNumber === p.receiptNumber)) continue;
+    const renumbered = assignReceiptNumber({ ...p, receiptNumber: undefined, receiptSequence: undefined } as Payment, others);
+    payments = payments.map((x) => (x.id === p.id ? renumbered : x));
+  }
+
+  const studentSettings = normalizeInstitutionSettings(merged.institutionSettings).students;
+  let students = merged.students ?? [];
+  for (const st of local.students ?? []) {
+    if (!st.studentNumber || !isNew(st.id, base.students ?? [], remote.students ?? [])) continue;
+    const others = students.filter((x) => x.id !== st.id);
+    if (!others.some((x) => x.studentNumber === st.studentNumber)) continue;
+    const renumbered = assignStudentNumber({ ...st, studentNumber: undefined, studentSequence: undefined } as Student, others, {
+      ...studentSettings,
+      autoGenerateStudentNumber: true,
+    });
+    students = students.map((x) => (x.id === st.id ? renumbered : x));
+  }
+  return { ...merged, payments, students };
+}
+
 export function mergeStates(base: PersistedState, local: PersistedState, remote: PersistedState): PersistedState {
   const out: Record<string, unknown> = { ...remote };
   const b = base as unknown as Record<string, unknown>;
@@ -92,5 +145,5 @@ export function mergeStates(base: PersistedState, local: PersistedState, remote:
   for (const [key, value] of Object.entries(local as unknown as Record<string, unknown>)) {
     out[key] = key === "institutionSettings" ? mergeSettings(b[key], value, r[key]) : mergeRecords(b[key] ?? [], value, r[key] ?? []);
   }
-  return out as unknown as PersistedState;
+  return fixNumberClashes(out as unknown as PersistedState, local, base, remote);
 }

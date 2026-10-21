@@ -76,6 +76,23 @@ const postgresAuthRepo: AuthRepo = {
   async deleteSession(tokenHash) {
     await sql()`delete from auth_sessions where token_hash = ${tokenHash}`;
   },
+  async getClientLock(clientKey) {
+    const rows = await sql()`select failures, locked_until from login_failures where client_key = ${clientKey}`;
+    return rows[0] ? { failures: rows[0].failures as number, lockedUntil: (rows[0].locked_until as string | null) ?? null } : null;
+  },
+  async saveClientLock(clientKey, lock) {
+    const now = new Date().toISOString();
+    await sql()`
+      insert into login_failures (client_key, failures, locked_until, updated_at)
+      values (${clientKey}, ${lock.failures}, ${lock.lockedUntil}, ${now})
+      on conflict (client_key) do update
+        set failures = excluded.failures, locked_until = excluded.locked_until, updated_at = excluded.updated_at`;
+    // Housekeeping: forget clients that have been quiet for a day.
+    await sql()`delete from login_failures where updated_at < ${new Date(Date.now() - 86_400_000).toISOString()}`;
+  },
+  async clearClientLock(clientKey) {
+    await sql()`delete from login_failures where client_key = ${clientKey}`;
+  },
 };
 
 /** The auth rules on the real database, schema guaranteed. */
