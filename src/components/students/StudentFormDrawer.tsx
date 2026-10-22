@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Lock } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -37,13 +36,14 @@ interface FormState extends StudentFormFields {
   notes: string;
 }
 
-/** New students start with Ayarlar → Öğrenci ve Veli → Varsayılan Öğrenci Durumu. */
+/** New students start with Ayarlar → Öğrenci → Varsayılan Öğrenci Durumu. */
 function buildEmpty(defaultStatus: StudentStatus): FormState {
   return {
     fullName: "",
     birthDate: "",
     status: defaultStatus,
-    guardianId: "",
+    guardianName: "",
+    guardianPhone: "",
     studentNumber: "",
     kvkkConsent: false,
     healthInfo: "",
@@ -60,7 +60,8 @@ function buildFromStudent(student: Student): FormState {
     fullName: student.fullName,
     birthDate: student.birthDate,
     status: student.status,
-    guardianId: student.guardianIds[0] ?? "",
+    guardianName: student.guardianName ?? "",
+    guardianPhone: student.guardianPhone ?? "",
     studentNumber: student.studentNumber ?? "",
     kvkkConsent: student.kvkkConsent ?? false,
     healthInfo: student.healthInfo ?? "",
@@ -82,8 +83,6 @@ interface StudentFormDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialData?: Student;
-  /** When set, pre-selects and locks this guardian so the student is always linked. */
-  defaultGuardianId?: string;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -92,7 +91,6 @@ export function StudentFormDrawer({
   open,
   onOpenChange,
   initialData,
-  defaultGuardianId,
 }: StudentFormDrawerProps) {
   const store = useStore();
   const isEditing = !!initialData;
@@ -100,9 +98,7 @@ export function StudentFormDrawer({
 
   const buildInitial = (): FormState => {
     if (initialData) return buildFromStudent(initialData);
-    const empty = buildEmpty(rules.defaultStudentStatus);
-    if (defaultGuardianId) empty.guardianId = defaultGuardianId;
-    return empty;
+    return buildEmpty(rules.defaultStudentStatus);
   };
 
   const [form, setForm] = useState<FormState>(buildInitial);
@@ -110,7 +106,7 @@ export function StudentFormDrawer({
 
   // Reset when the drawer opens (or targets another record). Done during
   // render rather than in an effect so stale values never paint.
-  const resetKey = open ? `${initialData?.id ?? ""}|${defaultGuardianId ?? ""}` : null;
+  const resetKey = open ? initialData?.id ?? "" : null;
   const [prevResetKey, setPrevResetKey] = useState<string | null>(resetKey);
   if (resetKey !== prevResetKey) {
     setPrevResetKey(resetKey);
@@ -143,7 +139,7 @@ export function StudentFormDrawer({
     }));
   };
 
-  // Ayarlar → Öğrenci ve Veli: required fields + unique student number.
+  // Ayarlar → Öğrenci: required fields + unique student number.
   const otherStudents = store.students.filter((s) => s.id !== initialData?.id);
   const errors = validateStudentFields(form, rules, otherStudents);
   const shownErrors = submitted ? errors : {};
@@ -156,13 +152,6 @@ export function StudentFormDrawer({
 
     const tenantId = initialData?.tenantId ?? TENANT_ID;
     const id = initialData?.id ?? createId("student");
-    const previousPrimary = initialData?.guardianIds[0];
-    // The form edits the primary guardian; any additional guardians (added from
-    // a guardian's own page) stay linked unless multiple guardians are off.
-    const extraGuardians = rules.allowMultipleGuardians
-      ? (initialData?.guardianIds ?? []).filter((g) => g !== previousPrimary && g !== form.guardianId)
-      : [];
-    const guardianIds = form.guardianId ? [form.guardianId, ...extraGuardians] : extraGuardians;
     const kvkkConsentDate = form.kvkkConsent
       ? initialData?.kvkkConsent ? initialData.kvkkConsentDate : toLocalDateKey(new Date())
       : undefined;
@@ -173,7 +162,8 @@ export function StudentFormDrawer({
       fullName: form.fullName.trim(),
       birthDate: form.birthDate,
       status: form.status,
-      guardianIds,
+      guardianName: form.guardianName.trim() || undefined,
+      guardianPhone: form.guardianPhone.trim() || undefined,
       educationTypeIds: form.educationTypeIds,
       weeklySessionCount: form.weeklySessionCount > 0 ? form.weeklySessionCount : undefined,
       assignedTeacherIds: initialData?.assignedTeacherIds ?? [],
@@ -191,45 +181,18 @@ export function StudentFormDrawer({
       createdAt: initialData?.createdAt ?? new Date().toISOString(),
     };
 
-    if (isEditing) {
-      store.updateStudent(student);
-      if (form.guardianId) {
-        const guardian = store.guardians.find((g) => g.id === form.guardianId);
-        if (guardian && !guardian.studentIds.includes(id)) {
-          store.updateGuardian({ ...guardian, studentIds: [...guardian.studentIds, id] });
-        }
-      }
-      // Moving the student to another guardian unlinks the previous one.
-      if (previousPrimary && previousPrimary !== form.guardianId && !guardianIds.includes(previousPrimary)) {
-        const oldGuardian = store.guardians.find((g) => g.id === previousPrimary);
-        if (oldGuardian) {
-          store.updateGuardian({ ...oldGuardian, studentIds: oldGuardian.studentIds.filter((sid) => sid !== id) });
-        }
-      }
-    } else {
-      store.addStudent(student);
-      if (form.guardianId) {
-        const guardian = store.guardians.find((g) => g.id === form.guardianId);
-        if (guardian) {
-          store.updateGuardian({ ...guardian, studentIds: [...guardian.studentIds, id] });
-        }
-      }
-    }
+    if (isEditing) store.updateStudent(student);
+    else store.addStudent(student);
 
     onOpenChange(false);
   };
-
-  // Guardian display name for SelectValue
-  const guardianDisplayName = form.guardianId
-    ? (store.guardians.find((g) => g.id === form.guardianId)?.fullName ?? null)
-    : null;
 
   return (
     <FormDrawer
       open={open}
       onOpenChange={onOpenChange}
       title={isEditing ? "Öğrenci Düzenle" : "Yeni Öğrenci"}
-      description="Öğrenci bilgilerini doldurun. Veli kaydı önceden oluşturulmuş olmalıdır."
+      description="Öğrenci bilgilerini doldurun. Yıldızlı alanlar zorunludur."
       onSave={handleSave}
       saveLabel={isEditing ? "Değişiklikleri Kaydet" : "Öğrenci Ekle"}
     >
@@ -293,50 +256,31 @@ export function StudentFormDrawer({
           </Select>
         </div>
 
-        {/* Veli */}
-        <div className="space-y-1.5">
-          <Label>Veli{rules.guardianRequired && <span className="text-destructive"> *</span>}</Label>
-          {defaultGuardianId && !isEditing ? (
-            (() => {
-              const g = store.guardians.find((x) => x.id === defaultGuardianId);
-              return (
-                <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{g?.fullName ?? "—"}</p>
-                    {g?.relationship && (
-                      <p className="text-xs text-muted-foreground">{g.relationship}</p>
-                    )}
-                  </div>
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-              );
-            })()
-          ) : (
-            <Select
-              value={form.guardianId || ""}
-              onValueChange={(v) => { if (v) set("guardianId", v); }}
-            >
-              <SelectTrigger aria-label="Veli">
-                <SelectValue className={!form.guardianId ? "text-muted-foreground" : ""}>
-                  {guardianDisplayName ?? "Veli seçin"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {store.guardians.map((g) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.fullName}
-                    <span className="ml-1 text-muted-foreground text-xs">({g.relationship})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {(!defaultGuardianId || isEditing) && (
-            <p className="text-xs text-muted-foreground">
-              Veliler sekmesinden yeni veli kaydı oluşturabilirsiniz.
-            </p>
-          )}
-          <FieldError message={shownErrors.guardianId} />
+        {/* Veli (isteğe bağlı) */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="guardian-name">
+              Veli Adı <span className="font-normal text-muted-foreground">(isteğe bağlı)</span>
+            </Label>
+            <Input
+              id="guardian-name"
+              value={form.guardianName}
+              onChange={(e) => set("guardianName", e.target.value)}
+              placeholder="Ad soyad"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="guardian-phone">
+              Veli Telefonu <span className="font-normal text-muted-foreground">(isteğe bağlı)</span>
+            </Label>
+            <Input
+              id="guardian-phone"
+              type="tel"
+              value={form.guardianPhone}
+              onChange={(e) => set("guardianPhone", e.target.value)}
+              placeholder="05xx xxx xx xx"
+            />
+          </div>
         </div>
 
         {/* Acil durum kişisi */}

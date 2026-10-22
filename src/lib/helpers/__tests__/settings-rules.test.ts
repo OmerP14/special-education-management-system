@@ -254,7 +254,6 @@ describe("student rules", () => {
     fullName: id,
     birthDate: "",
     status: "active",
-    guardianIds: [],
     educationTypeIds: [],
     createdAt,
     ...extra,
@@ -273,7 +272,8 @@ describe("student rules", () => {
     const form = {
       fullName: "Ali",
       birthDate: "",
-      guardianId: "",
+      guardianName: "",
+      guardianPhone: "",
       studentNumber: "OGR-1",
       kvkkConsent: false,
       healthInfo: "",
@@ -281,14 +281,14 @@ describe("student rules", () => {
       emergencyContactPhone: "",
     };
     const errors = validateStudentFields(form, settings, [student("x", "2026-01-01", { studentNumber: "ogr-1" })]);
-    expect(Object.keys(errors).sort()).toEqual(["birthDate", "guardianId", "kvkkConsent", "studentNumber"]);
+    // The guardian is never required.
+    expect(Object.keys(errors).sort()).toEqual(["birthDate", "kvkkConsent", "studentNumber"]);
   });
 
   it("builds the preferred guardian contact link", () => {
-    const g = { phone: "0532 123 45 67", email: "a@b.com" };
-    expect(getGuardianContactLink(g, "phone")?.href).toBe("tel:05321234567");
-    expect(getGuardianContactLink(g, "whatsapp")?.href).toBe("https://wa.me/905321234567");
-    expect(getGuardianContactLink(g, "email")?.href).toBe("mailto:a@b.com");
+    expect(getGuardianContactLink("0532 123 45 67", "phone")?.href).toBe("tel:05321234567");
+    expect(getGuardianContactLink("0532 123 45 67", "whatsapp")?.href).toBe("https://wa.me/905321234567");
+    expect(getGuardianContactLink(undefined, "phone")).toBeNull();
   });
 });
 

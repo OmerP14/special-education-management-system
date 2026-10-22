@@ -110,16 +110,15 @@ export interface TeacherEarningsSettings {
   warnOnMissingEarningConfig: boolean;
 }
 
-// ─── 6. Öğrenci ve Veli Ayarları ─────────────────────────────────────────────
+// ─── 6. Öğrenci Ayarları ─────────────────────────────────────────────
 
-export type GuardianContactPreference = "phone" | "email" | "whatsapp";
+/** How the student card's guardian phone is offered: call or WhatsApp. */
+export type GuardianContactPreference = "phone" | "whatsapp";
 export type InactiveStudentBehavior = "hide" | "show_greyed";
 
 export interface StudentSettings {
   autoGenerateStudentNumber: boolean;
   studentNumberFormat: string;
-  guardianRequired: boolean;
-  allowMultipleGuardians: boolean;
   defaultStudentStatus: StudentStatus;
   inactiveStudentBehavior: InactiveStudentBehavior;
   debtWarningEnabled: boolean;

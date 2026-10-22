@@ -17,7 +17,7 @@ async function isSignedIn(): Promise<boolean> {
 }
 
 /** Collections every saved document must have as arrays. */
-const REQUIRED_ARRAYS = ["students", "guardians", "teachers", "educationTypes", "sessions", "payments", "teacherPayments"];
+const REQUIRED_ARRAYS = ["students", "teachers", "educationTypes", "sessions", "payments", "teacherPayments"];
 
 function isValidState(data: unknown): data is Record<string, unknown> {
   if (!data || typeof data !== "object" || Array.isArray(data)) return false;

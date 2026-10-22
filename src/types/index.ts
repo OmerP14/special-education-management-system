@@ -35,12 +35,14 @@ export interface Student {
   fullName: string;
   birthDate: string;
   status: StudentStatus;
-  guardianIds: string[];
+  /** Optional contact person (there are no separate guardian records). */
+  guardianName?: string;
+  guardianPhone?: string;
   educationTypeIds: string[];
   weeklySessionCount?: number;
   assignedTeacherIds?: string[];
   notes?: string;
-  /** Ayarlar → Öğrenci ve Veli → Öğrenci numarası (auto-generated or manual). */
+  /** Ayarlar → Öğrenci → Öğrenci numarası (auto-generated or manual). */
   studentNumber?: string;
   /** Sequence behind an auto-generated studentNumber. */
   studentSequence?: number;
@@ -54,22 +56,6 @@ export interface Student {
   createdAt: string;
   updatedAt?: string;
   /** Set when created by Excel Import — lets that batch be rolled back. */
-  importBatchId?: string;
-}
-
-// ─── Guardian ──────────────────────────────────────────────────────────────────
-export interface Guardian {
-  id: string;
-  tenantId: string;
-  fullName: string;
-  phone: string;
-  email?: string;
-  relationship: string;
-  studentIds: string[];
-  address?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt?: string;
   importBatchId?: string;
 }
 
@@ -249,7 +235,6 @@ export interface OpeningBalance {
   id: string;
   tenantId: string;
   studentId: string;
-  guardianId?: string;
   amount: number; // always positive; sign is carried by balanceType
   balanceType: OpeningBalanceType;
   date: string; // "YYYY-MM-DD" — balance is "as of" this date
@@ -386,7 +371,8 @@ export interface StudentListItem {
   status: StudentStatus;
   notes?: string;
   createdAt: string;
-  primaryGuardian: Guardian | null;
+  guardianName: string | null;
+  guardianPhone: string | null;
   educationTypeNames: string[];
   assignedTeacherNames: string[];
   totalSessions: number;
@@ -396,8 +382,6 @@ export interface StudentListItem {
 }
 
 export interface StudentDetail extends Student {
-  primaryGuardian: Guardian | null;
-  allGuardians: Guardian[];
   educationTypeNames: string[];
   assignedTeachers: Teacher[];
   sessions: Session[];
@@ -411,9 +395,8 @@ export interface StudentDetail extends Student {
 export interface TeacherStudentRow {
   studentId: string;
   studentName: string;
-  primaryGuardianId: string | null;
-  primaryGuardianName: string | null;
-  primaryGuardianPhone: string | null;
+  guardianName: string | null;
+  guardianPhone: string | null;
   educationTypeNames: string[];
   totalSessions: number;
   lastSessionDate: string | null;
@@ -547,7 +530,6 @@ export interface PaymentListItem {
   date: string;
   studentId: string;
   studentName: string;
-  guardianId: string | null;
   guardianName: string | null;
   guardianPhone: string | null;
   method: PaymentMethod;
@@ -564,7 +546,6 @@ export interface PaymentListItem {
 export interface StudentDebtItem {
   studentId: string;
   studentName: string;
-  guardianId: string | null;
   guardianName: string | null;
   totalBilled: number;
   totalPaid: number;
@@ -583,7 +564,6 @@ export interface StudentDebtItem {
 export interface StudentMonthlyAccountRow {
   studentId: string;
   studentName: string;
-  guardianId: string | null;
   guardianName: string | null;
   previousBalance: number;
   currentMonthBilled: number;
@@ -762,46 +742,12 @@ export interface StudentCurrentAccount {
   remainingDebt: number;
 }
 
-// ─── Guardian / Veli UI models ────────────────────────────────────────────────
-
-export interface GuardianListItem {
-  id: string;
-  tenantId: string;
-  fullName: string;
-  phone: string;
-  email?: string;
-  relationship: string;
-  studentIds: string[];
-  studentNames: string[];
-  studentCount: number;
-  totalBilled: number;
-  totalPaid: number;
-  totalDebt: number;
-}
-
-export interface GuardianDetail {
-  id: string;
-  tenantId: string;
-  fullName: string;
-  phone: string;
-  email?: string;
-  relationship: string;
-  students: Student[];
-  payments: Payment[];
-  sessions: Session[];
-  totalBilled: number;
-  totalPaid: number;
-  totalDebt: number;
-  lastPaymentDate: string | null;
-}
-
 // ─── Excel Import / Historical Data Migration ─────────────────────────────────
 
 /** One entity type is imported per wizard pass — matches the dependency order a
  *  real migration needs (people before sessions, sessions/payments before balances). */
 export type ImportEntityType =
   | "students"
-  | "guardians"
   | "teachers"
   | "sessions"
   | "payments"
@@ -827,7 +773,7 @@ export interface ImportColumnMapping {
 }
 
 export interface ImportEntityMatch {
-  entityType: "Öğrenci" | "Öğretmen" | "Eğitim Türü" | "Veli";
+  entityType: "Öğrenci" | "Öğretmen" | "Eğitim Türü";
   value: string;
   matched: boolean;
 }
@@ -926,7 +872,8 @@ export interface ImportResult {
 
 export interface ImportBatchEntityIds {
   students: string[];
-  guardians: string[];
+  /** Only in batches imported before guardians were removed. */
+  guardians?: string[];
   teachers: string[];
   sessions: string[];
   payments: string[];

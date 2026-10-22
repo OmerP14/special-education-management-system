@@ -148,16 +148,12 @@ export function SessionDetailDrawer({
 
             <InfoRow icon={User} label="Veli">
               {guardian ? (
-                <Link
-                  href={`/app/guardians/${guardian.id}`}
-                  className="text-foreground hover:text-primary transition-colors"
-                  onClick={() => onOpenChange(false)}
-                >
-                  {guardian.fullName}
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    {guardian.relationship}
-                  </span>
-                </Link>
+                <span className="text-foreground">
+                  {guardian.fullName || "—"}
+                  {guardian.phone && (
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">{guardian.phone}</span>
+                  )}
+                </span>
               ) : (
                 <span className="text-muted-foreground text-xs">Kayıtlı veli yok</span>
               )}

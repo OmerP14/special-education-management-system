@@ -13,7 +13,6 @@ import {
   ChevronDown,
   ChevronUp,
   Users,
-  UserRound,
   GraduationCap,
   CalendarDays,
   CreditCard,
@@ -134,7 +133,6 @@ import { TENANT_ID } from "@/lib/data/ids";
 
 const ENTITY_ICONS: Record<ImportEntityType, LucideIcon> = {
   students: Users,
-  guardians: UserRound,
   teachers: GraduationCap,
   sessions: CalendarDays,
   payments: CreditCard,
@@ -143,8 +141,7 @@ const ENTITY_ICONS: Record<ImportEntityType, LucideIcon> = {
 };
 
 const ENTITY_DESCRIPTIONS: Record<ImportEntityType, string> = {
-  students: "Öğrenci listesi ve bağlı veli bilgileri",
-  guardians: "Bağımsız veli kayıtları (telefon, adres)",
+  students: "Öğrenci listesi (isteğe bağlı veli adı ve telefonu)",
   teachers: "Öğretmen listesi ve iletişim bilgileri",
   sessions: "Seans kayıtları ve fiyat bilgileri",
   payments: "Öğrenci ödeme geçmişi",
@@ -182,7 +179,6 @@ const CONFIRMATION_COPY =
 
 const OVERRIDE_OPTIONS: { value: ImportEntityType | "ignore"; label: string }[] = [
   { value: "students", label: "Öğrenci" },
-  { value: "guardians", label: "Veli" },
   { value: "teachers", label: "Öğretmen" },
   { value: "sessions", label: "Seans" },
   { value: "payments", label: "Ödeme" },
@@ -251,11 +247,6 @@ function getRepairFieldsForEntry(type: ImportEntityType, isClassicSource: boolea
       return [{ key: "fullName", label: "Ad Soyad", kind: "text" }];
     case "teachers":
       return [{ key: "fullName", label: "Ad Soyad", kind: "text" }];
-    case "guardians":
-      return [
-        { key: "fullName", label: "Ad Soyad", kind: "text" },
-        { key: "phone", label: "Telefon", kind: "text" },
-      ];
     default:
       return [];
   }
@@ -977,7 +968,6 @@ export default function ImportPage() {
   function currentStoreSnapshot(): ImportStoreSnapshot {
     return {
       students: store.students,
-      guardians: store.guardians,
       teachers: store.teachers,
       sessions: store.sessions,
       // History-only payments too: they're kept out of store.payments, but a

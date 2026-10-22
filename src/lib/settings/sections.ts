@@ -55,7 +55,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   },
   {
     key: "finance",
-    label: "Veli Ödemeleri",
+    label: "Öğrenci Ödemeleri",
     description: "Ödeme yöntemleri ve borç uyarısı",
     href: "/app/settings/finance",
     icon: Wallet,

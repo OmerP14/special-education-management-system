@@ -2,7 +2,6 @@ import type {
   Session,
   Payment,
   Student,
-  Guardian,
   StudentCurrentAccount,
   StudentMonthlyAccountRow,
   OpeningBalance,
@@ -136,7 +135,6 @@ export function buildStudentCurrentAccount(
  */
 export function buildStudentMonthlyAccountRows(
   students: Student[],
-  guardians: Guardian[],
   sessions: Session[],
   payments: Payment[],
   year: number,
@@ -145,13 +143,11 @@ export function buildStudentMonthlyAccountRows(
 ): StudentMonthlyAccountRow[] {
   return students
     .map((student) => {
-      const guardian = guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
       const account = buildStudentCurrentAccount(student.id, sessions, payments, year, month, openingBalances);
       return {
         studentId: student.id,
         studentName: student.fullName,
-        guardianId: guardian?.id ?? null,
-        guardianName: guardian?.fullName ?? null,
+        guardianName: student.guardianName || null,
         previousBalance: account.previousBalance,
         currentMonthBilled: account.currentMonthBilled,
         currentMonthPaid: account.currentMonthPaid,

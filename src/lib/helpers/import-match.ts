@@ -14,7 +14,6 @@
 
 import type {
   Student,
-  Guardian,
   Teacher,
   Session,
   Payment,
@@ -73,25 +72,18 @@ export interface StudentMatchResult {
 export function matchStudent(
   fullName: string,
   guardianPhone: string | null | undefined,
-  studentIndex: StudentIndex,
-  guardianIndex: GuardianIndex
+  studentIndex: StudentIndex
 ): StudentMatchResult {
   const candidates = studentIndex.byName.get(normalizeName(fullName)) ?? [];
   if (candidates.length === 0) return { tier: "new", student: null };
 
   const normalizedPhone = normalizePhone(guardianPhone);
   if (normalizedPhone) {
-    const confident = candidates.find((s) =>
-      s.guardianIds.some((gid) => {
-        const g = guardianIndex.byId.get(gid);
-        return g && normalizePhone(g.phone) === normalizedPhone;
-      })
-    );
+    const confident = candidates.find((s) => normalizePhone(s.guardianPhone) === normalizedPhone);
     if (confident) return { tier: "matched", student: confident };
   }
 
-  const knownPhones = (s: Student) =>
-    s.guardianIds.some((gid) => !!normalizePhone(guardianIndex.byId.get(gid)?.phone));
+  const knownPhones = (s: Student) => !!normalizePhone(s.guardianPhone);
   const contradicted = !!normalizedPhone && candidates.every(knownPhones);
   return { tier: contradicted ? "possible" : "matched", student: candidates[0]! };
 }
@@ -108,44 +100,6 @@ export function resolveStudentByName(fullName: string, studentIndex: StudentInde
   const candidates = studentIndex.byName.get(normalizeName(fullName)) ?? [];
   if (candidates.length === 0) return { student: null, ambiguous: false };
   return { student: candidates[0]!, ambiguous: candidates.length > 1 };
-}
-
-// ─── Guardians ───────────────────────────────────────────────────────────────
-
-export interface GuardianIndex {
-  byId: Map<string, Guardian>;
-  byPhone: Map<string, Guardian>;
-  byName: Map<string, Guardian[]>;
-}
-
-export function buildGuardianIndex(guardians: Guardian[]): GuardianIndex {
-  const index: GuardianIndex = { byId: new Map(), byPhone: new Map(), byName: new Map() };
-  for (const g of guardians) addGuardianToIndex(index, g);
-  return index;
-}
-
-export function addGuardianToIndex(index: GuardianIndex, guardian: Guardian): void {
-  index.byId.set(guardian.id, guardian);
-  const phone = normalizePhone(guardian.phone);
-  if (phone && !index.byPhone.has(phone)) index.byPhone.set(phone, guardian);
-  addToBucket(index.byName, normalizeName(guardian.fullName), guardian);
-}
-
-export interface GuardianMatchResult {
-  tier: MatchTier;
-  guardian: Guardian | null;
-}
-
-export function matchGuardian(fullName: string, phone: string | undefined, guardianIndex: GuardianIndex): GuardianMatchResult {
-  const normalizedPhone = normalizePhone(phone);
-  if (normalizedPhone) {
-    const byPhone = guardianIndex.byPhone.get(normalizedPhone);
-    if (byPhone) return { tier: "matched", guardian: byPhone };
-  }
-  // Same name: the same guardian unless both phones are known and differ.
-  const byName = guardianIndex.byName.get(normalizeName(fullName))?.[0];
-  if (byName) return { tier: normalizedPhone && normalizePhone(byName.phone) ? "possible" : "matched", guardian: byName };
-  return { tier: "new", guardian: null };
 }
 
 // ─── Teachers ────────────────────────────────────────────────────────────────

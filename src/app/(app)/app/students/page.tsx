@@ -46,17 +46,16 @@ export default function StudentsPage() {
     () =>
       buildStudentListItems(
         store.students,
-        store.guardians,
         store.educationTypes,
         store.teachers,
         store.sessions,
         store.payments,
         store.openingBalances
       ),
-    [store.students, store.guardians, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
+    [store.students, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
   );
 
-  // Ayarlar → Öğrenci ve Veli: inactive students hidden or greyed out; debt
+  // Ayarlar → Öğrenci: inactive students hidden or greyed out; debt
   // warning above Ayarlar → Finans → Öğrenci Borç Uyarı Eşiği.
   const { inactiveStudentBehavior, debtWarningEnabled } = store.institutionSettings.students;
   const debtThreshold = store.institutionSettings.finance.studentDebtWarningThreshold;
@@ -72,8 +71,8 @@ export default function StudentsPage() {
         !q ||
         item.fullName.toLowerCase().includes(q) ||
         (item.studentNumber?.toLowerCase().includes(q) ?? false) ||
-        item.primaryGuardian?.fullName.toLowerCase().includes(q) ||
-        item.primaryGuardian?.phone.includes(q);
+        item.guardianName?.toLowerCase().includes(q) ||
+        item.guardianPhone?.includes(q);
       const matchesStatus =
         statusFilter === "all" || item.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -125,14 +124,8 @@ export default function StudentsPage() {
       key: "guardian",
       header: "Veli",
       render: (row) =>
-        row.primaryGuardian ? (
-          <Link
-            href={`/app/guardians/${row.primaryGuardian.id}`}
-            className="text-muted-foreground hover:text-primary transition-colors text-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {row.primaryGuardian.fullName}
-          </Link>
+        row.guardianName ? (
+          <span className="text-muted-foreground text-sm">{row.guardianName}</span>
         ) : (
           <span className="text-muted-foreground/40">—</span>
         ),
@@ -143,9 +136,9 @@ export default function StudentsPage() {
       key: "phone",
       header: "Telefon",
       render: (row) =>
-        row.primaryGuardian?.phone ? (
+        row.guardianPhone ? (
           <span className="tabular-nums text-muted-foreground text-xs">
-            {row.primaryGuardian.phone}
+            {row.guardianPhone}
           </span>
         ) : (
           <span className="text-muted-foreground/40">—</span>

@@ -182,16 +182,8 @@ const studentRowColumns: Column<TeacherStudentRow>[] = [
     key: "guardian",
     header: "Veli",
     render: (row) =>
-      row.primaryGuardianName && row.primaryGuardianId ? (
-        <Link
-          href={`/app/guardians/${row.primaryGuardianId}`}
-          className="text-muted-foreground hover:text-primary transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {row.primaryGuardianName}
-        </Link>
-      ) : row.primaryGuardianName ? (
-        <span className="text-muted-foreground">{row.primaryGuardianName}</span>
+      row.guardianName ? (
+        <span className="text-muted-foreground">{row.guardianName}</span>
       ) : (
         <span className="text-muted-foreground/40">—</span>
       ),
@@ -375,7 +367,6 @@ function TeacherDetailViewContent({
     store.teachers,
     store.educationTypes,
     store.students,
-    store.guardians,
     store.sessions,
     store.teacherEarnings,
     store.teacherPayments,

@@ -7,7 +7,7 @@ import { writeState } from "@/lib/server/state-repo";
  *  settings come from the defaults when the app loads it). */
 function initialState(institutionName: string, institutionPhone: string) {
   return {
-    students: [], guardians: [], teachers: [], educationTypes: [], sessions: [], payments: [],
+    students: [], teachers: [], educationTypes: [], sessions: [], payments: [],
     teacherEarnings: [], teacherPayments: [], teacherEducationTypeAssignments: [], openingBalances: [],
     importBatches: [], teacherMergeHistory: [], weeklySessionPlans: [], notifications: [],
     institutionSettings: { institution: { name: institutionName, phone: institutionPhone } },

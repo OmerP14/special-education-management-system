@@ -21,7 +21,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansTab";
 import { StatCard } from "@/components/shared/StatCard";
@@ -238,7 +237,6 @@ function StudentDetailViewContent({
   const detail = buildStudentDetail(
     studentId,
     store.students,
-    store.guardians,
     store.educationTypes,
     store.teachers,
     store.sessions,
@@ -388,83 +386,46 @@ function StudentDetailViewContent({
         </CardContent>
       </Card>
 
-      {/* Guardian info */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Veli Bilgileri
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 divide-y divide-border/60">
-          {detail.allGuardians.length > 0 ? (
-            detail.allGuardians.map((guardian) => (
-              <div key={guardian.id}>
-                <InfoRow
-                  icon={User}
-                  label={guardian.relationship}
-                  value={
-                    <Link
-                      href={`/app/guardians/${guardian.id}`}
-                      className="text-primary hover:underline"
-                    >
-                      {guardian.fullName}
-                    </Link>
-                  }
-                />
-                <InfoRow
-                  icon={Phone}
-                  label="Telefon"
-                  value={
-                    <a
-                      href={`tel:${guardian.phone}`}
-                      className="text-primary hover:underline"
-                    >
-                      {guardian.phone}
-                    </a>
-                  }
-                />
-                {guardian.email && (
-                  <InfoRow
-                    icon={User}
-                    label="E-posta"
-                    value={
-                      <a
-                        href={`mailto:${guardian.email}`}
-                        className="text-primary hover:underline"
-                      >
-                        {guardian.email}
-                      </a>
-                    }
-                  />
-                )}
-                {(() => {
-                  // Ayarlar → Öğrenci ve Veli → Veli İletişim Tercihi
-                  const contact = getGuardianContactLink(guardian, store.institutionSettings.students.guardianContactPreference);
-                  return contact ? (
-                    <div className="pb-2 pl-10">
-                      <a
-                        href={contact.href}
-                        target={contact.href.startsWith("http") ? "_blank" : undefined}
-                        rel="noreferrer"
-                        className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
-                      >
-                        {contact.label}
-                      </a>
-                    </div>
-                  ) : null;
-                })()}
-                {detail.allGuardians.indexOf(guardian) < detail.allGuardians.length - 1 && (
-                  <Separator className="my-2" />
-                )}
-              </div>
-            ))
-          ) : (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              Veli kaydı bulunamadı
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Veli (optional contact on the student record) */}
+      {(detail.guardianName || detail.guardianPhone) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Veli Bilgileri
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 divide-y divide-border/60">
+            {detail.guardianName && <InfoRow icon={User} label="Veli" value={detail.guardianName} />}
+            {detail.guardianPhone && (
+              <InfoRow
+                icon={Phone}
+                label="Telefon"
+                value={
+                  <a href={`tel:${detail.guardianPhone}`} className="text-primary hover:underline">
+                    {detail.guardianPhone}
+                  </a>
+                }
+              />
+            )}
+            {(() => {
+              // Ayarlar → Öğrenci → Veli İletişim Tercihi
+              const contact = getGuardianContactLink(detail.guardianPhone, store.institutionSettings.students.guardianContactPreference);
+              return contact ? (
+                <div className="pb-2 pl-10">
+                  <a
+                    href={contact.href}
+                    target={contact.href.startsWith("http") ? "_blank" : undefined}
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    {contact.label}
+                  </a>
+                </div>
+              ) : null;
+            })()}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -749,19 +710,20 @@ function StudentDetailViewContent({
                     <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
                     <StatusBadge status={detail.status} />
                   </div>
-                  {detail.primaryGuardian && (
+                  {(detail.guardianName || detail.guardianPhone) && (
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                      <Link
-                        href={`/app/guardians/${detail.primaryGuardian.id}`}
-                        className="flex items-center gap-1 hover:text-primary transition-colors"
-                      >
-                        <User className="h-3 w-3" />
-                        {detail.primaryGuardian.fullName} · {detail.primaryGuardian.relationship}
-                      </Link>
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {detail.primaryGuardian.phone}
-                      </span>
+                      {detail.guardianName && (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {detail.guardianName}
+                        </span>
+                      )}
+                      {detail.guardianPhone && (
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {detail.guardianPhone}
+                        </span>
+                      )}
                     </div>
                   )}
                   {detail.educationTypeNames.length > 0 && (
@@ -824,7 +786,7 @@ function StudentDetailViewContent({
           />
         </div>
 
-        {/* Ayarlar → Öğrenci ve Veli → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
+        {/* Ayarlar → Öğrenci → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
         {store.institutionSettings.students.debtWarningEnabled &&
           detail.totalDebt > 0 &&
           detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (

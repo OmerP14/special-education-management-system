@@ -35,7 +35,7 @@ function FinanceSettingsContent() {
 
   return (
     <SettingsFormSection
-      title="Veli Ödemeleri"
+      title="Öğrenci Ödemeleri"
       description="Velilerden ödeme alırken hangi yöntemlerin seçilebileceği ve borç uyarısı. Makbuz numaraları otomatik verilir."
       isDirty={isDirty}
       errors={errors}

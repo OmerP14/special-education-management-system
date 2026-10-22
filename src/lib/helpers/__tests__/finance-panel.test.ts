@@ -32,7 +32,7 @@ const lesson = (studentId: string, teacherId: string, at: string, status: Sessio
     { id: `s${++n}`, tenantId: "t", studentId, teacherId, educationTypeId: "et-1", date: at, durationMinutes: 40, sessionCount: 1, studentPrice: price, teacherEarning: earning, status, createdAt: at, teacherEarningStatus: "calculated", ...extra },
     policy
   );
-const student = (id: string, fullName: string, status: Student["status"]): Student => ({ id, tenantId: "t", fullName, birthDate: "", status, guardianIds: [], educationTypeIds: [], createdAt: "2026-01-01" });
+const student = (id: string, fullName: string, status: Student["status"]): Student => ({ id, tenantId: "t", fullName, birthDate: "", status, educationTypeIds: [], createdAt: "2026-01-01" });
 const teacher = (id: string, o: Partial<Teacher>): Teacher => ({ id, tenantId: "t", fullName: id, phone: "", status: "active", createdAt: "2026-01-01T00:00:00", ...o });
 const pay = (studentId: string, date: string, amount: number): Payment => ({ id: `p${++n}`, tenantId: "t", studentId, date, amount, method: "cash", createdAt: date });
 const tpay = (teacherId: string, date: string, amount: number): TeacherPayment => ({ id: `tp${++n}`, tenantId: "t", teacherId, date, amount, method: "cash", paymentType: "salary", createdAt: date });

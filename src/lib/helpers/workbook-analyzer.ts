@@ -238,7 +238,6 @@ const SHEET_NAME_HINTS: [ImportEntityType, string[]][] = [
   ["openingBalances", ["devir", "bakiye", "kalan borc", "borc listesi", "acilis"]],
   ["payments", ["odeme", "tahsilat", "makbuz", "kasa"]],
   ["sessions", ["ders", "seans", "yoklama", "program", "puantaj"]],
-  ["guardians", ["veli"]],
   ["teachers", ["ogretmen", "personel", "egitmen", "terapist", "kadro"]],
   ["students", ["ogrenci", "danisan", "kayit"]],
 ];

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { AlertTriangle, User } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
@@ -19,11 +18,11 @@ import { useStore } from "@/lib/data/store";
 import {
   getStudentTotalBilled,
   getStudentNetBalance,
-  getStudentGuardian,
   getPaymentMethodLabel,
   formatCurrency,
   getCurrencySymbol,
 } from "@/lib/helpers/finance";
+import { getStudentGuardianContact } from "@/lib/helpers/student-rules";
 import { describeCollection } from "@/lib/helpers/finance-rules";
 import type { Payment, PaymentMethod } from "@/types";
 import { cn } from "@/lib/utils";
@@ -180,9 +179,7 @@ export function PaymentFormDrawer({
 
   const studentId = single.studentId;
 
-  const connectedGuardian = studentId
-    ? getStudentGuardian(studentId, store.students, store.guardians)
-    : null;
+  const connectedGuardian = getStudentGuardianContact(store.students.find((st) => st.id === studentId));
 
   const totalBilled = studentId
     ? getStudentTotalBilled(studentId, store.sessions)
@@ -267,7 +264,6 @@ export function PaymentFormDrawer({
           isOverpayment={isOverpayment}
           overpaymentAcknowledged={overpaymentAcknowledged}
           onOverpaymentAcknowledgedChange={setOverpaymentAcknowledged}
-          onClose={() => onOpenChange(false)}
           isEditing={isEditing}
         />
       </div>
@@ -290,14 +286,13 @@ function SinglePaymentForm({
   isOverpayment,
   overpaymentAcknowledged,
   onOverpaymentAcknowledgedChange,
-  onClose,
   isEditing,
 }: {
   form: SingleFormState;
   set: <K extends keyof SingleFormState>(k: K, v: SingleFormState[K]) => void;
   students: { id: string; fullName: string }[];
   methodValues: PaymentMethod[];
-  connectedGuardian: { id: string; fullName: string; relationship: string; phone: string } | null;
+  connectedGuardian: { fullName: string; phone: string } | null;
   totalBilled: number;
   totalPaid: number;
   currentDebt: number;
@@ -305,7 +300,6 @@ function SinglePaymentForm({
   isOverpayment: boolean;
   overpaymentAcknowledged: boolean;
   onOverpaymentAcknowledgedChange: (v: boolean) => void;
-  onClose: () => void;
   isEditing: boolean;
 }) {
   return (
@@ -336,7 +330,7 @@ function SinglePaymentForm({
       </div>
 
       {connectedGuardian && (
-        <GuardianInfo guardian={connectedGuardian} onClose={onClose} />
+        <GuardianInfo guardian={connectedGuardian} />
       )}
 
       <div className="space-y-1.5">
@@ -459,13 +453,7 @@ function SinglePaymentForm({
 
 // ─── Shared sub-component ──────────────────────────────────────────────────────
 
-function GuardianInfo({
-  guardian,
-  onClose,
-}: {
-  guardian: { id: string; fullName: string; relationship: string; phone: string };
-  onClose: () => void;
-}) {
+function GuardianInfo({ guardian }: { guardian: { fullName: string; phone: string } }) {
   return (
     <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10">
@@ -473,18 +461,10 @@ function GuardianInfo({
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-          Bağlı Veli
+          Veli
         </p>
-        <Link
-          href={`/app/guardians/${guardian.id}`}
-          className="text-sm font-medium text-foreground hover:text-primary transition-colors"
-          onClick={onClose}
-        >
-          {guardian.fullName}
-        </Link>
-        <span className="ml-1.5 text-xs text-muted-foreground">
-          {guardian.relationship} · {guardian.phone}
-        </span>
+        <span className="text-sm font-medium text-foreground">{guardian.fullName || "—"}</span>
+        {guardian.phone && <span className="ml-1.5 text-xs text-muted-foreground">{guardian.phone}</span>}
       </div>
     </div>
   );

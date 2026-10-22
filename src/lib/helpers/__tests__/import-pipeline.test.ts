@@ -67,7 +67,7 @@ const educationTypes: EducationType[] = [
   },
 ];
 
-const ENTITY_TYPES: string[] = ["students", "guardians", "teachers", "sessions", "payments", "teacherPayments", "openingBalances"];
+const ENTITY_TYPES: string[] = ["students", "teachers", "sessions", "payments", "teacherPayments", "openingBalances"];
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -105,7 +105,7 @@ function workbook(sheets: { name: string; rows: Cell[][] }[], fileName = "kurum.
 }
 
 function emptyStore(): ImportStoreSnapshot & { teacherEducationTypeAssignments: TeacherEducationTypeAssignment[] } {
-  return { students: [], guardians: [], teachers: [], sessions: [], payments: [], teacherPayments: [], openingBalances: [], teacherEducationTypeAssignments: [] };
+  return { students: [], teachers: [], sessions: [], payments: [], teacherPayments: [], openingBalances: [], teacherEducationTypeAssignments: [] };
 }
 
 async function preview(file: File, store = emptyStore(), mode: ImportMode = "operational") {
@@ -119,17 +119,13 @@ async function preview(file: File, store = emptyStore(), mode: ImportMode = "ope
 }
 
 /** Commits like the import page does, into a plain in-memory store that keeps
- *  the same invariants as the real one (two-way guardian link, earning share). */
+ *  the same invariants as the real one (earning share). */
 function commit(results: MultiImportTaskResult[], store = emptyStore()) {
   const policy = getSettingsDefaults().teacherEarnings;
   const { result, batch } = commitMultiImportBatch(
     results.map((r) => ({ type: r.type, rows: r.rows })),
     {
-      addStudent: (s) => {
-        store.students.push(s);
-        for (const g of store.guardians) if (s.guardianIds.includes(g.id) && !g.studentIds.includes(s.id)) g.studentIds.push(s.id);
-      },
-      addGuardian: (g) => void store.guardians.push(g),
+      addStudent: (s) => void store.students.push(s),
       addTeacher: (t) => void store.teachers.push(t),
       addSession: (s) => void store.sessions.push(withEarningFactor(s, policy)),
       addPayment: (p) => void store.payments.push(p),
@@ -198,7 +194,7 @@ describe("a typical institution workbook", () => {
   it("recognises every sheet and every column", async () => {
     const { classified } = await preview(institutionWorkbook());
     expect(classified.map((c) => [c.sheet.name, c.resultType])).toEqual([
-      ["Veliler", "guardians"],
+      ["Veliler", "unknown"], // guardians are no longer records: the sheet is skipped
       ["Öğrenciler", "students"],
       ["Öğretmenler", "teachers"],
       ["Dersler", "sessions"],
@@ -287,18 +283,17 @@ describe("a typical institution workbook", () => {
     expect(getTeacherEarningTotals(fatma, store.sessions, []).totalEarning).toBe(200);
   });
 
-  it("links each guardian to its students both ways", async () => {
+  it("keeps the guardian's name and phone on the student, and never turns guardians into students", async () => {
     const { results } = await preview(institutionWorkbook());
     const { store } = commit(results);
-    const hatice = byName(store.guardians, "Hatice Kaya");
-    expect(hatice.studentIds).toEqual([byName(store.students, "Ali Kaya").id]);
-    expect(store.guardians).toHaveLength(2); // matched by phone, not created twice
+    expect(byName(store.students, "Ali Kaya")).toMatchObject({ guardianName: "Hatice Kaya", guardianPhone: "0532 111 22 33" });
+    expect(store.students.map((s) => s.fullName).sort()).toEqual(["Ali Kaya", "Zeynep Demir"]);
   });
 
   it("importing the same file again adds nothing", async () => {
     const first = await preview(institutionWorkbook());
     const { store } = commit(first.results);
-    const counts = () => [store.students.length, store.guardians.length, store.teachers.length, store.sessions.length, store.payments.length];
+    const counts = () => [store.students.length, store.teachers.length, store.sessions.length, store.payments.length];
     const before = counts();
     const again = await preview(institutionWorkbook(), store);
     commit(again.results, store);
@@ -315,7 +310,6 @@ describe("a typical institution workbook", () => {
     };
     const { skippedEditedRecords } = rollbackImportBatch(batch, store, {
       deleteStudents: remove("students"),
-      deleteGuardians: remove("guardians"),
       deleteTeachers: remove("teachers"),
       deleteSessions: remove("sessions"),
       deletePayments: remove("payments"),
@@ -325,7 +319,7 @@ describe("a typical institution workbook", () => {
       markImportBatchRolledBack: () => {},
     });
     expect(skippedEditedRecords).toEqual([]);
-    expect([store.students, store.guardians, store.teachers, store.sessions, store.payments].map((l) => l.length)).toEqual([0, 0, 0, 0, 0]);
+    expect([store.students, store.teachers, store.sessions, store.payments].map((l) => l.length)).toEqual([0, 0, 0, 0]);
   });
 });
 
@@ -338,15 +332,13 @@ describe("other files", () => {
     );
     expect(classified[0]!.resultType).toBe("students");
     const staged = rowsOf(results, "students")[0]!.staged;
-    expect(staged.map((s) => [s.kind, (s.record as { fullName: string }).fullName])).toEqual([
-      ["guardians", "Hatice Kaya"],
-      ["students", "Ali Kaya"],
-    ]);
+    expect(staged.map((s) => s.kind)).toEqual(["students"]);
+    expect(staged[0]!.record).toMatchObject({ fullName: "Ali Kaya", guardianName: "Hatice Kaya", guardianPhone: "05321112233" });
   });
 
   it("reads a Turkish CSV with ; and written-out dates", async () => {
     const store = emptyStore();
-    store.students.push({ id: "st1", tenantId: "tenant-1", fullName: "Ali Kaya", birthDate: "", status: "active", guardianIds: [], educationTypeIds: [], createdAt: "" });
+    store.students.push({ id: "st1", tenantId: "tenant-1", fullName: "Ali Kaya", birthDate: "", status: "active", educationTypeIds: [], createdAt: "" });
     const { results } = await preview(new File(["Öğrenci;Tarih;Tutar;Ödeme Yöntemi\nAli Kaya;13 Ekim 2026;₺1.250,50;Havale\n"], "odemeler.csv"), store);
     expect(rowsOf(results, "payments")[0]!.staged[0]!.record).toMatchObject({ studentId: "st1", amount: 1250.5, date: "2026-10-13", method: "bank_transfer" });
   });

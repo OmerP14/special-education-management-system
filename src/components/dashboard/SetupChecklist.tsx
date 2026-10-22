@@ -7,19 +7,18 @@ import { cn } from "@/lib/utils";
 
 /**
  * First-use guide on the dashboard: the order a new institution has to set
- * things up in (a student needs a guardian, a lesson needs an education type
+ * things up in (a lesson needs a student, an education type
  * and a teacher). Each step ticks itself off from the data; the card goes
  * away once every step is done.
  */
 export function SetupChecklist() {
-  const { institutionSettings, educationTypes, teachers, guardians, students, sessions } = useStore();
+  const { institutionSettings, educationTypes, teachers, students, sessions } = useStore();
   const { institution } = institutionSettings;
 
   const steps = [
     { label: "Kurum adını ve telefonunu girin", href: "/app/settings/institution", done: !!institution.name.trim() && !!institution.phone.trim() },
     { label: "Verdiğiniz eğitimleri ve ücretlerini ekleyin", href: "/app/settings/education-types", done: educationTypes.length > 0 },
     { label: "Öğretmenleri ekleyin", href: "/app/teachers", done: teachers.length > 0 },
-    { label: "Velileri ekleyin", href: "/app/guardians", done: guardians.length > 0 },
     { label: "Öğrencileri ekleyin", href: "/app/students", done: students.length > 0 },
     { label: "İlk dersi planlayın", href: "/app/sessions", done: sessions.length > 0 },
   ];

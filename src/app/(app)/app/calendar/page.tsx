@@ -216,10 +216,9 @@ export default function CalendarPage() {
       store.sessions,
       store.students,
       store.teachers,
-      store.educationTypes,
-      store.guardians
+      store.educationTypes
     );
-  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.guardians, store.educationTypes]);
+  }, [selectedSessionId, store.sessions, store.students, store.teachers, store.educationTypes]);
 
   // Navigation
   const navigate = useCallback(

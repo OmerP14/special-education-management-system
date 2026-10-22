@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Student,
-  Guardian,
   Teacher,
   Session,
   Payment,
@@ -53,6 +52,7 @@ import {
 } from "@/lib/helpers/finance-rules";
 import { getEducationTypeUsage, canDeleteEducationType } from "@/lib/helpers/education-types";
 import { createId } from "@/lib/data/ids";
+import { foldLegacyGuardians } from "@/lib/data/migrate-guardians";
 
 // Upserts the TeacherEarning ledger row for a single session, keyed by sessionId so
 // re-saving the same completed session updates the existing row instead of duplicating it.
@@ -104,7 +104,7 @@ export type { AppNotification };
 // ─── Store shape ───────────────────────────────────────────────────────────────
 
 // ─── Delete / soft-delete — intentionally not implemented ──────────────────────
-// Audit finding: there's no delete action for Student, Teacher, Guardian, Payment, or
+// Audit finding: there's no delete action for Student, Teacher, Payment, or
 // TeacherPayment (only WeeklySessionPlan supports delete today).
 //
 // This is deliberate, not an oversight to silently fix: every financial calculation in
@@ -120,7 +120,7 @@ export type { AppNotification };
 // of silent mutation an accounting system should never allow.
 //
 // Recommendation for later: soft-delete/archive (an `archived`/`status: "inactive"` flag)
-// for Student/Teacher/Guardian, hiding them from active pickers and lists while keeping
+// for Student/Teacher, hiding them from active pickers and lists while keeping
 // every historical Session/Payment/TeacherPayment fully intact for reporting. For Payment
 // and TeacherPayment specifically, prefer a reversing/correcting entry (a negative-amount
 // or "void" record with a reason) over any delete at all, so the ledger always explains
@@ -128,7 +128,6 @@ export type { AppNotification };
 // audit trails matter, rather than ever being removed outright.
 interface DataStore {
   students: Student[];
-  guardians: Guardian[];
   teachers: Teacher[];
   educationTypes: EducationType[];
   sessions: Session[];
@@ -147,9 +146,6 @@ interface DataStore {
   addStudent: (s: Student) => void;
   updateStudent: (s: Student) => void;
   deleteStudents: (ids: string[]) => void;
-  addGuardian: (g: Guardian) => void;
-  updateGuardian: (g: Guardian) => void;
-  deleteGuardians: (ids: string[]) => void;
   addTeacher: (t: Teacher) => void;
   updateTeacher: (t: Teacher) => void;
   /** Sets (or with undefined clears) a teacher's devir — used by Excel import
@@ -208,7 +204,7 @@ interface DataStore {
   addWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   updateWeeklySessionPlan: (plan: WeeklySessionPlan) => void;
   deleteWeeklySessionPlan: (id: string) => void;
-  /** Deletes every record (students, guardians, teachers, sessions, payments,
+  /** Deletes every record (students, teachers, sessions, payments,
    *  earnings...). Institution info, education types, settings, the account
    *  and the open session are kept. */
   clearAllRecords: () => void;
@@ -246,7 +242,6 @@ interface DataStore {
  *  per-field bespoke persistence code. */
 export interface PersistedState {
   students: Student[];
-  guardians: Guardian[];
   teachers: Teacher[];
   educationTypes: EducationType[];
   sessions: Session[];
@@ -331,11 +326,9 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   const [initialSettings] = useState(() => normalizeInstitutionSettings(persisted?.institutionSettings));
 
   const [students, setStudents] = useState<Student[]>(() =>
-    backfillStudentNumbers(persisted?.students ?? [], initialSettings.students)
+    backfillStudentNumbers(foldLegacyGuardians(persisted?.students ?? [], persisted && "guardians" in persisted ? persisted.guardians : []), initialSettings.students)
   );
   const studentsRef = useRef(students);
-  const [guardians, setGuardians] = useState<Guardian[]>(() => persisted?.guardians ?? []);
-  const guardiansRef = useRef(guardians);
   const [teachers, setTeachers] = useState<Teacher[]>(() => persisted?.teachers ?? []);
   const [educationTypes, setEducationTypes] = useState<EducationType[]>(
     () => persisted?.educationTypes ?? []
@@ -422,7 +415,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     teacherEducationTypeAssignmentsRef.current = teacherEducationTypeAssignments;
     weeklySessionPlansRef.current = weeklySessionPlans;
     teacherMergeHistoryRef.current = teacherMergeHistory;
-    guardiansRef.current = guardians;
     actorNameRef.current = actorName;
   });
 
@@ -486,8 +478,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
    *  another device's changes arriving from the server. */
   const applyState = useCallback((d: PersistedState) => {
     const settings = normalizeInstitutionSettings(d.institutionSettings);
-    setStudents(backfillStudentNumbers(d.students ?? [], settings.students));
-    setGuardians(d.guardians ?? []);
+    setStudents(backfillStudentNumbers(foldLegacyGuardians(d.students ?? [], "guardians" in d ? d.guardians : []), settings.students));
     setTeachers(d.teachers ?? []);
     setEducationTypes(d.educationTypes ?? []);
     setSessions((d.sessions ?? []).map((s) => (s.earningFactor === undefined ? withEarningFactor(s, settings.teacherEarnings) : s)));
@@ -523,7 +514,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   useEffect(() => {
     dataSource.save({
       students,
-      guardians,
       teachers,
       educationTypes,
       sessions,
@@ -540,7 +530,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     });
   }, [
     students,
-    guardians,
     teachers,
     educationTypes,
     sessions,
@@ -581,7 +570,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
   const value: DataStore = useMemo<DataStore>(
     () => ({
     students,
-    guardians,
     teachers,
     educationTypes,
     sessions,
@@ -597,16 +585,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
 
     addStudent: (s) => {
       setStudents((prev) => [...prev, assignStudentNumber(s, prev, getActiveSettings().students)]);
-      // Keep the link two-way: a guardian lists its students (guardian page,
-      // guardian balance), so a student added from anywhere — Excel import
-      // included — must also appear on its guardians.
-      if (s.guardianIds.length > 0) {
-        setGuardians((prev) =>
-          prev.map((g) =>
-            s.guardianIds.includes(g.id) && !g.studentIds.includes(s.id) ? { ...g, studentIds: [...g.studentIds, s.id] } : g
-          )
-        );
-      }
     },
     updateStudent: (s) =>
       setStudents((prev) =>
@@ -624,24 +602,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     deleteStudents: (ids) => {
       const idSet = new Set(ids);
       setStudents((prev) => prev.filter((x) => !idSet.has(x.id)));
-      setGuardians((prev) =>
-        prev.map((g) => (g.studentIds.some((id) => idSet.has(id)) ? { ...g, studentIds: g.studentIds.filter((id) => !idSet.has(id)) } : g))
-      );
-    },
-
-    addGuardian: (g) => setGuardians((prev) => [...prev, g]),
-    updateGuardian: (g) => {
-      setGuardians((prev) =>
-        prev.map((x) =>
-          x.id === g.id
-            ? { ...g, importBatchId: x.importBatchId, updatedAt: new Date().toISOString() }
-            : x
-        )
-      );
-    },
-    deleteGuardians: (ids) => {
-      const idSet = new Set(ids);
-      setGuardians((prev) => prev.filter((x) => !idSet.has(x.id)));
     },
 
     addTeacher: (t) => setTeachers((prev) => [...prev, t]),
@@ -1128,7 +1088,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
 
     getBackupSnapshot: () => ({
       students,
-      guardians,
       teachers,
       educationTypes,
       sessions,
@@ -1148,7 +1107,7 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
       // Account fields a backup from the multi-account era still carries
       // (appUsers, roles, credentials, ...) are ignored — the login stays.
       const arrays: (keyof BackupData)[] = [
-        "students", "guardians", "teachers", "educationTypes", "sessions", "payments",
+        "students", "teachers", "educationTypes", "sessions", "payments",
         "teacherPayments", "teacherEducationTypeAssignments",
       ];
       const missing = arrays.filter((k) => !Array.isArray(d[k]));
@@ -1171,7 +1130,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     // Clears every record; institution info, education types and settings stay.
     clearAllRecords: () => {
       setStudents([]);
-      setGuardians([]);
       setTeachers([]);
       setSessions([]);
       setPayments([]);
@@ -1200,7 +1158,6 @@ function StoreProvider({ persisted, children }: { persisted: PersistedState | nu
     [
       saveFailed,
       students,
-      guardians,
       teachers,
       educationTypes,
       sessions,

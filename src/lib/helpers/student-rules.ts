@@ -1,7 +1,7 @@
-import type { Guardian, Student } from "@/types";
+import type { Student } from "@/types";
 import type { StudentSettings } from "@/types/settings";
 
-// ─── Institution student rules (Ayarlar → Öğrenci ve Veli) ───────────────────
+// ─── Institution student rules (Ayarlar → Öğrenci) ───────────────────
 
 /** "OGR-{0000}" → "OGR-0012"; {YYYY} becomes the current year. */
 export function formatStudentNumber(format: string, sequence: number, now: Date = new Date()): string {
@@ -37,7 +37,8 @@ export function backfillStudentNumbers(students: Student[], settings: StudentSet
 export interface StudentFormFields {
   fullName: string;
   birthDate: string;
-  guardianId: string;
+  guardianName: string;
+  guardianPhone: string;
   studentNumber: string;
   kvkkConsent: boolean;
   healthInfo: string;
@@ -54,7 +55,6 @@ export function validateStudentFields(
   const errors: Partial<Record<keyof StudentFormFields, string>> = {};
   if (!form.fullName.trim()) errors.fullName = "Ad soyad zorunludur.";
   if (settings.requireBirthDate && !form.birthDate) errors.birthDate = "Doğum tarihi zorunludur.";
-  if (settings.guardianRequired && !form.guardianId) errors.guardianId = "Veli seçimi zorunludur.";
   if (settings.requireKvkkConsent && !form.kvkkConsent) errors.kvkkConsent = "KVKK onayı alınmalıdır.";
   if (settings.requireHealthInfo && !form.healthInfo.trim()) errors.healthInfo = "Sağlık bilgisi zorunludur.";
   if (settings.requireEmergencyContact && (!form.emergencyContactName.trim() || !form.emergencyContactPhone.trim())) {
@@ -67,26 +67,20 @@ export function validateStudentFields(
   return errors;
 }
 
-/** Students that already belong to a guardian other than `guardianId` — used
- *  to stop a second guardian when "Birden fazla veliye izin ver" is off. */
-export function getStudentIdsWithOtherGuardian(guardians: Guardian[], guardianId: string | undefined): Set<string> {
-  const ids = new Set<string>();
-  for (const g of guardians) {
-    if (g.id === guardianId) continue;
-    for (const sid of g.studentIds) ids.add(sid);
-  }
-  return ids;
+/** The student's optional guardian contact, or null when neither field is set. */
+export function getStudentGuardianContact(
+  student: Pick<Student, "guardianName" | "guardianPhone"> | null | undefined
+): { fullName: string; phone: string } | null {
+  if (!student || (!student.guardianName && !student.guardianPhone)) return null;
+  return { fullName: student.guardianName ?? "", phone: student.guardianPhone ?? "" };
 }
 
-/** Link for Ayarlar → Öğrenci ve Veli → Veli İletişim Tercihi. */
+/** Call / WhatsApp link for the student card's guardian phone. */
 export function getGuardianContactLink(
-  guardian: Pick<Guardian, "phone" | "email">,
+  phone: string | undefined,
   preference: StudentSettings["guardianContactPreference"]
 ): { href: string; label: string } | null {
-  const digits = guardian.phone.replace(/\D/g, "");
-  if (preference === "email") {
-    return guardian.email ? { href: `mailto:${guardian.email}`, label: "E-posta gönder" } : null;
-  }
+  const digits = (phone ?? "").replace(/\D/g, "");
   if (!digits) return null;
   if (preference === "whatsapp") {
     // Turkish numbers: 05xx… / 5xx… → 905xx…

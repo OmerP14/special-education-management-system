@@ -57,8 +57,6 @@ export const DEFAULT_INSTITUTION_SETTINGS: InstitutionSettings = {
   students: {
     autoGenerateStudentNumber: true,
     studentNumberFormat: "OGR-{0000}",
-    guardianRequired: true,
-    allowMultipleGuardians: true,
     defaultStudentStatus: "active",
     inactiveStudentBehavior: "show_greyed",
     debtWarningEnabled: true,

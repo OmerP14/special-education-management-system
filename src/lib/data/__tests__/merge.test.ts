@@ -40,17 +40,17 @@ describe("mergeStates", () => {
   });
 
   it("combines two devices' edits to different fields of the same record", () => {
-    const b = state({ guardians: [{ id: "g", fullName: "Ali", phone: "1", address: "A" }] });
-    const local = state({ guardians: [{ id: "g", fullName: "Ali", phone: "2", address: "A" }] });
-    const remote = state({ guardians: [{ id: "g", fullName: "Ali", phone: "1", address: "B" }] });
-    expect(mergeStates(b, local, remote).guardians).toEqual([{ id: "g", fullName: "Ali", phone: "2", address: "B" }]);
+    const b = state({ teachers: [{ id: "g", fullName: "Ali", phone: "1", email: "A" }] });
+    const local = state({ teachers: [{ id: "g", fullName: "Ali", phone: "2", email: "A" }] });
+    const remote = state({ teachers: [{ id: "g", fullName: "Ali", phone: "1", email: "B" }] });
+    expect(mergeStates(b, local, remote).teachers).toEqual([{ id: "g", fullName: "Ali", phone: "2", email: "B" }]);
   });
 
   it("when both changed the same field, this device's value wins", () => {
-    const b = state({ guardians: [{ id: "g", phone: "1", note: "x" }] });
-    const local = state({ guardians: [{ id: "g", phone: "2" }] }); // also cleared the note
-    const remote = state({ guardians: [{ id: "g", phone: "3", note: "x", city: "İst" }] });
-    expect(mergeStates(b, local, remote).guardians).toEqual([{ id: "g", phone: "2", city: "İst" }]);
+    const b = state({ teachers: [{ id: "g", phone: "1", note: "x" }] });
+    const local = state({ teachers: [{ id: "g", phone: "2" }] }); // also cleared the note
+    const remote = state({ teachers: [{ id: "g", phone: "3", note: "x", city: "İst" }] });
+    expect(mergeStates(b, local, remote).teachers).toEqual([{ id: "g", phone: "2", city: "İst" }]);
   });
 
   it("does not bring back a record the other device deleted", () => {

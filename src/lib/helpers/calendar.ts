@@ -3,10 +3,10 @@ import type { CalendarSettings } from "@/types/settings";
 import { formatTime } from "@/lib/helpers/finance";
 import { toLocalDateKey } from "@/lib/helpers/scheduling-rules";
 import { cn } from "@/lib/utils";
+import { getStudentGuardianContact } from "@/lib/helpers/student-rules";
 import type {
   Session,
   Student,
-  Guardian,
   Teacher,
   EducationType,
   SessionStatus,
@@ -44,7 +44,7 @@ export interface CalendarEvent {
 export interface CalendarEventRelations {
   session: Session;
   student: Student | null;
-  guardian: Guardian | null;
+  guardian: { fullName: string; phone: string } | null;
   teacher: Teacher | null;
   educationType: EducationType | null;
 }
@@ -171,8 +171,7 @@ export function getCalendarEventRelations(
   sessions: Session[],
   students: Student[],
   teachers: Teacher[],
-  educationTypes: EducationType[],
-  guardians: Guardian[]
+  educationTypes: EducationType[]
 ): CalendarEventRelations | null {
   const session = sessions.find((s) => s.id === sessionId);
   if (!session) return null;
@@ -180,9 +179,7 @@ export function getCalendarEventRelations(
   const teacher = teachers.find((t) => t.id === session.teacherId) ?? null;
   const educationType =
     educationTypes.find((et) => et.id === session.educationTypeId) ?? null;
-  const guardian = student
-    ? (guardians.find((g) => student.guardianIds.includes(g.id)) ?? null)
-    : null;
+  const guardian = getStudentGuardianContact(student);
   return { session, student, teacher, educationType, guardian };
 }
 

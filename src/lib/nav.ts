@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Users,
-  UserCheck,
   GraduationCap,
   Calendar,
   CalendarDays,
@@ -51,7 +50,6 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Users,
     items: [
       { label: "Öğrenciler", href: "/app/students", icon: Users },
-      { label: "Veliler", href: "/app/guardians", icon: UserCheck },
       { label: "Öğretmenler", href: "/app/teachers", icon: GraduationCap },
     ],
   },

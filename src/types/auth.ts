@@ -3,7 +3,7 @@
 // The app has exactly ONE login account with full access. Several people may
 // sign in with it at the same time, on different devices — there are no
 // roles, permissions, invitations or per-person accounts. Teacher and
-// guardian records are institution data (Öğretmenler / Veliler), never logins.
+// records are institution data (Öğretmenler), never logins.
 //
 // The account, its password and the sessions live on the server — see
 // src/lib/server/auth-core.ts (rules) and src/lib/auth/AuthProvider.tsx

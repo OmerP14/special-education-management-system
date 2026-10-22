@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 // A single dense row of stat cells instead of several tall StatCards — same
 // pattern already used on the Calendar page, generalized here so list pages
-// (Öğrenciler / Öğretmenler / Veliler) can share it instead of each rolling
+// (Öğrenciler / Öğretmenler) can share it instead of each rolling
 // their own. Cheap to scan, doesn't push the table below the fold.
 
 export interface CompactStatItem {

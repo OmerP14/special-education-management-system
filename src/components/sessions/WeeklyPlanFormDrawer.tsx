@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from "react";
 import { AlertTriangle, CheckCircle2, Info, User } from "lucide-react";
-import Link from "next/link";
 import { FormDrawer } from "@/components/shared/FormDrawer";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -20,12 +19,12 @@ import { getActiveEducationTypes } from "@/lib/helpers/education-types";
 import {
   getDefaultStudentPrice,
   calculateTeacherSessionEarning,
-  getStudentGuardian,
   formatCurrency,
   formatDate,
   formatTime,
   getCurrencySymbol,
 } from "@/lib/helpers/finance";
+import { getStudentGuardianContact } from "@/lib/helpers/student-rules";
 import {
   isTeacherAssignedToEducationType,
   getTeacherActiveEducationTypeIds,
@@ -315,9 +314,7 @@ export function WeeklyPlanFormDrawer({
     plannedWeekly !== null && plannedWeekly > 0 && selectedWeeklyCount === plannedWeekly;
 
   // ── Guardian ─────────────────────────────────────────────────────────────
-  const connectedGuardian = form.studentId
-    ? getStudentGuardian(form.studentId, store.students, store.guardians)
-    : null;
+  const connectedGuardian = getStudentGuardianContact(store.students.find((st) => st.id === form.studentId));
 
   // ── Filtered options ───────────────────────────────────────────────────────
   const filteredTeacherOptions = useMemo(() => {
@@ -499,24 +496,18 @@ export function WeeklyPlanFormDrawer({
           </Select>
         </div>
 
-        {/* Bağlı Veli */}
+        {/* Veli */}
         {connectedGuardian && (
           <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10">
               <User className="h-3.5 w-3.5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Bağlı Veli</p>
-              <Link
-                href={`/app/guardians/${connectedGuardian.id}`}
-                className="text-sm font-medium text-foreground hover:text-primary transition-colors"
-                onClick={() => onOpenChange(false)}
-              >
-                {connectedGuardian.fullName}
-              </Link>
-              <span className="ml-1.5 text-xs text-muted-foreground">
-                {connectedGuardian.relationship} · {connectedGuardian.phone}
-              </span>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Veli</p>
+              <span className="text-sm font-medium text-foreground">{connectedGuardian.fullName || "—"}</span>
+              {connectedGuardian.phone && (
+                <span className="ml-1.5 text-xs text-muted-foreground">{connectedGuardian.phone}</span>
+              )}
             </div>
           </div>
         )}

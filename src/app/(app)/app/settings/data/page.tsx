@@ -156,11 +156,10 @@ function ActionCard({
   );
 }
 
-type ExportKind = "students" | "guardians" | "teachers" | "sessions" | "payments";
+type ExportKind = "students" | "teachers" | "sessions" | "payments";
 
 const EXPORT_LABELS: Record<ExportKind, string> = {
   students: "Öğrenciler",
-  guardians: "Veliler",
   teachers: "Öğretmenler",
   sessions: "Seanslar",
   payments: "Ödemeler",
@@ -220,31 +219,15 @@ function DataManagementContent() {
       downloadCsv(
         `ogrenciler-${date}.csv`,
         ["Öğrenci No", "Ad Soyad", "Doğum Tarihi", "Durum", "Veli", "Veli Telefonu", "Eğitim Türleri", "Kalan Borç"],
-        store.students.map((s) => {
-          const guardian = store.guardians.find((g) => g.id === s.guardianIds[0]);
-          return [
-            s.studentNumber ?? "",
-            s.fullName,
-            s.birthDate ? formatDateDMY(s.birthDate) : "",
-            getStudentStatusLabel(s.status),
-            guardian?.fullName ?? "",
-            guardian?.phone ?? "",
-            s.educationTypeIds.map((id) => store.educationTypes.find((e) => e.id === id)?.name ?? "").join(", "),
-            getStudentDebt(s.id, store.sessions, store.payments, store.openingBalances),
-          ];
-        })
-      );
-    } else if (kind === "guardians") {
-      downloadCsv(
-        `veliler-${date}.csv`,
-        ["Ad Soyad", "Yakınlık", "Telefon", "E-posta", "Adres", "Öğrenciler"],
-        store.guardians.map((g) => [
-          g.fullName,
-          g.relationship,
-          g.phone,
-          g.email ?? "",
-          g.address ?? "",
-          g.studentIds.map((id) => nameOf(store.students, id)).join(", "),
+        store.students.map((s) => [
+          s.studentNumber ?? "",
+          s.fullName,
+          s.birthDate ? formatDateDMY(s.birthDate) : "",
+          getStudentStatusLabel(s.status),
+          s.guardianName ?? "",
+          s.guardianPhone ?? "",
+          s.educationTypeIds.map((id) => store.educationTypes.find((e) => e.id === id)?.name ?? "").join(", "),
+          getStudentDebt(s.id, store.sessions, store.payments, store.openingBalances),
         ])
       );
     } else if (kind === "teachers") {
@@ -396,7 +379,7 @@ function DataManagementContent() {
         icon={Trash2}
         tone="danger"
         title="Tüm Kayıtları Sil"
-        description="Öğrenci, veli, öğretmen, ders ve ödeme kayıtlarının hepsini siler. Kurum bilgileri, eğitim türleri ve ayarlar silinmez. Bu işlem geri alınamaz; önce yedek almayı unutmayın."
+        description="Öğrenci, öğretmen, ders ve ödeme kayıtlarının hepsini siler. Kurum bilgileri, eğitim türleri ve ayarlar silinmez. Bu işlem geri alınamaz; önce yedek almayı unutmayın."
       >
         <Button size="lg" variant="destructive" onClick={() => setClearOpen(true)}>
           Tüm Kayıtları Sil
@@ -420,7 +403,7 @@ function DataManagementContent() {
         open={clearOpen}
         onOpenChange={setClearOpen}
         title="Tüm Kayıtları Sil"
-        description="Bütün öğrenci, veli, öğretmen, ders, ödeme ve öğretmen ödemesi kayıtları silinecek."
+        description="Bütün öğrenci, öğretmen, ders, ödeme ve öğretmen ödemesi kayıtları silinecek."
         impact={[
           "Kurum bilgileri, eğitim türleri ve ayarlar korunur",
           "Bu işlem geri alınamaz",

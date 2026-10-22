@@ -109,15 +109,7 @@ const columns: Column<PaymentListItem>[] = [
     key: "guardian",
     header: "Veli",
     render: (row) =>
-      row.guardianName && row.guardianId ? (
-        <Link
-          href={`/app/guardians/${row.guardianId}`}
-          className="text-muted-foreground hover:text-primary transition-colors text-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {row.guardianName}
-        </Link>
-      ) : row.guardianName ? (
+      row.guardianName ? (
         <span className="text-muted-foreground text-sm">{row.guardianName}</span>
       ) : (
         <span className="text-muted-foreground/40">—</span>
@@ -370,11 +362,10 @@ export default function PaymentsPage() {
       buildPaymentListItems(
         store.payments,
         store.students,
-        store.guardians,
         store.sessions,
         store.openingBalances
       ),
-    [store.payments, store.students, store.guardians, store.sessions, store.openingBalances]
+    [store.payments, store.students, store.sessions, store.openingBalances]
   );
 
   const stats = useMemo(
@@ -391,8 +382,8 @@ export default function PaymentsPage() {
   );
 
   const debtItems = useMemo(
-    () => buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances),
-    [store.students, store.guardians, store.sessions, store.payments, store.openingBalances]
+    () => buildStudentDebtItems(store.students, store.sessions, store.payments, store.openingBalances),
+    [store.students, store.sessions, store.payments, store.openingBalances]
   );
 
   // Students already surfaced by the debt/payment overview (real billed, paid, or
@@ -599,17 +590,7 @@ export default function PaymentsPage() {
                       >
                         {item.studentName}
                       </Link>
-                      {item.guardianName &&
-                        (item.guardianId ? (
-                          <Link
-                            href={`/app/guardians/${item.guardianId}`}
-                            className="text-xs text-muted-foreground hover:text-primary transition-colors"
-                          >
-                            {item.guardianName}
-                          </Link>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">{item.guardianName}</p>
-                        ))}
+                      {item.guardianName && <p className="text-xs text-muted-foreground">{item.guardianName}</p>}
                       <DebtProgressBar
                         totalBilled={item.totalBilled}
                         totalPaid={item.totalPaid}

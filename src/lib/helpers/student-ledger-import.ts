@@ -713,7 +713,6 @@ function buildStudentLedgerStudentCreationRows(rosterNames: string[], studentInd
       fullName: name,
       birthDate: "",
       status: "active",
-      guardianIds: [],
       educationTypeIds: [],
       notes: "Öğrenci Bazlı Ders Takip Defteri içe aktarımından otomatik oluşturuldu",
       createdAt: new Date().toISOString(),

@@ -757,11 +757,10 @@ export default function ReportsPage() {
 
     // A single month selected → carryover-aware view (Önceki Devir explicit, never
     // hidden inside a lifetime total). Reuses buildStudentCurrentAccount under the hood
-    // via buildStudentMonthlyAccountRows, same as Student/Guardian Detail's Cari Hesap.
+    // via buildStudentMonthlyAccountRows, same as Student Detail's Cari Hesap.
     if (isSingleMonthMode) {
       const rows = buildStudentMonthlyAccountRows(
         filters.studentId ? studentsToShow : store.students,
-        store.guardians,
         store.sessions,
         store.payments,
         singleMonthYear,
@@ -825,7 +824,7 @@ export default function ReportsPage() {
     // teacher/education-type filters only narrow down *which* students appear (activity
     // in that window), never the all-time totals themselves, since "remaining debt" isn't
     // a period-scoped concept.
-    const allDebtItems = buildStudentDebtItems(store.students, store.guardians, store.sessions, store.payments, store.openingBalances);
+    const allDebtItems = buildStudentDebtItems(store.students, store.sessions, store.payments, store.openingBalances);
     // Activity in the filtered window can come from sessions (billing) OR payments
     // (collection) — a student who only paid (no billed session yet, e.g. an advance
     // payment) must still count as "active" here, otherwise they'd silently vanish.
@@ -1003,7 +1002,7 @@ export default function ReportsPage() {
   }
 
   function renderStudentPaymentReport() {
-    const rows = buildPaymentListItems(filteredPayments, store.students, store.guardians, store.sessions, store.openingBalances);
+    const rows = buildPaymentListItems(filteredPayments, store.students, store.sessions, store.openingBalances);
     const total = rows.reduce((s, r) => s + r.amount, 0);
     const uniqueStudents = new Set(rows.map((r) => r.studentId)).size;
 

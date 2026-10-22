@@ -12,7 +12,6 @@ import type {
   ImportBatchEntityIds,
   EditedImportRecord,
   Student,
-  Guardian,
   Teacher,
   Session,
   SessionStatus,
@@ -30,7 +29,6 @@ import {
   normalizeName,
   matchStudent,
   matchTeacher,
-  matchGuardian,
   resolveStudentByName,
   resolveTeacherByName,
   findDuplicateSession,
@@ -39,8 +37,6 @@ import {
   findDuplicateOpeningBalance,
   buildStudentIndex,
   addStudentToIndex,
-  buildGuardianIndex,
-  addGuardianToIndex,
   buildTeacherIndex,
   addTeacherToIndex,
   buildSessionDuplicateIndex,
@@ -68,7 +64,6 @@ import { createId, TENANT_ID } from "@/lib/data/ids";
 
 export const IMPORT_ENTITY_TYPES: ImportEntityType[] = [
   "students",
-  "guardians",
   "teachers",
   "sessions",
   "payments",
@@ -79,7 +74,6 @@ export const IMPORT_ENTITY_TYPES: ImportEntityType[] = [
 /** Fixed processing order for a multi-select import run — people before the
  *  records that reference them, balances before the activity that follows them. */
 export const IMPORT_DEPENDENCY_ORDER: ImportEntityType[] = [
-  "guardians",
   "students",
   "teachers",
   "openingBalances",
@@ -101,7 +95,6 @@ function sortTaskRowSetsByDependency<T extends { type: ImportEntityType }>(sets:
 export function getImportTypeLabel(type: ImportEntityType): string {
   const labels: Record<ImportEntityType, string> = {
     students: "Öğrenciler",
-    guardians: "Veliler",
     teachers: "Öğretmenler",
     sessions: "Seanslar",
     payments: "Ödemeler",
@@ -122,13 +115,6 @@ const SYSTEM_FIELDS: Record<ImportEntityType, ImportSystemField[]> = {
     { key: "guardianName", label: "Veli Adı", required: false },
     { key: "guardianPhone", label: "Veli Telefonu", required: false },
     { key: "notes", label: "Notlar", required: false },
-  ],
-  guardians: [
-    { key: "fullName", label: "Veli Adı Soyadı", required: true },
-    { key: "phone", label: "Telefon", required: true },
-    { key: "email", label: "E-posta", required: false },
-    { key: "relationship", label: "Yakınlık", required: false },
-    { key: "address", label: "Adres", required: false },
   ],
   teachers: [
     { key: "fullName", label: "Öğretmen Adı Soyadı", required: true },
@@ -191,13 +177,6 @@ const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
     "notlar": "notes", "not": "notes",
     "öğrencinin adı soyadı": "fullName", "danışan": "fullName", "danışan adı": "fullName",
     "anne baba": "guardianName", "veli tel": "guardianPhone", "=cep": "guardianPhone",
-  },
-  guardians: {
-    "ad soyad": "fullName", "veli adı": "fullName", "veli adı soyadı": "fullName", "isim": "fullName",
-    "telefon": "phone", "telefon no": "phone", "cep telefonu": "phone",
-    "e-posta": "email", "email": "email", "eposta": "email",
-    "yakınlık": "relationship", "yakinlik": "relationship",
-    "adres": "address", "veli telefonu": "phone", "=cep": "phone",
   },
   teachers: {
     "ad soyad": "fullName", "öğretmen adı": "fullName", "öğretmen": "fullName", "isim": "fullName",
@@ -285,7 +264,6 @@ function aliasScore(header: string, alias: string): number {
  *  table never takes its name from a "Veli …" or "Öğrenci …" column. */
 const FOREIGN_HEADER_WORDS: Partial<Record<ImportEntityType, string[]>> = {
   students: ["ogretmen", "terapist", "egitmen"],
-  guardians: ["ogrenci", "ogretmen", "danisan", "terapist"],
   teachers: ["ogrenci", "veli", "danisan"],
   payments: ["ogretmen", "terapist", "egitmen"],
   teacherPayments: ["ogrenci", "veli", "danisan"],
@@ -435,7 +413,6 @@ function timeInDateCell(cell: RawCell): string | null {
 
 export type StagedRecord =
   | { kind: "students"; record: Student }
-  | { kind: "guardians"; record: Guardian }
   | { kind: "teachers"; record: Teacher }
   | { kind: "sessions"; record: Session }
   | { kind: "payments"; record: Payment }
@@ -464,12 +441,7 @@ export function newId(prefix: string): string {
 export function buildStagedStudentRows(
   sheet: ParsedSheet,
   mapping: ImportColumnMapping[],
-  existingStudents: Student[],
-  existingGuardians: Guardian[],
-  /** False when "Veliler" isn't among the selected import types this run — a
-   *  guardian name that doesn't match an existing guardian is then left blank
-   *  (warning, not error) instead of fabricating a new Guardian record. */
-  allowGuardianAutoCreate: boolean = true
+  existingStudents: Student[]
 ): StagedRow[] {
   const iName = col(mapping, "fullName");
   const iBirth = col(mapping, "birthDate");
@@ -480,7 +452,6 @@ export function buildStagedStudentRows(
   const iNotes = col(mapping, "notes");
 
   const studentIndex = buildStudentIndex(existingStudents);
-  const guardianIndex = buildGuardianIndex(existingGuardians);
   const rows: StagedRow[] = [];
 
   sheet.rows.forEach((raw, idx) => {
@@ -497,7 +468,7 @@ export function buildStagedStudentRows(
       return;
     }
 
-    const match = matchStudent(fullName, guardianPhone, studentIndex, guardianIndex);
+    const match = matchStudent(fullName, guardianPhone, studentIndex);
     const matches: ImportEntityMatch[] = [{ entityType: "Öğrenci", value: fullName, matched: match.tier !== "new" }];
 
     if (match.tier === "matched") {
@@ -514,32 +485,6 @@ export function buildStagedStudentRows(
     }
 
     const staged: StagedRecord[] = [];
-    let guardianId: string | undefined;
-
-    if (guardianName) {
-      const gMatch = matchGuardian(guardianName, guardianPhone, guardianIndex);
-      if (gMatch.guardian) {
-        guardianId = gMatch.guardian.id;
-        matches.push({ entityType: "Veli", value: guardianName, matched: true });
-      } else if (allowGuardianAutoCreate) {
-        const guardian: Guardian = {
-          id: newId("guardian"),
-          tenantId: TENANT_ID,
-          fullName: personName(guardianName),
-          phone: guardianPhone || "—",
-          relationship: "Veli",
-          studentIds: [],
-          createdAt: new Date().toISOString(),
-        };
-        addGuardianToIndex(guardianIndex, guardian);
-        staged.push({ kind: "guardians", record: guardian });
-        guardianId = guardian.id;
-        matches.push({ entityType: "Veli", value: guardianName, matched: false });
-      } else {
-        matches.push({ entityType: "Veli", value: guardianName, matched: false });
-        issues.push(`'${guardianName}' adlı veli sistemde bulunamadı; veli boş bırakılacak`);
-      }
-    }
 
     // birthDate isn't required — a genuinely blank cell is fine — but a cell that HAS
     // a value that fails to parse (bad Excel serial, malformed string, impossible
@@ -566,7 +511,8 @@ export function buildStagedStudentRows(
       fullName: personName(fullName),
       birthDate,
       status,
-      guardianIds: guardianId ? [guardianId] : [],
+      guardianName: guardianName ? personName(guardianName) : undefined,
+      guardianPhone: guardianPhone || undefined,
       educationTypeIds: [],
       weeklySessionCount: weeklyCount,
       notes,
@@ -585,65 +531,6 @@ export function buildStagedStudentRows(
         include: true,
       },
       staged,
-    });
-  });
-
-  return rows;
-}
-
-// ─── Guardians (standalone) ──────────────────────────────────────────────────────
-
-export function buildStagedGuardianRows(sheet: ParsedSheet, mapping: ImportColumnMapping[], existingGuardians: Guardian[]): StagedRow[] {
-  const iName = col(mapping, "fullName");
-  const iPhone = col(mapping, "phone");
-  const iEmail = col(mapping, "email");
-  const iRelationship = col(mapping, "relationship");
-  const iAddress = col(mapping, "address");
-
-  const guardianIndex = buildGuardianIndex(existingGuardians);
-  const rows: StagedRow[] = [];
-
-  sheet.rows.forEach((raw, idx) => {
-    const rowNumber = sheetRowNumber(sheet, idx);
-    const fullName = cellAt(raw, iName);
-    const phone = cellAt(raw, iPhone);
-
-    if (!fullName) {
-      rows.push({ preview: { rowNumber, displayText: "(Ad boş)", status: "error", issues: ["'Veli Adı Soyadı' zorunlu alan boş bırakılamaz"], entityMatches: [], include: false }, staged: [] });
-      return;
-    }
-    if (!phone) {
-      rows.push({ preview: { rowNumber, displayText: fullName, status: "error", issues: ["'Telefon' zorunlu alan boş bırakılamaz"], entityMatches: [], include: false }, staged: [] });
-      return;
-    }
-
-    const match = matchGuardian(fullName, phone, guardianIndex);
-    const matches: ImportEntityMatch[] = [{ entityType: "Veli", value: fullName, matched: match.tier !== "new" }];
-
-    if (match.tier === "matched") {
-      rows.push({ preview: { rowNumber, displayText: fullName, status: "duplicate", issues: ["Bu veli sistemde zaten kayıtlı"], entityMatches: matches, include: false }, staged: [] });
-      return;
-    }
-
-    const issues: string[] = [];
-    if (match.tier === "possible") issues.push("Bu isimde bir veli zaten sistemde kayıtlı; farklı kişi olarak içe aktarılacak");
-
-    const guardian: Guardian = {
-      id: newId("guardian"),
-      tenantId: TENANT_ID,
-      fullName: personName(fullName),
-      phone,
-      email: cellAt(raw, iEmail) || undefined,
-      relationship: cellAt(raw, iRelationship) || "Veli",
-      studentIds: [],
-      address: cellAt(raw, iAddress) || undefined,
-      createdAt: new Date().toISOString(),
-    };
-    addGuardianToIndex(guardianIndex, guardian);
-
-    rows.push({
-      preview: { rowNumber, displayText: fullName, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: true },
-      staged: [{ kind: "guardians", record: guardian }],
     });
   });
 
@@ -1091,18 +978,15 @@ export function buildStagedOpeningBalanceRows(
   sheet: ParsedSheet,
   mapping: ImportColumnMapping[],
   existingOpeningBalances: OpeningBalance[],
-  students: Student[],
-  guardians: Guardian[]
+  students: Student[]
 ): StagedRow[] {
   const iStudent = col(mapping, "studentName");
-  const iGuardian = col(mapping, "guardianName");
   const iAmount = col(mapping, "amount");
   const iType = col(mapping, "balanceType");
   const iDate = col(mapping, "date");
   const iNote = col(mapping, "note");
 
   const studentIndex = buildStudentIndex(students);
-  const guardianIndex = buildGuardianIndex(guardians);
   const openingBalanceDuplicateIndex = buildOpeningBalanceDuplicateIndex(existingOpeningBalances);
   const rows: StagedRow[] = [];
 
@@ -1158,14 +1042,10 @@ export function buildStagedOpeningBalanceRows(
     if (!recognized) issues.push(`Bilinmeyen borç/alacak değeri: '${cellAt(raw, iType)}' → Borç olarak içe aktarılacak`);
     if (studentHasOpeningBalance(studentId, openingBalanceDuplicateIndex)) issues.push("Bu öğrencinin zaten bir devir bakiyesi var");
 
-    const guardianName = cellAt(raw, iGuardian);
-    const guardianMatch = guardianName ? matchGuardian(guardianName, undefined, guardianIndex) : null;
-
     const balance: OpeningBalance = {
       id: newId("obal"),
       tenantId: TENANT_ID,
       studentId,
-      guardianId: guardianMatch?.guardian?.id,
       amount: amount!,
       balanceType,
       date: dateStr!,
@@ -1187,7 +1067,6 @@ export function buildStagedOpeningBalanceRows(
 
 export interface ImportStoreSnapshot {
   students: Student[];
-  guardians: Guardian[];
   teachers: Teacher[];
   sessions: Session[];
   payments: Payment[];
@@ -1210,9 +1089,7 @@ export function buildStagedRows(
 ): StagedRow[] {
   switch (type) {
     case "students":
-      return buildStagedStudentRows(sheet, mapping, store.students, store.guardians);
-    case "guardians":
-      return buildStagedGuardianRows(sheet, mapping, store.guardians);
+      return buildStagedStudentRows(sheet, mapping, store.students);
     case "teachers":
       return buildStagedTeacherRows(sheet, mapping, store.teachers);
     case "sessions":
@@ -1222,7 +1099,7 @@ export function buildStagedRows(
     case "teacherPayments":
       return buildStagedTeacherPaymentRows(sheet, mapping, store.teacherPayments, store.teachers);
     case "openingBalances":
-      return buildStagedOpeningBalanceRows(sheet, mapping, store.openingBalances, store.students, store.guardians);
+      return buildStagedOpeningBalanceRows(sheet, mapping, store.openingBalances, store.students);
   }
 }
 
@@ -1245,14 +1122,11 @@ function stageMultiImportTask(
   snapshot: ImportStoreSnapshot,
   mode: ImportMode,
   educationTypes: EducationType[],
-  allowGuardianAutoCreate: boolean,
   newTeacherIds: ReadonlySet<string>
 ): StagedRow[] {
   switch (task.type) {
     case "students":
-      return buildStagedStudentRows(task.sheet, task.mapping, snapshot.students, snapshot.guardians, allowGuardianAutoCreate);
-    case "guardians":
-      return buildStagedGuardianRows(task.sheet, task.mapping, snapshot.guardians);
+      return buildStagedStudentRows(task.sheet, task.mapping, snapshot.students);
     case "teachers":
       return buildStagedTeacherRows(task.sheet, task.mapping, snapshot.teachers);
     case "sessions":
@@ -1272,7 +1146,7 @@ function stageMultiImportTask(
     case "teacherPayments":
       return buildStagedTeacherPaymentRows(task.sheet, task.mapping, snapshot.teacherPayments, snapshot.teachers);
     case "openingBalances":
-      return buildStagedOpeningBalanceRows(task.sheet, task.mapping, snapshot.openingBalances, snapshot.students, snapshot.guardians);
+      return buildStagedOpeningBalanceRows(task.sheet, task.mapping, snapshot.openingBalances, snapshot.students);
   }
 }
 
@@ -1282,7 +1156,6 @@ function appendCommittableRecordsToSnapshot(snapshot: ImportStoreSnapshot, rows:
     for (const staged of row.staged) {
       switch (staged.kind) {
         case "students": snapshot.students.push(staged.record); break;
-        case "guardians": snapshot.guardians.push(staged.record); break;
         case "teachers": snapshot.teachers.push(staged.record); break;
         case "sessions": snapshot.sessions.push(staged.record); break;
         case "payments": snapshot.payments.push(staged.record); break;
@@ -1296,11 +1169,8 @@ function appendCommittableRecordsToSnapshot(snapshot: ImportStoreSnapshot, rows:
 /**
  * Stages every selected import task in dependency order ([[IMPORT_DEPENDENCY_ORDER]]),
  * accumulating each task's newly-staged (committable) records into a working snapshot
- * before staging the next task. This is what lets a Student row reference a Guardian
- * that only exists earlier in the SAME upload — no separate guardian import required.
- *
- * A student row whose guardian isn't found creates that guardian from the row's own
- * name/phone columns.
+ * before staging the next task. This is what lets a Session row reference a Student
+ * that only exists earlier in the SAME upload.
  */
 export function buildMultiImportPreview(
   tasks: MultiImportTaskInput[],
@@ -1309,14 +1179,8 @@ export function buildMultiImportPreview(
   educationTypes: EducationType[]
 ): MultiImportTaskResult[] {
   const orderedTasks = sortByDependencyOrder(tasks, (t) => t.type);
-  // A student list's own "Veli Adı / Veli Telefon" columns create the guardian
-  // even without a separate guardians sheet — every student needs one, and
-  // dropping what the file says would leave it blank.
-  const allowGuardianAutoCreate = true;
-
   const snapshot: ImportStoreSnapshot = {
     students: [...store.students],
-    guardians: [...store.guardians],
     teachers: [...store.teachers],
     sessions: [...store.sessions],
     payments: [...store.payments],
@@ -1329,7 +1193,7 @@ export function buildMultiImportPreview(
   const results: MultiImportTaskResult[] = [];
   for (const task of orderedTasks) {
     const newTeacherIds = new Set(snapshot.teachers.filter((t) => !existingTeacherIds.has(t.id)).map((t) => t.id));
-    const rows = stageMultiImportTask(task, snapshot, mode, educationTypes, allowGuardianAutoCreate, newTeacherIds);
+    const rows = stageMultiImportTask(task, snapshot, mode, educationTypes, newTeacherIds);
     results.push({ type: task.type, sheet: task.sheet, rows });
     appendCommittableRecordsToSnapshot(snapshot, rows);
   }
@@ -1440,7 +1304,6 @@ export function buildFinancialImpact(rows: StagedRow[]): ImportFinancialImpact {
 export function buildCreationBreakdown(rows: StagedRow[]): Record<ImportEntityType, number> {
   const counts: Record<ImportEntityType, number> = {
     students: 0,
-    guardians: 0,
     teachers: 0,
     sessions: 0,
     payments: 0,
@@ -1488,7 +1351,6 @@ export function collectImportedTeacherAssignments(
 
 interface CommitStore {
   addStudent: (s: Student) => void;
-  addGuardian: (g: Guardian) => void;
   addTeacher: (t: Teacher) => void;
   addSession: (s: Session) => void;
   addPayment: (p: Payment) => void;
@@ -1554,12 +1416,6 @@ function commitRowsIntoBatch(
           const record: Student = { ...staged.record, importBatchId: batchId };
           store.addStudent(record);
           entityIds.students.push(record.id);
-          break;
-        }
-        case "guardians": {
-          const record: Guardian = { ...staged.record, importBatchId: batchId };
-          store.addGuardian(record);
-          entityIds.guardians.push(record.id);
           break;
         }
         case "teachers": {
@@ -1759,7 +1615,6 @@ export function findEditedRecordsSinceImport(
   }
 
   check("students", batch.createdEntityIds.students, store.students, (r) => r.fullName);
-  check("guardians", batch.createdEntityIds.guardians, store.guardians, (r) => r.fullName);
   check("teachers", batch.createdEntityIds.teachers, store.teachers, (r) => r.fullName);
   check("sessions", batch.createdEntityIds.sessions, store.sessions, (r) => parseCellAsDateString(r.date) ?? r.date);
   check("payments", batch.createdEntityIds.payments, store.payments, (r) => `${r.date} — ${r.amount}`);
@@ -1771,7 +1626,6 @@ export function findEditedRecordsSinceImport(
 
 interface RollbackStore {
   deleteStudents: (ids: string[]) => void;
-  deleteGuardians: (ids: string[]) => void;
   deleteTeachers: (ids: string[]) => void;
   deleteSessions: (ids: string[]) => void;
   deletePayments: (ids: string[]) => void;
@@ -1808,7 +1662,6 @@ export function rollbackImportBatch(
   };
 
   store.deleteStudents(safeIds("students", batch.createdEntityIds.students));
-  store.deleteGuardians(safeIds("guardians", batch.createdEntityIds.guardians));
   store.deleteTeachers(safeIds("teachers", batch.createdEntityIds.teachers));
   store.deleteSessions(safeIds("sessions", batch.createdEntityIds.sessions));
   store.deletePayments(safeIds("payments", batch.createdEntityIds.payments));

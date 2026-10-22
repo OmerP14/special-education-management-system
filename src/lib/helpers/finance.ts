@@ -32,10 +32,7 @@ import type {
   SessionStatusBreakdown,
   StudentAttendanceRow,
   TeacherSessionCountRow,
-  GuardianListItem,
-  GuardianDetail,
   Student,
-  Guardian,
   Teacher,
   EducationType,
   PlannedSessionsSummary,
@@ -186,7 +183,7 @@ export function getEarningPeriodLabel(year: number, month: number): string {
 }
 
 /** The single source of truth for "does this session count toward student/
- *  guardian debt, tahakkuk, or receivables". A session must both be in a
+ *  student debt, tahakkuk, or receivables". A session must both be in a
  *  billable STATUS (completed/no_show/makeup) and NOT be flagged
  *  billingMode: "historical_non_billable" — a historical migration import the
  *  user explicitly chose to bring in as pure session history, never billed.
@@ -296,7 +293,7 @@ export function getMonthlySessionCount(sessions: Session[], year: number, month:
   }).length;
 }
 
-/** Tahsilat — actual guardian payments received in a given month, across all students.
+/** Tahsilat — actual student payments received in a given month, across all students.
  *  Never derived from billing; a payment-only month with zero sessions still counts here. */
 export function getMonthlyCollected(payments: Payment[], year: number, month: number): number {
   return payments
@@ -388,7 +385,7 @@ export function formatCurrency(amount: number): string {
 /** Imported/hand-entered data can carry a malformed or empty date string (a bad
  *  Excel cell, an emptied optional field, …) — every date formatter below MUST
  *  degrade to a visible placeholder instead of throwing `RangeError: Invalid time
- *  value`, since a single bad record must never crash Student/Guardian detail,
+ *  value`, since a single bad record must never crash Student detail,
  *  Sessions, Reports, or the Dashboard. */
 function isValidDate(d: Date): boolean {
   return !Number.isNaN(d.getTime());
@@ -539,33 +536,10 @@ export function getStudentPlannedSummary(
   );
 }
 
-export function getGuardianPlannedSummary(
-  studentIds: string[],
-  sessions: Session[]
-): PlannedSessionsSummary {
-  return summarizePlannedSessions(
-    sessions.filter((s) => studentIds.includes(s.studentId) && s.status === "planned")
-  );
-}
-
 export function getStudentPayments(studentId: string, payments: Payment[]): Payment[] {
   return payments
     .filter((p) => p.studentId === studentId)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-export function getStudentGuardians(student: Student, guardians: Guardian[]): Guardian[] {
-  return guardians.filter((g) => student.guardianIds.includes(g.id));
-}
-
-export function getStudentGuardian(
-  studentId: string,
-  students: Student[],
-  guardians: Guardian[]
-): Guardian | null {
-  const student = students.find((s) => s.id === studentId);
-  if (!student) return null;
-  return guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
 }
 
 export function getStudentAssignedTeachers(
@@ -581,7 +555,6 @@ export function getStudentAssignedTeachers(
 
 export function buildStudentListItems(
   students: Student[],
-  guardians: Guardian[],
   educationTypes: EducationType[],
   teachers: Teacher[],
   sessions: Session[],
@@ -589,8 +562,6 @@ export function buildStudentListItems(
   openingBalances: OpeningBalance[] = []
 ): StudentListItem[] {
   return students.map((student) => {
-    const studentGuardians = getStudentGuardians(student, guardians);
-    const primaryGuardian = studentGuardians[0] ?? null;
     const educationTypeNames = educationTypes
       .filter((et) => student.educationTypeIds.includes(et.id))
       .map((et) => et.name);
@@ -609,7 +580,8 @@ export function buildStudentListItems(
       status: student.status,
       notes: student.notes,
       createdAt: student.createdAt,
-      primaryGuardian,
+      guardianName: student.guardianName || null,
+      guardianPhone: student.guardianPhone || null,
       educationTypeNames,
       assignedTeacherNames: assignedTeachers.map((t) => t.fullName),
       totalSessions: getStudentSessionCount(student.id, sessions),
@@ -647,7 +619,6 @@ export function getTeacherStudentRows(
   teacherId: string,
   sessions: Session[],
   students: Student[],
-  guardians: Guardian[],
   educationTypes: EducationType[]
 ): TeacherStudentRow[] {
   const teacherSessions = sessions.filter((s) => s.teacherId === teacherId);
@@ -659,8 +630,6 @@ export function getTeacherStudentRows(
       if (!student) return null;
 
       const studentSessions = teacherSessions.filter((s) => s.studentId === studentId);
-      const primaryGuardian =
-        guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
       const uniqueEdTypeIds = [...new Set(studentSessions.map((s) => s.educationTypeId))];
       const edTypeNames = educationTypes
         .filter((et) => uniqueEdTypeIds.includes(et.id))
@@ -672,9 +641,8 @@ export function getTeacherStudentRows(
       return {
         studentId: student.id,
         studentName: student.fullName,
-        primaryGuardianId: primaryGuardian?.id ?? null,
-        primaryGuardianName: primaryGuardian?.fullName ?? null,
-        primaryGuardianPhone: primaryGuardian?.phone ?? null,
+        guardianName: student.guardianName || null,
+        guardianPhone: student.guardianPhone || null,
         educationTypeNames: edTypeNames,
         totalSessions: studentSessions.length,
         lastSessionDate: (sortedDates[0] as string | undefined) ?? null,
@@ -823,7 +791,6 @@ export function buildTeacherDetail(
   teachers: Teacher[],
   educationTypes: EducationType[],
   students: Student[],
-  guardians: Guardian[],
   sessions: Session[],
   earnings: TeacherEarning[],
   teacherPayments: TeacherPayment[],
@@ -846,7 +813,6 @@ export function buildTeacherDetail(
     teacherId,
     sessions,
     students,
-    guardians,
     educationTypes
   );
   const assignmentRows = buildTeacherEducationAssignmentRows(teacher, educationTypes, assignments, sessions);
@@ -874,7 +840,6 @@ export function buildTeacherDetail(
 export function buildStudentDetail(
   studentId: string,
   students: Student[],
-  guardians: Guardian[],
   educationTypes: EducationType[],
   teachers: Teacher[],
   sessions: Session[],
@@ -884,8 +849,6 @@ export function buildStudentDetail(
   const student = students.find((s) => s.id === studentId);
   if (!student) return null;
 
-  const allGuardians = getStudentGuardians(student, guardians);
-  const primaryGuardian = allGuardians[0] ?? null;
   const educationTypeNames = educationTypes
     .filter((et) => student.educationTypeIds.includes(et.id))
     .map((et) => et.name);
@@ -895,8 +858,6 @@ export function buildStudentDetail(
 
   return {
     ...student,
-    primaryGuardian,
-    allGuardians,
     educationTypeNames,
     assignedTeachers,
     sessions: studentSessions,
@@ -1800,7 +1761,6 @@ function resolveDebtStatus(
 export function buildPaymentListItems(
   payments: Payment[],
   students: Student[],
-  guardians: Guardian[],
   sessions: Session[],
   openingBalances: OpeningBalance[] = []
 ): PaymentListItem[] {
@@ -1808,9 +1768,6 @@ export function buildPaymentListItems(
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .map((payment) => {
       const student = students.find((s) => s.id === payment.studentId);
-      const primaryGuardian = student
-        ? (guardians.find((g) => student.guardianIds.includes(g.id)) ?? null)
-        : null;
       const totalBilled = getStudentTotalBilled(payment.studentId, sessions);
       const totalPaid = getStudentTotalPaid(payment.studentId, payments);
       const remainingDebt = getStudentDebt(payment.studentId, sessions, payments, openingBalances);
@@ -1821,9 +1778,8 @@ export function buildPaymentListItems(
         date: payment.date,
         studentId: payment.studentId,
         studentName: student?.fullName ?? "—",
-        guardianId: primaryGuardian?.id ?? null,
-        guardianName: primaryGuardian?.fullName ?? null,
-        guardianPhone: primaryGuardian?.phone ?? null,
+        guardianName: student?.guardianName || null,
+        guardianPhone: student?.guardianPhone || null,
         method: payment.method,
         methodLabel: getPaymentMethodLabel(payment.method),
         amount: payment.amount,
@@ -1839,15 +1795,12 @@ export function buildPaymentListItems(
 
 export function buildStudentDebtItems(
   students: Student[],
-  guardians: Guardian[],
   sessions: Session[],
   payments: Payment[],
   openingBalances: OpeningBalance[] = []
 ): StudentDebtItem[] {
   return students
     .map((student) => {
-      const primaryGuardian =
-        guardians.find((g) => student.guardianIds.includes(g.id)) ?? null;
       const totalBilled = getStudentTotalBilled(student.id, sessions);
       const totalPaid = getStudentTotalPaid(student.id, payments);
       const remainingDebt = getStudentDebt(student.id, sessions, payments, openingBalances);
@@ -1855,8 +1808,7 @@ export function buildStudentDebtItems(
       return {
         studentId: student.id,
         studentName: student.fullName,
-        guardianId: primaryGuardian?.id ?? null,
-        guardianName: primaryGuardian?.fullName ?? null,
+        guardianName: student.guardianName || null,
         totalBilled,
         totalPaid,
         remainingDebt,
@@ -2213,113 +2165,3 @@ export function buildTeacherSessionCountRows(
     .sort((a, b) => b.total - a.total);
 }
 
-// ─── Guardian / Veli helpers ──────────────────────────────────────────────────
-
-export function getGuardianStudents(
-  guardian: Guardian,
-  students: Student[]
-): Student[] {
-  return students.filter((s) => guardian.studentIds.includes(s.id));
-}
-
-export function getGuardianPayments(
-  guardian: Guardian,
-  payments: Payment[]
-): Payment[] {
-  return payments.filter((p) => guardian.studentIds.includes(p.studentId));
-}
-
-export function getGuardianSessions(
-  guardian: Guardian,
-  sessions: Session[]
-): Session[] {
-  return sessions.filter((s) => guardian.studentIds.includes(s.studentId));
-}
-
-export function buildGuardianDetail(
-  guardianId: string,
-  guardians: Guardian[],
-  students: Student[],
-  sessions: Session[],
-  payments: Payment[],
-  openingBalances: OpeningBalance[] = []
-): GuardianDetail | null {
-  const guardian = guardians.find((g) => g.id === guardianId);
-  if (!guardian) return null;
-
-  const guardianStudents = getGuardianStudents(guardian, students);
-  const guardianPayments = [...getGuardianPayments(guardian, payments)].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-  const guardianSessions = [...getGuardianSessions(guardian, sessions)].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-
-  const totalBilled = guardianStudents.reduce(
-    (sum, s) => sum + getStudentTotalBilled(s.id, sessions),
-    0
-  );
-  const totalPaid = guardianStudents.reduce(
-    (sum, s) => sum + getStudentTotalPaid(s.id, payments),
-    0
-  );
-  const totalDebt = guardianStudents.reduce(
-    (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
-    0
-  );
-  const lastPaymentDate = (guardianPayments[0] as Payment | undefined)?.date ?? null;
-
-  return {
-    id: guardian.id,
-    tenantId: guardian.tenantId,
-    fullName: guardian.fullName,
-    phone: guardian.phone,
-    email: guardian.email,
-    relationship: guardian.relationship,
-    students: guardianStudents,
-    payments: guardianPayments,
-    sessions: guardianSessions,
-    totalBilled,
-    totalPaid,
-    totalDebt,
-    lastPaymentDate,
-  };
-}
-
-export function buildGuardianListItems(
-  guardians: Guardian[],
-  students: Student[],
-  sessions: Session[],
-  payments: Payment[],
-  openingBalances: OpeningBalance[] = []
-): GuardianListItem[] {
-  return guardians.map((guardian) => {
-    const guardianStudents = getGuardianStudents(guardian, students);
-    const totalBilled = guardianStudents.reduce(
-      (sum, s) => sum + getStudentTotalBilled(s.id, sessions),
-      0
-    );
-    const totalPaid = guardianStudents.reduce(
-      (sum, s) => sum + getStudentTotalPaid(s.id, payments),
-      0
-    );
-    const totalDebt = guardianStudents.reduce(
-      (sum, s) => sum + getStudentDebt(s.id, sessions, payments, openingBalances),
-      0
-    );
-    return {
-      id: guardian.id,
-      tenantId: guardian.tenantId,
-      fullName: guardian.fullName,
-      phone: guardian.phone,
-      email: guardian.email,
-      relationship: guardian.relationship,
-      studentIds: guardian.studentIds,
-      studentNames: guardianStudents.map((s) => s.fullName),
-      studentCount: guardianStudents.length,
-      totalBilled,
-      totalPaid,
-      totalDebt,
-    } satisfies GuardianListItem;
-  });
-}
