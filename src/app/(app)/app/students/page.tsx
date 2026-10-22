@@ -13,6 +13,7 @@ import { CompactStatBar } from "@/components/shared/CompactStatBar";
 import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
 import { useStore } from "@/lib/data/store";
 import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
+import { useAccess } from "@/lib/auth/access";
 import type { Student, StudentListItem, StudentStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +36,11 @@ const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Columns a staff account doesn't get (no money — see lib/auth/access.ts). */
+const MONEY_COLUMNS = new Set(["totalBilled", "totalPaid", "totalDebt"]);
+
 export default function StudentsPage() {
+  const { seesMoney } = useAccess();
   const store = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
@@ -275,13 +280,17 @@ export default function StudentsPage() {
           items={[
             { icon: Users, label: "Toplam Öğrenci", value: allItems.length, tone: "primary" },
             { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
-            { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" },
-            {
-              icon: AlertCircle,
-              label: "Toplam Borç",
-              value: formatCurrency(totalDebt),
-              tone: totalDebt > 0 ? "danger" : "success",
-            },
+            { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" as const },
+            ...(seesMoney
+              ? [
+                  {
+                    icon: AlertCircle,
+                    label: "Toplam Borç",
+                    value: formatCurrency(totalDebt),
+                    tone: totalDebt > 0 ? ("danger" as const) : ("success" as const),
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -317,7 +326,7 @@ export default function StudentsPage() {
         {/* Table */}
         <DataTable
           data={filtered}
-          columns={columns}
+          columns={seesMoney ? columns : columns.filter((c) => !MONEY_COLUMNS.has(c.key))}
           keyExtractor={(s) => s.id}
           rowClassName={(s) =>
             inactiveStudentBehavior === "show_greyed" && s.status === "inactive" ? "opacity-50" : undefined

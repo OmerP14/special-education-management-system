@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { EducationType, Session, Student, Teacher } from "@/types";
 import { DataTable, type Column } from "@/components/shared/DataTable";
+import { useAccess } from "@/lib/auth/access";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatDateTime, formatCurrency } from "@/lib/helpers/finance";
 
@@ -14,6 +15,7 @@ interface RecentSessionsTableProps {
 }
 
 export function RecentSessionsTable({ sessions, students, teachers, educationTypes }: RecentSessionsTableProps) {
+  const { seesMoney } = useAccess();
   const router = useRouter();
 
   // No dedicated session detail route exists in this app (sessions are edited via a
@@ -85,7 +87,7 @@ export function RecentSessionsTable({ sessions, students, teachers, educationTyp
   return (
     <DataTable
       data={sessions}
-      columns={columns}
+      columns={seesMoney ? columns : columns.filter((c) => c.key !== "price")}
       keyExtractor={(s) => s.id}
       onRowClick={(row) => router.push(`/app/sessions?sessionId=${row.id}`)}
       emptyTitle="Seans bulunamadı"

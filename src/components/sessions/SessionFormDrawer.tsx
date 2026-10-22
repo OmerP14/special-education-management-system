@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState, useMemo } from "react";
 import { User, AlertTriangle, CheckCircle2, Info, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -154,6 +155,7 @@ export function SessionFormDrawer({
   preselectedStudentId,
 }: SessionFormDrawerProps) {
   const store = useStore();
+  const { seesMoney } = useAccess();
   const isEditing = !!initialData;
 
   const buildInitial = (): FormState => {
@@ -422,7 +424,7 @@ export function SessionFormDrawer({
   const previewCenterProfit = previewTotal - previewTeacherEarning;
   const profitPct = previewTotal > 0 ? Math.round((previewCenterProfit / previewTotal) * 100) : 0;
 
-  const isLoss = form.studentPrice > 0 && form.teacherEarningPrice > form.studentPrice;
+  const isLoss = seesMoney && form.studentPrice > 0 && form.teacherEarningPrice > form.studentPrice;
   // Ayarlar → Seans Ayarları "Tamamlanmış seansların düzenlenmesine izin ver"
   // — off by default, so a completed session locks once saved.
   const isLockedCompleted =
@@ -495,13 +497,13 @@ export function SessionFormDrawer({
     { text: "Seans listesine eklenecek", show: true },
     { text: "Öğrenci detayına eklenecek", show: !!form.studentId },
     { text: "Öğretmen detayına eklenecek", show: !!form.teacherId },
-    { text: "Öğrencinin cari hesabı güncellenecek", show: !!form.studentId && isBillable },
+    { text: "Öğrencinin cari hesabı güncellenecek", show: seesMoney && !!form.studentId && isBillable },
     {
       text: "Öğretmen hakedişi oluşacak",
-      show: !!form.teacherId && isBillable && !isSalaryModel && form.teacherEarningPrice > 0,
+      show: seesMoney && !!form.teacherId && isBillable && !isSalaryModel && form.teacherEarningPrice > 0,
     },
-    { text: "Raporlara yansıyacak", show: isBillable },
-    { text: "Dashboard istatistikleri güncellenecek", show: isBillable },
+    { text: "Raporlara yansıyacak", show: seesMoney && isBillable },
+    { text: "Dashboard istatistikleri güncellenecek", show: seesMoney && isBillable },
   ].filter((e) => e.show);
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -762,127 +764,134 @@ export function SessionFormDrawer({
           educationTypes={store.educationTypes}
         />
 
-        {/* Seans Ücreti */}
-        <div className="space-y-1.5">
-          <Label htmlFor="student-price">Ders Ücreti ({getCurrencySymbol()})</Label>
-          <NumericInput
-            id="student-price"
-            min={0}
-            value={form.studentPrice}
-            onValueChange={(v) => handleStudentPriceChange(v ?? 0)}
-          />
-          <p className="text-xs text-muted-foreground">
-            {form.lessonCount > 1
-              ? `Ders başı ücret — blok derste veliye ${form.lessonCount} × ${formatCurrency(form.studentPrice)} = ${formatCurrency(previewTotal)} yansır`
-              : "Veliye yansıyacak ders ücreti"}
-          </p>
-        </div>
+        {/* Prices and teacher pay — staff never see or set them; the server
+            fills them in from the education type and the teacher's rate
+            (src/lib/server/staff-view.ts). */}
+        {seesMoney && (
+          <>
+            {/* Seans Ücreti */}
+            <div className="space-y-1.5">
+              <Label htmlFor="student-price">Ders Ücreti ({getCurrencySymbol()})</Label>
+              <NumericInput
+                id="student-price"
+                min={0}
+                value={form.studentPrice}
+                onValueChange={(v) => handleStudentPriceChange(v ?? 0)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {form.lessonCount > 1
+                  ? `Ders başı ücret — blok derste veliye ${form.lessonCount} × ${formatCurrency(form.studentPrice)} = ${formatCurrency(previewTotal)} yansır`
+                  : "Veliye yansıyacak ders ücreti"}
+              </p>
+            </div>
 
-        {/* Öğretmen Hakedişi */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="teacher-earning" className="flex items-center gap-1.5">
-              Öğretmen Hakedişi ({getCurrencySymbol()})
-              {hasCustomPrice && !manualEarningMode && (
-                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary leading-none">
-                  Özel
-                </span>
-              )}
-              {manualEarningMode && (
-                <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 leading-none">
-                  Manuel
-                </span>
-              )}
-            </Label>
-            {showManualOverrideBtn && !manualEarningMode && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
-                onClick={() => setManualEarningMode(true)}
-              >
-                <Pencil className="h-3 w-3" />
-                Manuel Değiştir
-              </Button>
-            )}
-          </div>
-          <NumericInput
-            id="teacher-earning"
-            min={0}
-            value={form.teacherEarningPrice}
-            disabled={!earningFieldEnabled}
-            onValueChange={(v) => set("teacherEarningPrice", v ?? 0)}
-            className={cn(!earningFieldEnabled && "bg-muted/50 cursor-not-allowed opacity-70")}
-          />
-          {!manualEarningMode && (
-            <p className="text-xs text-muted-foreground">
-              Öğretmen anlaşmasına göre ders başı otomatik hesaplanır{form.lessonCount > 1 ? ` (blok derste × ${form.lessonCount})` : ""}.
-            </p>
-          )}
-        </div>
-
-        {/* Manuel override */}
-        {manualEarningMode && (
-          <div className="rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-3">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-                  Bu değer öğretmen anlaşmasını geçersiz kılar.
+            {/* Öğretmen Hakedişi */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="teacher-earning" className="flex items-center gap-1.5">
+                  Öğretmen Hakedişi ({getCurrencySymbol()})
+                  {hasCustomPrice && !manualEarningMode && (
+                    <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary leading-none">
+                      Özel
+                    </span>
+                  )}
+                  {manualEarningMode && (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 leading-none">
+                      Manuel
+                    </span>
+                  )}
+                </Label>
+                {showManualOverrideBtn && !manualEarningMode && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                    onClick={() => setManualEarningMode(true)}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Manuel Değiştir
+                  </Button>
+                )}
+              </div>
+              <NumericInput
+                id="teacher-earning"
+                min={0}
+                value={form.teacherEarningPrice}
+                disabled={!earningFieldEnabled}
+                onValueChange={(v) => set("teacherEarningPrice", v ?? 0)}
+                className={cn(!earningFieldEnabled && "bg-muted/50 cursor-not-allowed opacity-70")}
+              />
+              {!manualEarningMode && (
+                <p className="text-xs text-muted-foreground">
+                  Öğretmen anlaşmasına göre ders başı otomatik hesaplanır{form.lessonCount > 1 ? ` (blok derste × ${form.lessonCount})` : ""}.
                 </p>
-                <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
-                  Girdiğiniz miktar öğretmenin ödeme modelinden bağımsız olarak kaydedilecektir.
+              )}
+            </div>
+
+            {/* Manuel override */}
+            {manualEarningMode && (
+              <div className="rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                      Bu değer öğretmen anlaşmasını geçersiz kılar.
+                    </p>
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
+                      Girdiğiniz miktar öğretmenin ödeme modelinden bağımsız olarak kaydedilecektir.
+                    </p>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={manualEarningAcknowledged}
+                    onChange={(e) => setManualEarningAcknowledged(e.target.checked)}
+                    className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
+                  />
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    Manuel hakediş gireceğimi onaylıyorum.
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                  onClick={resetToAutoEarning}
+                >
+                  Otomatik hesaplamaya dön
+                </button>
+              </div>
+            )}
+
+            {/* Hakediş ayarı eksik uyarısı */}
+            {noCustomPriceWarning && !manualEarningMode && store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
+                <Info className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {missingConfigurationExplanation ?? "Bu öğretmen için seçilen eğitim türünde hakediş tanımlanmamış."}
                 </p>
               </div>
-            </div>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={manualEarningAcknowledged}
-                onChange={(e) => setManualEarningAcknowledged(e.target.checked)}
-                className="h-4 w-4 rounded border-amber-500/60 accent-amber-600"
-              />
-              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                Manuel hakediş gireceğimi onaylıyorum.
-              </span>
-            </label>
-            <button
-              type="button"
-              className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
-              onClick={resetToAutoEarning}
-            >
-              Otomatik hesaplamaya dön
-            </button>
-          </div>
-        )}
+            )}
 
-        {/* Hakediş ayarı eksik uyarısı */}
-        {noCustomPriceWarning && !manualEarningMode && store.institutionSettings.teacherEarnings.warnOnMissingEarningConfig && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
-            <Info className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              {missingConfigurationExplanation ?? "Bu öğretmen için seçilen eğitim türünde hakediş tanımlanmamış."}
-            </p>
-          </div>
-        )}
-
-        {/* Maaş modeli notu */}
-        {selectedTeacher?.earningType === "monthly_salary" && form.teacherId && (
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-            <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground">
-              Bu öğretmen aylık maaş modelinde çalışmaktadır. Seans başı hakediş yalnızca kayıt amaçlıdır.
-            </p>
-          </div>
-        )}
-        {selectedTeacher?.earningType === "salary_plus_quota" && form.teacherId && (
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-            <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground">
-              Bu öğretmen sabit maaş + kota üstü modelinde çalışmaktadır. Bu alan yalnızca kayıt amaçlıdır.
-            </p>
-          </div>
+            {/* Maaş modeli notu */}
+            {selectedTeacher?.earningType === "monthly_salary" && form.teacherId && (
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Bu öğretmen aylık maaş modelinde çalışmaktadır. Seans başı hakediş yalnızca kayıt amaçlıdır.
+                </p>
+              </div>
+            )}
+            {selectedTeacher?.earningType === "salary_plus_quota" && form.teacherId && (
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Bu öğretmen sabit maaş + kota üstü modelinde çalışmaktadır. Bu alan yalnızca kayıt amaçlıdır.
+                </p>
+              </div>
+            )}
+          </>
         )}
 
         {/* Durum */}
@@ -987,7 +996,7 @@ export function SessionFormDrawer({
         )}
 
         {/* Finansal özet */}
-        {showPreview && (
+        {seesMoney && showPreview && (
           <>
             <Separator />
             <div className="space-y-2.5">

@@ -24,6 +24,7 @@ export type SettingsSectionKey =
   | "calendar"
   | "finance"
   | "teacherEarnings"
+  | "staff"
   | "data";
 
 // ─── 1. Kurum Bilgileri ──────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 // DATABASE_URL is set by the Vercel ↔ Neon integration (and pulled into
 // .env.local for development with `npx vercel env pull .env.local`).
 // The schema is created on first use, so a fresh database needs no manual
-// step; ensureSchema() runs once per server instance. The account row is
+// step; ensureSchema() runs once per server instance. The admin account is
 // created by the first-run setup screen (/setup), never seeded.
 
 let client: NeonQueryFunction<false, false> | null = null;
@@ -31,9 +31,11 @@ export function ensureSchema(): Promise<void> {
 
 async function createSchema(): Promise<void> {
   const db = sql();
+  // id 1 = admin (first-run setup), id 2 = optional staff account.
   await db`
     create table if not exists account (
-      id smallint primary key default 1 check (id = 1),
+      id smallint primary key,
+      role text not null default 'admin',
       username text not null,
       name text not null,
       password_hash text not null,
@@ -50,6 +52,11 @@ async function createSchema(): Promise<void> {
       created_at text not null,
       expires_at text not null
     )`;
+  // Databases created before the staff account existed: one admin row whose
+  // id was pinned to 1, sessions without an account.
+  await db`alter table account add column if not exists role text not null default 'admin'`;
+  await db`alter table account drop constraint if exists account_id_check`;
+  await db`alter table auth_sessions add column if not exists account_id smallint not null default 1`;
   // Wrong-password counts per client (hashed network address) — see auth-core.ts.
   await db`
     create table if not exists login_failures (

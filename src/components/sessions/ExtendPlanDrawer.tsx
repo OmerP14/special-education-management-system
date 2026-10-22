@@ -1,5 +1,7 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
+import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
@@ -30,6 +32,7 @@ interface ExtendPlanDrawerProps {
 }
 
 export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerProps) {
+  const { seesMoney } = useAccess();
   const store = useStore();
   const [newEndDate, setNewEndDate] = useState("");
 
@@ -215,7 +218,7 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
 
           {datesToCreate.length > 0 && (
             <>
-              <div className="grid grid-cols-3 gap-3">
+              <div className={cn("grid gap-3", seesMoney ? "grid-cols-3" : "grid-cols-1")}>
                 <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
                   <p className="text-2xl font-bold text-foreground tabular-nums">
                     {datesToCreate.length}
@@ -224,22 +227,26 @@ export function ExtendPlanDrawer({ open, onOpenChange, plan }: ExtendPlanDrawerP
                     Yeni Seans
                   </p>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                  <p className="text-lg font-bold text-foreground tabular-nums">
-                    {formatCurrency(totalBilling)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
-                    Potansiyel Tahakkuk
-                  </p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                  <p className="text-lg font-bold text-amber-600 tabular-nums">
-                    {formatCurrency(totalTeacherEarning)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
-                    Öğretmen Hakedişi
-                  </p>
-                </div>
+                {seesMoney && (
+                  <>
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                      <p className="text-lg font-bold text-foreground tabular-nums">
+                        {formatCurrency(totalBilling)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                        Potansiyel Tahakkuk
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                      <p className="text-lg font-bold text-amber-600 tabular-nums">
+                        {formatCurrency(totalTeacherEarning)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                        Öğretmen Hakedişi
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1.5">

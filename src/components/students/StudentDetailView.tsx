@@ -32,6 +32,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Tabs, type TabItem } from "@/components/shared/Tabs";
 import { useStore } from "@/lib/data/store";
 import { getGuardianContactLink } from "@/lib/helpers/student-rules";
+import { useAccess } from "@/lib/auth/access";
 import {
   buildStudentDetail,
   formatCurrency,
@@ -233,7 +234,11 @@ function StudentDetailViewContent({
   store,
 }: StudentDetailViewProps & { store: ReturnType<typeof useStore> }) {
   const [editOpen, setEditOpen] = useState(false);
-  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes);
+  // Staff see lessons and contact details, never prices or the account.
+  const { seesMoney } = useAccess();
+  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes).filter(
+    (c) => seesMoney || (c.key !== "unitPrice" && c.key !== "total")
+  );
   const detail = buildStudentDetail(
     studentId,
     store.students,
@@ -667,13 +672,12 @@ function StudentDetailViewContent({
       badge: weeklyPlanCount > 0 ? weeklyPlanCount : undefined,
       content: <StudentWeeklyPlansTab studentId={studentId} />,
     },
-    {
-      key: "payments",
-      label: "Ödemeler",
-      badge: detail.payments.length,
-      content: paymentsContent,
-    },
-    { key: "cari", label: "Cari Hesap", content: cariHesapContent },
+    ...(seesMoney
+      ? [
+          { key: "payments", label: "Ödemeler", badge: detail.payments.length, content: paymentsContent },
+          { key: "cari", label: "Cari Hesap", content: cariHesapContent },
+        ]
+      : []),
     { key: "notes", label: "Notlar", content: notesContent },
   ];
 
@@ -755,39 +759,42 @@ function StudentDetailViewContent({
         </Card>
 
         {/* KPI stat cards */}
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="Toplam Seans"
-            value={detail.totalSessions}
-            description="Tüm zamanlar"
-            icon={CalendarDays}
-            variant="default"
-          />
-          <StatCard
-            title="Toplam Tutar"
-            value={formatCurrency(detail.totalBilled)}
-            description="Tahakkuk eden"
-            icon={TrendingUp}
-            variant="default"
-          />
-          <StatCard
-            title="Alınan Ödeme"
-            value={formatCurrency(detail.totalPaid)}
-            description="Tahsil edilen"
-            icon={CreditCard}
-            variant="success"
-          />
-          <StatCard
-            title="Kalan Borç"
-            value={formatCurrency(detail.totalDebt)}
-            description="Ödenmemiş"
-            icon={AlertCircle}
-            variant={detail.totalDebt > 0 ? "danger" : "success"}
-          />
-        </div>
+        {seesMoney && (
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Toplam Seans"
+              value={detail.totalSessions}
+              description="Tüm zamanlar"
+              icon={CalendarDays}
+              variant="default"
+            />
+            <StatCard
+              title="Toplam Tutar"
+              value={formatCurrency(detail.totalBilled)}
+              description="Tahakkuk eden"
+              icon={TrendingUp}
+              variant="default"
+            />
+            <StatCard
+              title="Alınan Ödeme"
+              value={formatCurrency(detail.totalPaid)}
+              description="Tahsil edilen"
+              icon={CreditCard}
+              variant="success"
+            />
+            <StatCard
+              title="Kalan Borç"
+              value={formatCurrency(detail.totalDebt)}
+              description="Ödenmemiş"
+              icon={AlertCircle}
+              variant={detail.totalDebt > 0 ? "danger" : "success"}
+            />
+          </div>
+        )}
 
         {/* Ayarlar → Öğrenci → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
-        {store.institutionSettings.students.debtWarningEnabled &&
+        {seesMoney &&
+          store.institutionSettings.students.debtWarningEnabled &&
           detail.totalDebt > 0 &&
           detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">

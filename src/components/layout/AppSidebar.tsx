@@ -1,11 +1,12 @@
 "use client";
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_TOP_ITEMS, NAV_GROUPS, NAV_SETTINGS_ITEM, isNavItemActive, type NavGroup } from "@/lib/nav";
+import { useAccess } from "@/lib/auth/access";
 import { useCollapsedNavGroups } from "@/hooks/use-collapsed-nav-groups";
 import { useStore } from "@/lib/data/store";
 import {
@@ -100,8 +101,17 @@ export const AppSidebar = memo(function AppSidebar() {
   // Kurum Bilgileri (Settings → Kurum Bilgileri) drives this directly — see
   // lib/settings/defaults.ts for the starting name/logo before anyone edits it.
   const { institution } = useStore().institutionSettings;
+  // Staff only see the pages they may open (lib/auth/access.ts).
+  const { isAdmin, canAccess } = useAccess();
+  const groups = useMemo(
+    () =>
+      NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((item) => canAccess(item.href)) })).filter((g) => g.items.length > 0),
+    // canAccess only depends on the role.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isAdmin]
+  );
   const activeGroupId =
-    NAV_GROUPS.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
+    groups.find((group) => group.items.some((item) => isNavItemActive(pathname, item.href)))
       ?.id ?? null;
 
   // Auto-open the group containing the active route — but only the moment it
@@ -161,7 +171,7 @@ export const AppSidebar = memo(function AppSidebar() {
         <SidebarSeparator />
 
         {/* Grouped, collapsible sections — each its own memoized component */}
-        {NAV_GROUPS.map((group, i) => (
+        {groups.map((group, i) => (
           <div key={group.id}>
             {i > 0 && <SidebarSeparator />}
             <NavGroupSection
@@ -176,17 +186,19 @@ export const AppSidebar = memo(function AppSidebar() {
 
       <SidebarFooter>
         <SidebarSeparator className="mb-1" />
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={isNavItemActive(pathname, NAV_SETTINGS_ITEM.href)}
-              render={<Link href={NAV_SETTINGS_ITEM.href} />}
-            >
-              <NAV_SETTINGS_ITEM.icon />
-              <span>{NAV_SETTINGS_ITEM.label}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {canAccess(NAV_SETTINGS_ITEM.href) && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={isNavItemActive(pathname, NAV_SETTINGS_ITEM.href)}
+                render={<Link href={NAV_SETTINGS_ITEM.href} />}
+              >
+                <NAV_SETTINGS_ITEM.icon />
+                <span>{NAV_SETTINGS_ITEM.label}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
         <p className="truncate px-2 pb-1 text-xs text-sidebar-foreground/60">
           Sürüm 1.0.0
         </p>

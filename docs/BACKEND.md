@@ -10,7 +10,8 @@ Bu belge sistemi geliştirecek kişi içindir. Site Vercel'de çalışır; giri�
 | Birleştirme | `src/lib/data/merge.ts` | İki cihaz aynı anda kaydedince değişiklikleri kayıt kayıt (`id` ile) birleştirir. Testli. |
 | Uygulama durumu | `src/lib/data/store.tsx` | Tüm kayıtlar ve onları değiştiren eylemler. Sayfalar veriye yalnızca `useStore()` ile ulaşır. Giriş yapılmadan yüklenmez. |
 | İş kuralları | `src/lib/helpers/*.ts` | Borç, öğretmen hakedişi, devir, Excel aktarımı, çakışma kontrolü. Tarayıcıda çalışır, testli. |
-| Kimlik doğrulama | `src/lib/server/auth-core.ts`, `src/app/api/auth/*`, `src/app/api/setup` | Hesap, şifre, oturum (bkz. Bölüm 5). |
+| Kimlik doğrulama | `src/lib/server/auth-core.ts`, `src/app/api/auth/*`, `src/app/api/setup`, `src/app/api/staff` | Yönetici ve personel hesabı, şifre, oturum (bkz. Bölüm 5). |
+| Personel görünümü | `src/lib/server/staff-view.ts`, `src/lib/auth/access.ts` | Personelin göreceği/değiştirebileceği veri (sunucuda) ve ekranlar. |
 | Veri uç noktaları | `src/app/api/state`, `src/lib/server/state-repo.ts` | Kurumun verisi (aşağıda). |
 | Yedekler | `src/lib/data/persistence.ts`, `src/lib/backup/backup-folder.ts` | Yedek dosyası, tarayıcıda günlük otomatik yedek, klasöre yedek. |
 
@@ -24,7 +25,7 @@ Bu belge sistemi geliştirecek kişi içindir. Site Vercel'de çalışır; giri�
 - Her istek oturum çerezi ister; veri değiştiren istekler yalnızca sitenin kendi sayfalarından kabul edilir (`isSameOrigin`).
 - Değişiklikler 0,4 sn bekletilip toplu gönderilir. Kaydedilemezse üstte uyarı çıkar, 5 sn'de bir yeniden denenir; gönderilmemiş değişiklik varken sekme kapatılırsa tarayıcı uyarır.
 
-**Bilinen sınırlar:** İki cihaz aynı kaydı aynı anda düzenlerse sonra kaydedenin hali kalır. Makbuz ve öğrenci numaraları tarayıcıda verilir; iki cihaz aynı saniyede yeni kayıt açarsa aynı numara çıkabilir.
+**Eş zamanlı düzenleme:** İki cihaz aynı kaydı düzenlerse değişiklikler alan alan birleşir; ikisi aynı alanı değiştirdiyse sonra kaydedenin değeri kalır. Aynı anda verilen makbuz/öğrenci numarası çakışırsa sonra kaydedene sıradaki boş numara verilir.
 
 **Aşama 2 (ileride):** Veri çok büyüyünce (on binlerce ders) her kayıt türü ayrı tabloya ve ayrı uç noktalara ayrılır; numaralar veritabanı dizisinden verilir.
 
@@ -34,15 +35,14 @@ Tüm türler `src/types/index.ts` ve `src/types/settings.ts` içindedir. Her kay
 
 | Tablo | Önemli alanlar | İlişkiler |
 |---|---|---|
-| `students` | `fullName`, `birthDate`, `status` (active / inactive / on_hold), `studentNumber`, `kvkkConsent` | `guardianIds[]` → guardians, `educationTypeIds[]` → education_types |
-| `guardians` | `fullName`, `phone`, `relationship` | `studentIds[]` → students (**iki yönlü**, bkz. Bölüm 4) |
+| `students` | `fullName`, `birthDate`, `status` (active / inactive / on_hold), `studentNumber`, `kvkkConsent`, `guardianName?`, `guardianPhone?` | `educationTypeIds[]` → education_types |
 | `teachers` | `fullName`, `status` (active / inactive / archived), `earningType`, `monthlySalary`, `includedSessionQuota`, `extraSessionEarning`, `earningPercentage`, `leftAt`, `openingBalance` | `mergedIntoTeacherId` → teachers |
 | `education_types` | `name`, `defaultStudentPrice`, `color`, `status` | — |
 | `teacher_education_type_assignments` | `earningAmount` (ders başı öğretmen ücreti; `null` = tanımlanmamış), `status` | teacher, education type |
 | `sessions` (dersler) | `date`, `durationMinutes`, `sessionCount` (blok ders = 2), `studentPrice`, `teacherEarning`, `status`, `billingMode`, `earningFactor`, `teacherEarningStatus` | student, teacher, education type, `weeklyPlanId`, `importBatchId` |
 | `payments` (veli ödemeleri) | `amount`, `method`, `date`, `receiptNumber`, `historical` | student |
 | `teacher_payments` | `amount`, `paymentType` (salary / advance / partial / bonus / deduction / other), `method`, `date`, `historical` | teacher |
-| `opening_balances` (öğrenci devri) | `amount` (her zaman pozitif), `balanceType` (debt / credit), `date` | student, guardian |
+| `opening_balances` (öğrenci devri) | `amount` (her zaman pozitif), `balanceType` (debt / credit), `date` | student |
 | `weekly_session_plans` | `weeklySchedule[]`, `startDate`, `endDate`, `studentPrice`, `teacherEarning` | student, teacher, education type |
 | `import_batches` | `fileName`, `createdEntityIds`, `fileFingerprint`, `rolledBackAt` | Excel aktarımını geri almak için gerekir |
 | `teacher_merge_history` | `snapshot`, `moved`, `rolledBackAt` | Öğretmen birleştirmeyi geri almak için gerekir |
@@ -59,18 +59,22 @@ Bu kurallar bugün uygulamada uygulanıyor ve testli (`npm test`). Sunucu veriyi
 - **Ücretsiz telafi:** Ayar "ücretsiz" iken telafiye dönen dersin ücreti 0 yapılır (formdan, Excel'den, plandan). → `applyMakeupBilling`
 - **Maaşlı öğretmen:** Başladığı aydan (ilk ders / devir / kayıt) bugüne kadar, ayrıldıysa ayrıldığı aya kadar her ay maaş yazılır; dersi olmayan ay da sayılır. Birleştirilmiş (`archived`) kayda maaş yazılmaz. → `getSalaryPeriodRange`
 - **Avans:** Fazlası sonraki aylardan düşülür (önceki devir eksiye düşebilir). → `getTeacherMonthAccountSummary`
-- **Veli ↔ öğrenci bağı iki yönlüdür:** `student.guardianIds` ile `guardian.studentIds` birlikte güncellenir. → `store.addStudent / deleteStudents`
 - **Makbuz numarası** `MKB-<yıl>-<sıra>` biçiminde, 1000'den başlar; geçmiş kayıt ödemesine numara verilmez. Sunucuda bu sıra **tek yerden** (veritabanı dizisi) verilmeli, yoksa iki cihaz aynı numarayı üretebilir.
 - **Öğrenci numarası** (`OGR-0001`…) da aynı şekilde tek yerden verilmeli.
 - **Çakışma:** Aynı öğretmene veya öğrenciye aynı saatte iki ders verilmez; aradaki mola ayarlıdır. → `session-conflict.ts`
 
-## 5. Kimlik doğrulama — sunucuda (tamamlandı)
+## 5. Hesaplar ve kimlik doğrulama
 
-- Hesap, şifre ve oturumlar Neon Postgres'te: `account` (tek satır) ve `auth_sessions` tabloları. Tablolar ilk istekte kendiliğinden oluşur (`src/lib/server/db.ts`). Hazır hesap yoktur: boş veritabanında site `/setup` kurulum ekranını açar, hesabı ilk kurulum oluşturur (`POST /api/setup`, hesap varsa reddedilir).
-- Şifre sunucuda **scrypt** ile saklanır (`src/lib/server/password-hash.ts`).
-- Oturum `httpOnly` çerezde rastgele bir anahtardır; veritabanında yalnızca SHA-256 özeti durur. "Beni hatırla" kapalıysa çerez tarayıcı kapanınca silinir.
-- Kurallar `src/lib/server/auth-core.ts` içinde ve testli: 3 hatalı denemede 5 dakika kilit, şifre değişince diğer cihazların oturumu kapanır, kullanıcı adı büyük/küçük harf ve ı/i farkı gözetmez.
-- Uç noktalar: `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`, `POST /api/auth/profile`.
+- **İki hesap:** `account` tablosunda id 1 = yönetici (ilk kurulumda oluşur, tam yetki), id 2 = isteğe bağlı **personel** hesabı (yönetici Ayarlar → Personel Hesabı'ndan açar/kapatır). Aynı hesabı birkaç kişi birden kullanabilir.
+- **Personel ne görür:** Panel, takvim, seanslar, öğrenciler, öğretmenler. Finans, ödemeler, hakediş, raporlar, Excel aktarımı ve ayarlar kapalı.
+- **Sunucuda zorlanır** (`staff-view.ts`): personele giden belgede ödemeler, öğretmen ödemeleri, hakedişler, devirler, aktarım/birleştirme geçmişi yoktur; seans/plan ücretleri, eğitim türü fiyatları, öğretmen ücret ve maaş alanları sıfırlanır/silinir. Personelin kaydından yalnızca öğrenciler, seanslar ve haftalık planlar alınır; öğrenci ve yapılmış ders silemez. Personelin eklediği/değiştirdiği derslerin ücreti ve hakedişi sunucuda, eğitim türünün fiyatı ve öğretmenin ücretinden hesaplanır.
+- Şifreler **scrypt** ile saklanır; oturum `httpOnly` çerezde rastgele anahtardır, veritabanında SHA-256 özeti durur.
+- Yanlış şifre o cihazı (ağ adresi) 5 denemede 5 dakika kilitler; tüm adreslerden toplam 30 yanlış deneme bütün girişleri 15 dakika kilitler. Şifre değişince o hesabın diğer cihazlardaki oturumu kapanır.
+- Uç noktalar: `POST /api/setup`, `POST /api/auth/login|logout|password|profile`, `GET /api/auth/me`, `GET|POST|DELETE /api/staff` (yalnız yönetici).
+
+## Veliler
+
+Ayrı veli kaydı yoktur. Öğrencide isteğe bağlı `guardianName` / `guardianPhone` alanları vardır. Eski veri ve yedeklerdeki veli kayıtları açılışta bu alanlara aktarılır (`src/lib/data/migrate-guardians.ts`).
 
 ## 6. Kurum ve kimlik numaraları
 
@@ -82,7 +86,7 @@ Bu kurallar bugün uygulamada uygulanıyor ve testli (`npm test`). Sunucu veriyi
 **Ayarlar → Yedekleme ve Excel → Yedek Al** bütün veriyi bir JSON dosyasına indirir; **Yedekten Geri Yükle** aynı dosyayı geri yükler (sunucuya kaydedilir). Biçim:
 
 ```json
-{ "app": "ozel-egitim-yonetim", "schemaVersion": 1, "createdAt": "…", "data": { "students": [], "guardians": [], "…": [] } }
+{ "app": "ozel-egitim-yonetim", "schemaVersion": 1, "createdAt": "…", "data": { "students": [], "teachers": [], "…": [] } }
 ```
 
 `data`, `PersistedState` ile birebir aynıdır (`BackupData`, `store.tsx`); giriş bilgileri yedekte yoktur. Yüklerken `normalizeInstitutionSettings` eski sürüm yedeklerindeki kaldırılmış alanları atar.

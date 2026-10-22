@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { FolderLock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/data/store";
@@ -8,7 +9,9 @@ import { grantBackupFolderPermission, useBackupFolder } from "@/lib/backup/backu
 /** After a browser restart the browser may ask again before the app can
  *  write to the backup folder — that needs a click, so it is asked here. */
 export function BackupFolderBanner() {
-  const enabled = useStore().institutionSettings.dataManagement.autoBackupEnabled;
+  const { isAdmin } = useAccess();
+  const autoBackup = useStore().institutionSettings.dataManagement.autoBackupEnabled;
+  const enabled = isAdmin && autoBackup;
   const { status, location } = useBackupFolder();
   if (!enabled || status !== "needs-permission") return null;
   return (

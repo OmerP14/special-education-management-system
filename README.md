@@ -1,16 +1,17 @@
 # Özel Eğitim Yönetim Sistemi
 
-Özel eğitim kurumlarının Excel ile yürüttüğü işleri tek yerde toplayan web uygulaması: öğrenciler ve veliler, öğretmenler, ders programı, veli ödemeleri, öğretmen hakedişleri ve raporlar.
+Özel eğitim kurumlarının Excel ile yürüttüğü işleri tek yerde toplayan web uygulaması: öğrenciler, öğretmenler, ders programı, veli ödemeleri, öğretmen hakedişleri ve raporlar.
 
 ## Neler var
 
-- **Öğrenciler ve veliler** — kayıt, bağlı veliler, ders geçmişi, cari hesap (borç / ödeme / devir)
+- **Öğrenciler** — kayıt, isteğe bağlı veli adı ve telefonu, ders geçmişi, cari hesap (borç / ödeme / devir)
 - **Öğretmenler** — eğitim türüne göre ders ücreti, ders başı / maaşlı / maaş + kota / yüzdelik hakediş, ödemeler ve avanslar, öğretmen birleştirme
 - **Dersler** — haftalık plan, takvim, 40 dakikalık ders ve blok ders, mola süresi, çakışma kontrolü
 - **Finans** — veli ödemeleri ve makbuz numarası, alacaklar, öğretmenlere ödenecekler
 - **Raporlar** — finans, ders, öğretmen ve öğrenci raporları; Excel (CSV) olarak indirme ve yazdırma
 - **Excel'den aktarma** — herhangi bir Excel dosyasını sütun eşleştirerek alma, devir tarihi, önizleme ve geri alma
 - **Yedekleme** — yedek dosyası alma / geri yükleme, günlük otomatik yedek ve bilgisayardaki bir klasöre yedek (Chrome / Edge)
+- **Personel hesabı** — yönetici, yalnızca seans, takvim, öğrenci ve öğretmenleri gören ikinci bir giriş hesabı açabilir; ücretler, ödemeler, raporlar ve ayarlar bu hesaba gösterilmez (sunucuda engellenir)
 
 ## Veriler nerede duruyor
 

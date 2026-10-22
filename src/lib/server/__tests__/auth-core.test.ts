@@ -9,20 +9,28 @@ import { validatePasswordPolicy } from "@/lib/auth/password";
 
 const PASSWORD = "Demo1234!";
 
+/** The admin row (id 1); `staffRow` is the optional staff account (id 2). */
 let stored: AccountRow | null;
+let staffRow: AccountRow | null;
 let sessions: Map<string, SessionRow>;
 let clientLocks: Map<string, ClientLockRow>;
 const tokens: Record<string, string | undefined> = {};
 
 const repo: AuthRepo = {
-  getAccount: async () => (stored ? { ...stored } : null),
+  getAccounts: async () => [stored, staffRow].filter((a): a is AccountRow => !!a).map((a) => ({ ...a })),
   createAccount: async (a) => {
-    if (stored) return false;
-    stored = { ...a };
+    if (a.id === 1 ? stored : staffRow) return false;
+    if (a.id === 1) stored = { ...a };
+    else staffRow = { ...a };
     return true;
   },
-  updateAccount: async (patch) => {
-    if (stored) stored = { ...stored, ...patch };
+  updateAccount: async (id, patch) => {
+    if (id === 1 && stored) stored = { ...stored, ...patch };
+    if (id === 2 && staffRow) staffRow = { ...staffRow, ...patch };
+  },
+  deleteAccount: async (id) => {
+    if (id === 2) staffRow = null;
+    for (const [h, s] of sessions) if (s.accountId === id) sessions.delete(h);
   },
   createSession: async (s) => void sessions.set(s.tokenHash, { ...s }),
   getSession: async (h) => sessions.get(h) ?? null,
@@ -48,6 +56,8 @@ const userOn = (device = "laptop") => auth.getUser(tokens[device]);
 
 beforeEach(async () => {
   stored = {
+    id: 1,
+    role: "admin",
     username: "admin",
     name: "Yönetici",
     passwordHash: await hashPassword(PASSWORD),
@@ -56,6 +66,7 @@ beforeEach(async () => {
     lockedUntil: null,
     lastLoginAt: null,
   };
+  staffRow = null;
   sessions = new Map();
   clientLocks = new Map();
   for (const k of Object.keys(tokens)) delete tokens[k];
@@ -258,5 +269,67 @@ describe("validatePasswordPolicy", () => {
   it("accepts Turkish uppercase letters and lists every missing rule", () => {
     expect(validatePasswordPolicy("şifreĞ1.")).toBeNull();
     expect(validatePasswordPolicy("abc")).toBe("Şifre en az 6 karakter, bir büyük harf, bir rakam, bir özel karakter (. ! @ # gibi) içermelidir.");
+  });
+});
+
+describe("staff account", () => {
+  const STAFF_PW = "Personel1!";
+  const openStaff = async () => {
+    await signIn("office");
+    return auth.saveStaff(tokens.office, { name: "Sekreter", username: "sekreter", password: STAFF_PW });
+  };
+
+  it("the admin opens it; staff then signs in with their own login and gets the staff role", async () => {
+    expect((await openStaff()).data?.staff).toMatchObject({ username: "sekreter", name: "Sekreter" });
+    expect((await signIn("desk", STAFF_PW, "SEKRETER")).success).toBe(true);
+    expect(await userOn("desk")).toMatchObject({ username: "sekreter", role: "staff" });
+    expect(await userOn("office")).toMatchObject({ role: "admin" });
+  });
+
+  it("staff can't manage accounts or rename the institution login", async () => {
+    await openStaff();
+    await signIn("desk", STAFF_PW, "sekreter");
+    for (const result of [
+      await auth.getStaff(tokens.desk),
+      await auth.saveStaff(tokens.desk, { name: "x", username: "x", password: "Hack123!" }),
+      await auth.deleteStaff(tokens.desk),
+      await auth.updateProfile(tokens.desk, { name: "x", username: "x" }),
+    ]) {
+      expect(result.success).toBe(false);
+      expect(result.errorMessage).toContain("yönetici");
+    }
+    expect(staffRow?.username).toBe("sekreter");
+    expect(stored?.username).toBe("admin");
+  });
+
+  it("usernames are unique across the two accounts", async () => {
+    await signIn("office");
+    expect((await auth.saveStaff(tokens.office, { name: "S", username: "ADMIN", password: STAFF_PW })).success).toBe(false);
+    await openStaff();
+    expect((await auth.updateProfile(tokens.office, { name: "Y", username: "sekreter" })).success).toBe(false);
+  });
+
+  it("a new staff password from the admin signs staff devices out but not the admin", async () => {
+    await openStaff();
+    await signIn("desk", STAFF_PW, "sekreter");
+    await auth.saveStaff(tokens.office, { name: "Sekreter", username: "sekreter", password: "YeniSifre1!" });
+    expect(await userOn("desk")).toBeNull();
+    expect(await userOn("office")).not.toBeNull();
+    expect((await signIn("desk", "YeniSifre1!", "sekreter")).success).toBe(true);
+  });
+
+  it("closing the staff account ends its sessions; staff can change their own password", async () => {
+    await openStaff();
+    await signIn("desk", STAFF_PW, "sekreter");
+    expect((await auth.changePassword(tokens.desk, { currentPassword: STAFF_PW, newPassword: "Kendi123!", clientKey: "desk" })).success).toBe(true);
+    expect(await userOn("desk")).not.toBeNull();
+    await auth.deleteStaff(tokens.office);
+    expect(await userOn("desk")).toBeNull();
+    expect((await signIn("desk", "Kendi123!", "sekreter")).success).toBe(false);
+  });
+
+  it("opening it needs a password", async () => {
+    await signIn("office");
+    expect((await auth.saveStaff(tokens.office, { name: "S", username: "s" })).errorMessage).toContain("şifre");
   });
 });

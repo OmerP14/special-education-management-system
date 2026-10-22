@@ -1,21 +1,32 @@
-// ─── Auth — single shared institution account ───────────────────────────────
+// ─── Auth — admin account and optional staff account ───────────────────────
 //
-// The app has exactly ONE login account with full access. Several people may
-// sign in with it at the same time, on different devices — there are no
-// roles, permissions, invitations or per-person accounts. Teacher and
-// records are institution data (Öğretmenler), never logins.
+// Two logins at most. The admin account (created by the first-run setup) has
+// full access; the optional staff ("personel") account the admin opens sees
+// lessons, the calendar, students and teachers — never money, reports or
+// settings. Several people may share each login on different devices.
 //
-// The account, its password and the sessions live on the server — see
-// src/lib/server/auth-core.ts (rules) and src/lib/auth/AuthProvider.tsx
-// (useAuth()). The browser only holds an httpOnly session cookie.
+// Accounts, passwords and sessions live on the server — see
+// src/lib/server/auth-core.ts (rules), src/lib/server/staff-view.ts (what
+// staff may see/change) and src/lib/auth/AuthProvider.tsx (useAuth()). The
+// browser only holds an httpOnly session cookie.
+
+export type AccountRole = "admin" | "staff";
 
 /** The UI-facing identity useAuth() exposes — never the lockout bookkeeping
  *  or the password hash. */
 export interface AuthUser {
   username: string;
   name: string;
+  role: AccountRole;
   /** When this device signed in. */
   loginAt: string;
+}
+
+/** What the admin's Ayarlar page shows about the staff account. */
+export interface StaffAccountInfo {
+  username: string;
+  name: string;
+  lastLoginAt: string | null;
 }
 
 export type AuthErrorCode = "invalid_credentials" | "account_locked" | "unknown";

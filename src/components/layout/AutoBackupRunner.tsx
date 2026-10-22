@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/data/store";
 import { saveDailyAutoBackup } from "@/lib/data/persistence";
@@ -12,7 +13,10 @@ import { initBackupFolder, useBackupFolder, writeBackupToFolder } from "@/lib/ba
  *  so it holds the day's latest data. Renders nothing. */
 export function AutoBackupRunner() {
   const store = useStore();
-  const enabled = store.institutionSettings.dataManagement.autoBackupEnabled;
+  // A staff browser only holds the money-free view, so its copy would be an
+  // incomplete backup — automatic backups run on admin devices only.
+  const { isAdmin } = useAccess();
+  const enabled = isAdmin && store.institutionSettings.dataManagement.autoBackupEnabled;
   const { status: folderStatus, location: folderLocation } = useBackupFolder();
   const storeRef = useRef(store);
 

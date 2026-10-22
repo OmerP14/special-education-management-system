@@ -4,6 +4,7 @@ import { Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/helpers/finance";
 import { cn } from "@/lib/utils";
+import { useAccess } from "@/lib/auth/access";
 
 interface PlannedSessionsCardProps {
   count: number;
@@ -18,6 +19,8 @@ interface PlannedSessionsCardProps {
  * sessions are completed.
  */
 export function PlannedSessionsCard({ count, totalValue, className }: PlannedSessionsCardProps) {
+  // Staff accounts see the count only (lib/auth/access.ts).
+  const { seesMoney } = useAccess();
   return (
     <Card className={cn("border-blue-200/60 bg-blue-50/40 dark:border-blue-900/40 dark:bg-blue-950/10", className)}>
       <CardContent className="p-4 sm:p-5">
@@ -29,7 +32,9 @@ export function PlannedSessionsCard({ count, totalValue, className }: PlannedSes
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">Planlı Seanslar</p>
               <p className="text-xs text-muted-foreground">
-                Bu seanslar tamamlandığında otomatik olarak tahakkuka dönüşecektir.
+                {seesMoney
+                  ? "Bu seanslar tamamlandığında otomatik olarak tahakkuka dönüşecektir."
+                  : "Henüz yapılmamış, takvimde planlı seanslar."}
               </p>
             </div>
           </div>
@@ -38,14 +43,16 @@ export function PlannedSessionsCard({ count, totalValue, className }: PlannedSes
               <p className="text-xl font-bold tabular-nums text-foreground">{count}</p>
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Seans</p>
             </div>
-            <div className="text-left sm:text-right">
-              <p className="text-xl font-bold tabular-nums text-blue-600">
-                {formatCurrency(totalValue)}
-              </p>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Potansiyel Tutar
-              </p>
-            </div>
+            {seesMoney && (
+              <div className="text-left sm:text-right">
+                <p className="text-xl font-bold tabular-nums text-blue-600">
+                  {formatCurrency(totalValue)}
+                </p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Potansiyel Tutar
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </CardContent>

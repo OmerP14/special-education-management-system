@@ -6,6 +6,7 @@ import {
   Wallet,
   Banknote,
   Database,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 import type { SettingsSectionKey } from "@/types/settings";
@@ -66,6 +67,13 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     description: "Telafi, iptal ve gelmeyen öğrenci derslerinde öğretmene ödeme",
     href: "/app/settings/teacher-earnings",
     icon: Banknote,
+  },
+  {
+    key: "staff",
+    label: "Personel Hesabı",
+    description: "Sadece ders ve takvimi gören ikinci giriş hesabı",
+    href: "/app/settings/staff",
+    icon: UserCog,
   },
   {
     key: "data",

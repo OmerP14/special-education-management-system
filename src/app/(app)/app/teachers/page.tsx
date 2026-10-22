@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Plus, Search, ChevronRight, Users2, Pencil, GraduationCap, UserCheck, Banknote } from "lucide-react";
@@ -44,7 +45,12 @@ const STATUS_FILTERS: { value: TeacherStatus | "all"; label: string }[] = [
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Columns a staff account doesn't get (no pay — see lib/auth/access.ts). */
+const PAY_COLUMNS = new Set(["configurationStatus", "monthlyEarnings", "pendingEarnings"]);
+
 export default function TeachersPage() {
+  // Staff read the teacher list; adding, editing and merging stay with the admin.
+  const { seesMoney, managesTeachers } = useAccess();
   const store = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TeacherStatus | "all">("all");
@@ -267,7 +273,7 @@ export default function TeachersPage() {
       header: "",
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
-          {row.status !== "archived" && (
+          {managesTeachers && row.status !== "archived" && (
             <button
               className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
               onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
@@ -300,23 +306,29 @@ export default function TeachersPage() {
           title="Öğretmenler"
           description={`${activeCount} aktif öğretmen · ${allItems.length} toplam`}
           actions={
-            <Button size="sm" onClick={() => { setEditingTeacher(null); setDrawerOpen(true); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Öğretmen Ekle
-            </Button>
+            managesTeachers ? (
+              <Button size="sm" onClick={() => { setEditingTeacher(null); setDrawerOpen(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Öğretmen Ekle
+              </Button>
+            ) : undefined
           }
         />
 
         <CompactStatBar
           items={[
             { icon: GraduationCap, label: "Toplam Öğretmen", value: allItems.length, tone: "primary" },
-            { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
-            {
-              icon: Banknote,
-              label: "Bekleyen Hakediş",
-              value: formatCurrency(totalPendingEarnings),
-              tone: totalPendingEarnings > 0 ? "warning" : "success",
-            },
+            { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" as const },
+            ...(seesMoney
+              ? [
+                  {
+                    icon: Banknote,
+                    label: "Bekleyen Hakediş",
+                    value: formatCurrency(totalPendingEarnings),
+                    tone: totalPendingEarnings > 0 ? ("warning" as const) : ("success" as const),
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -324,7 +336,7 @@ export default function TeachersPage() {
             merges/deletes by itself; every merge still goes through the full
             preview/conflict/confirm drawer. See findLikelyDuplicateTeachers in
             finance.ts. */}
-        {duplicateCandidates.length > 0 && (
+        {managesTeachers && duplicateCandidates.length > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -415,7 +427,7 @@ export default function TeachersPage() {
         {/* Table */}
         <DataTable
           data={filtered}
-          columns={columns}
+          columns={seesMoney ? columns : columns.filter((c) => !PAY_COLUMNS.has(c.key))}
           keyExtractor={(t) => t.id}
           dense
           emptyTitle={

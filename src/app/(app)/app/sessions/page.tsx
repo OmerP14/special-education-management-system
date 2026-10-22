@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -36,6 +37,9 @@ import type { Session, SessionListItem, SessionStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 // ─── Column definitions ────────────────────────────────────────────────────────
+
+/** Columns a staff account doesn't get (no money — see lib/auth/access.ts). */
+const MONEY_COLUMNS = new Set(["studentPrice", "totalAmount", "teacherEarning"]);
 
 const columns: Column<SessionListItem>[] = [
   {
@@ -208,6 +212,7 @@ export default function SessionsPage() {
 
 function SessionsPageContent() {
   const store = useStore();
+  const { seesMoney } = useAccess();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -316,7 +321,10 @@ function SessionsPageContent() {
     headerClassName: "text-right w-16",
   };
 
-  const columnsWithEdit: Column<SessionListItem>[] = [...columns, editColumnEntry];
+  const columnsWithEdit: Column<SessionListItem>[] = [
+    ...(seesMoney ? columns : columns.filter((c) => !MONEY_COLUMNS.has(c.key))),
+    editColumnEntry,
+  ];
 
   // Derive available months from data (newest first)
   const monthOptions = useMemo(() => {
@@ -413,7 +421,7 @@ function SessionsPageContent() {
           <StatCard
             title="Tamamlanan"
             value={stats.completed}
-            description="Kazanç yaratan"
+            description={seesMoney ? "Kazanç yaratan" : "Yapılan seanslar"}
             icon={CheckCircle2}
             variant="success"
           />

@@ -10,15 +10,28 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { describePasswordPolicy, validatePasswordPolicy } from "@/lib/auth/password";
 
-// The single institution account: display name, username and password.
-// Everyone signing in uses these, so a password change here signs out every
-// other device (see changePassword in src/lib/server/auth-core.ts).
+// The signed-in account: display name, username and password (staff: only the
+// password). Everyone sharing the login uses these, so a password change here
+// signs out every other device (see changePassword in src/lib/server/auth-core.ts).
 export default function ProfilePage() {
   const { user } = useAuth();
   if (!user) return null;
+  // The staff account's name and username are set by the admin (Ayarlar →
+  // Personel Hesabı); staff only change their own password here.
+  if (user.role === "staff") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Profil"
+          description={`Personel hesabı: ${user.name} (${user.username}). Ad ve kullanıcı adını yönetici değiştirebilir.`}
+        />
+        <ChangePasswordCard />
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
-      <PageHeader title="Profil" description="Kurum hesabının bilgileri ve şifresi. Bu hesapla giren herkes aynı bilgileri kullanır." />
+      <PageHeader title="Profil" description="Yönetici hesabının bilgileri ve şifresi. Bu hesapla giren herkes aynı bilgileri kullanır." />
       <AccountInfoCard key={`${user.name}|${user.username}`} name={user.name} username={user.username} />
       <ChangePasswordCard />
     </div>

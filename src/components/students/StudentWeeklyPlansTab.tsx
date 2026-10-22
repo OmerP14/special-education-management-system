@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState } from "react";
 import {
   CalendarClock,
@@ -110,6 +111,7 @@ function PlanCard({
   onExtend?: () => void;
   onDelete?: () => void;
 }) {
+  const { seesMoney } = useAccess();
   const store = useStore();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -227,10 +229,12 @@ function PlanCard({
           ))}
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          Seans Ücreti: <span className="font-medium text-foreground">{formatCurrency(plan.studentPrice)}</span>
-          {" · "}Öğretmen Hakedişi: <span className="font-medium text-foreground">{formatCurrency(plan.teacherEarning)}</span>
-        </p>
+        {seesMoney && (
+          <p className="text-xs text-muted-foreground">
+            Seans Ücreti: <span className="font-medium text-foreground">{formatCurrency(plan.studentPrice)}</span>
+            {" · "}Öğretmen Hakedişi: <span className="font-medium text-foreground">{formatCurrency(plan.teacherEarning)}</span>
+          </p>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-x-3 gap-y-3 pt-3 border-t border-border/60">

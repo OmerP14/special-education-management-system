@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import Link from "next/link";
 import {
   User,
@@ -104,6 +105,7 @@ export function SessionDetailDrawer({
   onEdit,
   teacherEducationTypeAssignments = [],
 }: SessionDetailDrawerProps) {
+  const { seesMoney } = useAccess();
   if (!relations) return null;
 
   const { session, student, guardian, teacher, educationType } = relations;
@@ -203,49 +205,53 @@ export function SessionDetailDrawer({
 
           <Separator className="my-3" />
 
-          {/* Financials */}
-          <div className="rounded-lg bg-muted/40 px-3 py-2.5 space-y-0.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Finansal Özet
-            </p>
-            <FinanceRow
-              label={`Öğrenci Ücreti (${session.sessionCount} × ${formatCurrency(session.studentPrice)})`}
-              value={formatCurrency(totalStudentAmount)}
-            />
-            {earningStatus === "unknown" ? (
-              <div className="flex items-center justify-between text-sm py-1">
-                <span className="text-muted-foreground">Öğretmen Hakedişi</span>
-                <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                  Hakediş bekliyor
-                </span>
-              </div>
-            ) : (
-              <FinanceRow
-                label={`Öğretmen Hakedişi (${session.sessionCount} × ${formatCurrency(session.teacherEarning)})`}
-                value={formatCurrency(totalTeacherEarning)}
-                variant="warning"
-              />
-            )}
-            <div className="border-t border-border/60 pt-1.5 mt-1">
-              <FinanceRow
-                label="Merkez Kârı"
-                value={formatCurrency(centerProfit)}
-                variant="success"
-              />
-              {earningStatus === "unknown" && (
-                <p className="text-xs text-amber-700">
-                  Öğretmen hakedişi hesaplanamadığı için bu tutar kesin değildir.
+          {seesMoney && (
+            <>
+              {/* Financials */}
+              <div className="rounded-lg bg-muted/40 px-3 py-2.5 space-y-0.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                  Finansal Özet
                 </p>
-              )}
-            </div>
-            {session.billingMode === "historical_non_billable" && (
-              <p className="pt-1.5 text-xs text-muted-foreground">
-                Bu seans geçmiş kayıt olarak aktarıldı — yukarıdaki tutarlar öğrenci borcuna/tahakkuka dahil edilmez.
-              </p>
-            )}
-          </div>
+                <FinanceRow
+                  label={`Öğrenci Ücreti (${session.sessionCount} × ${formatCurrency(session.studentPrice)})`}
+                  value={formatCurrency(totalStudentAmount)}
+                />
+                {earningStatus === "unknown" ? (
+                  <div className="flex items-center justify-between text-sm py-1">
+                    <span className="text-muted-foreground">Öğretmen Hakedişi</span>
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      Hakediş bekliyor
+                    </span>
+                  </div>
+                ) : (
+                  <FinanceRow
+                    label={`Öğretmen Hakedişi (${session.sessionCount} × ${formatCurrency(session.teacherEarning)})`}
+                    value={formatCurrency(totalTeacherEarning)}
+                    variant="warning"
+                  />
+                )}
+                <div className="border-t border-border/60 pt-1.5 mt-1">
+                  <FinanceRow
+                    label="Merkez Kârı"
+                    value={formatCurrency(centerProfit)}
+                    variant="success"
+                  />
+                  {earningStatus === "unknown" && (
+                    <p className="text-xs text-amber-700">
+                      Öğretmen hakedişi hesaplanamadığı için bu tutar kesin değildir.
+                    </p>
+                  )}
+                </div>
+                {session.billingMode === "historical_non_billable" && (
+                  <p className="pt-1.5 text-xs text-muted-foreground">
+                    Bu seans geçmiş kayıt olarak aktarıldı — yukarıdaki tutarlar öğrenci borcuna/tahakkuka dahil edilmez.
+                  </p>
+                )}
+              </div>
 
-          <Separator className="my-3" />
+              <Separator className="my-3" />
+            </>
+          )}
 
           {/* Status & notes */}
           <div className="divide-y divide-border/50">

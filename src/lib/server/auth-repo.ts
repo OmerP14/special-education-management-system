@@ -11,6 +11,8 @@ type Row = Record<string, unknown>;
 
 function toAccount(r: Row): AccountRow {
   return {
+    id: r.id as number,
+    role: r.role === "staff" ? "staff" : "admin",
     username: r.username as string,
     name: r.name as string,
     passwordHash: r.password_hash as string,
@@ -24,6 +26,7 @@ function toAccount(r: Row): AccountRow {
 function toSession(r: Row): SessionRow {
   return {
     tokenHash: r.token_hash as string,
+    accountId: r.account_id as number,
     credentialVersion: r.credential_version as string,
     remember: r.remember as boolean,
     createdAt: r.created_at as string,
@@ -32,38 +35,45 @@ function toSession(r: Row): SessionRow {
 }
 
 const postgresAuthRepo: AuthRepo = {
-  async getAccount() {
-    const rows = await sql()`select * from account where id = 1`;
-    return rows[0] ? toAccount(rows[0]) : null;
+  async getAccounts() {
+    const rows = await sql()`select * from account order by id`;
+    return rows.map(toAccount);
   },
   async createAccount(a) {
     const rows = await sql()`
-      insert into account (id, username, name, password_hash, credential_version, failed_attempts)
-      values (1, ${a.username}, ${a.name}, ${a.passwordHash}, ${a.credentialVersion}, 0)
+      insert into account (id, role, username, name, password_hash, credential_version, failed_attempts)
+      values (${a.id}, ${a.role}, ${a.username}, ${a.name}, ${a.passwordHash}, ${a.credentialVersion}, 0)
       on conflict (id) do nothing
       returning id`;
     return rows.length === 1;
   },
-  async updateAccount(patch) {
-    const current = await this.getAccount();
-    if (!current) return;
-    const a = { ...current, ...patch };
+  async updateAccount(id, patch) {
+    const rows = await sql()`select * from account where id = ${id}`;
+    if (!rows[0]) return;
+    const a = { ...toAccount(rows[0]), ...patch };
     await sql()`
       update account set
         username = ${a.username}, name = ${a.name}, password_hash = ${a.passwordHash},
         credential_version = ${a.credentialVersion}, failed_attempts = ${a.failedAttempts},
         locked_until = ${a.lockedUntil}, last_login_at = ${a.lastLoginAt}
-      where id = 1`;
+      where id = ${id}`;
+  },
+  async deleteAccount(id) {
+    await sql()`delete from auth_sessions where account_id = ${id}`;
+    await sql()`delete from account where id = ${id}`;
   },
   async createSession(s) {
     await sql()`
-      insert into auth_sessions (token_hash, credential_version, remember, created_at, expires_at)
-      values (${s.tokenHash}, ${s.credentialVersion}, ${s.remember}, ${s.createdAt}, ${s.expiresAt})`;
-    // Housekeeping: drop sessions that expired or belong to an old password.
+      insert into auth_sessions (token_hash, account_id, credential_version, remember, created_at, expires_at)
+      values (${s.tokenHash}, ${s.accountId}, ${s.credentialVersion}, ${s.remember}, ${s.createdAt}, ${s.expiresAt})`;
+    // Housekeeping: drop sessions that expired, lost their account, or belong
+    // to an old password.
     await sql()`
-      delete from auth_sessions
-      where expires_at < ${new Date().toISOString()}
-         or credential_version <> (select credential_version from account where id = 1)`;
+      delete from auth_sessions s
+      where s.expires_at < ${new Date().toISOString()}
+         or not exists (
+           select 1 from account a where a.id = s.account_id and a.credential_version = s.credential_version
+         )`;
   },
   async getSession(tokenHash) {
     const rows = await sql()`select * from auth_sessions where token_hash = ${tokenHash}`;

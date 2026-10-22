@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState } from "react";
 import Link from "next/link";
 import {
@@ -334,6 +335,9 @@ function TeacherDetailViewContent({
   teacherId,
   store,
 }: TeacherDetailViewProps & { store: ReturnType<typeof useStore> }) {
+  // Staff see the teacher's lessons and students; pay, payments, merges and
+  // editing stay with the admin (lib/auth/access.ts).
+  const { seesMoney, managesTeachers } = useAccess();
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
@@ -346,12 +350,13 @@ function TeacherDetailViewContent({
   const [recalcAppliedCount, setRecalcAppliedCount] = useState(0);
   const [mergeRollbackConfirmOpen, setMergeRollbackConfirmOpen] = useState(false);
   const rawTeacher = store.teachers.find((t) => t.id === teacherId);
-  const sessionColumns = buildSessionColumns(
+  const allSessionColumns = buildSessionColumns(
     store.students,
     rawTeacher,
     store.teacherEducationTypeAssignments,
     store.educationTypes
   );
+  const sessionColumns = seesMoney ? allSessionColumns : allSessionColumns.filter((c) => c.key !== "earning");
   const mergeHistoryCount = store.teacherMergeHistory.filter(
     (h) => h.primaryTeacherId === teacherId || h.duplicateTeacherId === teacherId
   ).length;
@@ -500,6 +505,7 @@ function TeacherDetailViewContent({
             )
           }
         />
+        {seesMoney && (
         <InfoRow
           icon={TrendingUp}
           label="Hakediş Modeli"
@@ -518,6 +524,7 @@ function TeacherDetailViewContent({
             </span>
           }
         />
+        )}
         <InfoRow
           icon={GraduationCap}
           label="Durum"
@@ -768,25 +775,24 @@ function TeacherDetailViewContent({
       badge: detail.studentRows.length,
       content: studentsContent,
     },
-    {
-      key: "earnings",
-      label: "Hakediş Kayıtları",
-      badge: detail.earnings.length,
-      content: earningsContent,
-    },
-    { key: "prices", label: "Eğitim Türleri ve Hakedişler", content: pricesContent },
-    {
-      key: "payments",
-      label: "Ödeme Geçmişi",
-      badge: store.teacherPayments.filter((p) => p.teacherId === teacherId).length,
-      content: <TeacherPaymentHistoryTab teacherId={teacherId} />,
-    },
-    {
-      key: "merges",
-      label: "Birleştirme Geçmişi",
-      badge: mergeHistoryCount,
-      content: <TeacherMergeHistoryTab teacherId={teacherId} />,
-    },
+    ...(seesMoney
+      ? [
+          { key: "earnings", label: "Hakediş Kayıtları", badge: detail.earnings.length, content: earningsContent },
+          { key: "prices", label: "Eğitim Türleri ve Hakedişler", content: pricesContent },
+          {
+            key: "payments",
+            label: "Ödeme Geçmişi",
+            badge: store.teacherPayments.filter((p) => p.teacherId === teacherId).length,
+            content: <TeacherPaymentHistoryTab teacherId={teacherId} />,
+          },
+          {
+            key: "merges",
+            label: "Birleştirme Geçmişi",
+            badge: mergeHistoryCount,
+            content: <TeacherMergeHistoryTab teacherId={teacherId} />,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -814,9 +820,11 @@ function TeacherDetailViewContent({
               </Link>{" "}
               ile birleştirildi — {formatDate(archivingMerge.mergedAt)}.
             </p>
+            {managesTeachers && (
             <Button size="sm" variant="outline" onClick={() => setMergeRollbackConfirmOpen(true)}>
               Birleştirmeyi Geri Al
             </Button>
+            )}
           </div>
         )}
 
@@ -881,18 +889,18 @@ function TeacherDetailViewContent({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {detail.unknownSessionCount > 0 && (
+                {seesMoney && detail.unknownSessionCount > 0 && (
                   <Button size="sm" variant="outline" onClick={() => setRecalcOpen(true)}>
                     <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                     Eksik Hakedişleri Yeniden Hesapla
                   </Button>
                 )}
-                {detail.pendingEarnings > 0 && (
+                {seesMoney && detail.pendingEarnings > 0 && (
                   <Button size="sm" onClick={() => setPayOpen(true)}>
                     Ödeme Yap
                   </Button>
                 )}
-                {detail.status !== "archived" && (
+                {managesTeachers && detail.status !== "archived" && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -923,6 +931,8 @@ function TeacherDetailViewContent({
             icon={CheckCircle2}
             variant="default"
           />
+          {seesMoney && (
+          <>
           <StatCard
             title="Bu Ayki Hakediş"
             value={formatCurrency(detail.monthlyEarnings)}
@@ -941,6 +951,8 @@ function TeacherDetailViewContent({
             icon={AlertCircle}
             variant={detail.pendingEarnings > 0 ? "warning" : "success"}
           />
+          </>
+          )}
         </div>
 
         {/* Tabs */}

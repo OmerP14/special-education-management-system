@@ -214,7 +214,10 @@ export function AppTopbar({ sidebarVisible, onToggleSidebar }: AppTopbarProps) {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col">
                   <span className="text-sm font-medium">{user?.name}</span>
-                  <span className="text-xs text-muted-foreground">{user?.username}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {user?.username}
+                    {user?.role === "staff" && " · Personel hesabı"}
+                  </span>
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>

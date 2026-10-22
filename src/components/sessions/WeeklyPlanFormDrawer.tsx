@@ -1,5 +1,6 @@
 "use client";
 
+import { useAccess } from "@/lib/auth/access";
 import { useState, useMemo } from "react";
 import { AlertTriangle, CheckCircle2, Info, User } from "lucide-react";
 import { FormDrawer } from "@/components/shared/FormDrawer";
@@ -141,6 +142,7 @@ export function WeeklyPlanFormDrawer({
   copyFromPlan,
   preselectedStudentId,
 }: WeeklyPlanFormDrawerProps) {
+  const { seesMoney } = useAccess();
   const store = useStore();
   const isEditing = !!initialData;
 
@@ -574,7 +576,10 @@ export function WeeklyPlanFormDrawer({
           </div>
         )}
 
-        {/* Seans Ücreti + Hakediş */}
+        {/* Seans Ücreti + Hakediş — staff never see or set prices; the
+            server fills them in (src/lib/server/staff-view.ts). */}
+        {seesMoney && (
+        <>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="plan-student-price">Ders Ücreti ({getCurrencySymbol()})</Label>
@@ -599,6 +604,8 @@ export function WeeklyPlanFormDrawer({
           Ders başı tutarlar; öğretmen anlaşmasına göre otomatik doldurulur. Gerekirse düzenleyin.
           {form.lessonCount > 1 && ` Blok derste her seans ${form.lessonCount} ders olarak ücretlendirilir.`}
         </p>
+        </>
+        )}
 
         {/* Ders: tek / blok */}
         <div className="space-y-1.5">
@@ -776,7 +783,7 @@ export function WeeklyPlanFormDrawer({
               {/* Generated count */}
               {datesToCreate.length > 0 && (
                 <>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className={cn("grid gap-3", seesMoney ? "grid-cols-3" : "grid-cols-1")}>
                     <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
                       <p className="text-2xl font-bold text-foreground tabular-nums">
                         {datesToCreate.length}
@@ -785,25 +792,30 @@ export function WeeklyPlanFormDrawer({
                         Toplam Seans
                       </p>
                     </div>
-                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                      <p className="text-lg font-bold text-foreground tabular-nums">
-                        {formatCurrency(totalBilling)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
-                        Potansiyel Tahakkuk
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
-                      <p className="text-lg font-bold text-amber-600 tabular-nums">
-                        {formatCurrency(totalTeacherEarning)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
-                        Öğretmen Hakedişi
-                      </p>
-                    </div>
+                    {seesMoney && (
+                      <>
+                        <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                          <p className="text-lg font-bold text-foreground tabular-nums">
+                            {formatCurrency(totalBilling)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                            Potansiyel Tahakkuk
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-muted/30 p-3 text-center">
+                          <p className="text-lg font-bold text-amber-600 tabular-nums">
+                            {formatCurrency(totalTeacherEarning)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 font-medium uppercase tracking-wide">
+                            Öğretmen Hakedişi
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Center profit */}
+                  {seesMoney && (
                   <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
                     <span className="text-xs text-muted-foreground">Tahmini Merkez Kârı</span>
                     <span className={cn(
@@ -813,6 +825,7 @@ export function WeeklyPlanFormDrawer({
                       {formatCurrency(totalCenterProfit)}
                     </span>
                   </div>
+                  )}
 
                   {/* Date list */}
                   <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-1.5">

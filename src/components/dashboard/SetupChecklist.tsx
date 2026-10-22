@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, Circle, FileSpreadsheet } from "lucide-react";
 import { useStore } from "@/lib/data/store";
+import { useAccess } from "@/lib/auth/access";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,6 +14,8 @@ import { cn } from "@/lib/utils";
  */
 export function SetupChecklist() {
   const { institutionSettings, educationTypes, teachers, students, sessions } = useStore();
+  // Setting the institution up is the admin's job.
+  const { isAdmin } = useAccess();
   const { institution } = institutionSettings;
 
   const steps = [
@@ -22,7 +25,7 @@ export function SetupChecklist() {
     { label: "Öğrencileri ekleyin", href: "/app/students", done: students.length > 0 },
     { label: "İlk dersi planlayın", href: "/app/sessions", done: sessions.length > 0 },
   ];
-  if (steps.every((s) => s.done)) return null;
+  if (!isAdmin || steps.every((s) => s.done)) return null;
   const next = steps.findIndex((s) => !s.done);
 
   return (
