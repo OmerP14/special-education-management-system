@@ -1,22 +1,31 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, Circle, FileSpreadsheet } from "lucide-react";
 import { useStore } from "@/lib/data/store";
 import { useAccess } from "@/lib/auth/access";
+import { staffAccountService } from "@/lib/auth/http-auth-service";
 import { cn } from "@/lib/utils";
 
 /**
  * First-use guide on the dashboard: the order a new institution has to set
  * things up in (a lesson needs a student, an education type
  * and a teacher). Each step ticks itself off from the data; the card goes
- * away once every step is done.
+ * away once every required step is done. The staff account is offered last,
+ * as an optional step, so the institution at least knows it exists.
  */
 export function SetupChecklist() {
   const { institutionSettings, educationTypes, teachers, students, sessions } = useStore();
   // Setting the institution up is the admin's job.
   const { isAdmin } = useAccess();
   const { institution } = institutionSettings;
+  // The staff account lives on the server, not in the store.
+  const [hasStaff, setHasStaff] = useState(false);
+  useEffect(() => {
+    if (!isAdmin) return;
+    void staffAccountService.get().then((r) => setHasStaff(!!r.data?.staff));
+  }, [isAdmin]);
 
   const steps = [
     { label: "Kurum adını ve telefonunu girin", href: "/app/settings/institution", done: !!institution.name.trim() && !!institution.phone.trim() },
@@ -24,8 +33,14 @@ export function SetupChecklist() {
     { label: "Öğretmenleri ekleyin", href: "/app/teachers", done: teachers.length > 0 },
     { label: "Öğrencileri ekleyin", href: "/app/students", done: students.length > 0 },
     { label: "İlk dersi planlayın", href: "/app/sessions", done: sessions.length > 0 },
+    {
+      label: "Personel hesabı açın (isteğe bağlı) — sadece ders ve takvimi görür",
+      href: "/app/settings/staff",
+      done: hasStaff,
+      optional: true,
+    },
   ];
-  if (!isAdmin || steps.every((s) => s.done)) return null;
+  if (!isAdmin || steps.every((s) => s.done || s.optional)) return null;
   const next = steps.findIndex((s) => !s.done);
 
   return (
