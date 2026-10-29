@@ -6,6 +6,24 @@ A web application that replaces the Excel workbooks a special education center u
 
 The interface is in Turkish; the code, comments and this document are in English.
 
+![Dashboard](docs/screenshots/dashboard.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/calendar.png" alt="Weekly calendar"><br><sub>Weekly calendar, colored by therapy type</sub></td>
+    <td><img src="docs/screenshots/student.png" alt="Student detail"><br><sub>Student account: lessons, payments, debt warning</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/finance.png" alt="Finance dashboard"><br><sub>Finance: billed vs. collected, receivables</sub></td>
+    <td><img src="docs/screenshots/teacher-earnings.png" alt="Teacher earnings"><br><sub>Teacher earnings and payments</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/excel-import.png" alt="Excel import"><br><sub>Excel import: analyze, map columns, preview, roll back</sub></td>
+  </tr>
+</table>
+
+<sub>All names and figures in the screenshots are fictional demo data.</sub>
+
 ## Features
 
 - **Students**: enrollment, lesson history and a running account per student (charges, payments, opening balance carried over from Excel).
