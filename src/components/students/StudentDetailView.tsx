@@ -1,0 +1,827 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  CalendarDays,
+  TrendingUp,
+  CreditCard,
+  AlertCircle,
+  Phone,
+  User,
+  GraduationCap,
+  StickyNote,
+  BookOpen,
+  Pencil,
+  Hash,
+  HeartPulse,
+  ShieldCheck,
+} from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
+import { StudentWeeklyPlansTab } from "@/components/students/StudentWeeklyPlansTab";
+import { StatCard } from "@/components/shared/StatCard";
+import { PlannedSessionsCard } from "@/components/shared/PlannedSessionsCard";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { HistoricalRecordBadge } from "@/components/shared/HistoricalRecordBadge";
+import { DataTable, type Column } from "@/components/shared/DataTable";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { Tabs, type TabItem } from "@/components/shared/Tabs";
+import { useStore } from "@/lib/data/store";
+import { getGuardianContactLink } from "@/lib/helpers/student-rules";
+import { useAccess } from "@/lib/auth/access";
+import {
+  buildStudentDetail,
+  formatCurrency,
+  formatDate,
+  formatTime,
+  getStudentPlannedSummary,
+} from "@/lib/helpers/finance";
+import { buildStudentCurrentAccount } from "@/lib/helpers/current-account";
+import { DetailHeaderMeta } from "@/components/shared/DetailHeaderMeta";
+import type { Session, Payment, PaymentMethod, EducationType } from "@/types";
+import { cn } from "@/lib/utils";
+
+// ─── Column builders ───────────────────────────────────────────────────────────
+
+function buildSessionColumns(
+  teachers: { id: string; fullName: string }[],
+  educationTypes: EducationType[]
+): Column<Session>[] {
+  return [
+    {
+      key: "date",
+      header: "Tarih",
+      render: (row) => (
+        <span className="tabular-nums text-sm">{formatDate(row.date)}</span>
+      ),
+    },
+    {
+      key: "time",
+      header: "Saat",
+      render: (row) => (
+        <span className="tabular-nums text-sm text-muted-foreground">
+          {formatTime(row.date)}
+        </span>
+      ),
+      className: "hidden sm:table-cell",
+      headerClassName: "hidden sm:table-cell",
+    },
+    {
+      key: "teacher",
+      header: "Öğretmen",
+      render: (row) => {
+        const teacher = teachers.find((t) => t.id === row.teacherId);
+        return teacher ? (
+          <Link
+            href={`/app/teachers/${row.teacherId}`}
+            className="text-muted-foreground hover:text-primary transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {teacher.fullName}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground/40">—</span>
+        );
+      },
+      className: "hidden md:table-cell",
+      headerClassName: "hidden md:table-cell",
+    },
+    {
+      key: "educationType",
+      header: "Eğitim Türü",
+      render: (row) => {
+        const et = educationTypes.find((e) => e.id === row.educationTypeId);
+        return (
+          <span className="text-muted-foreground">{et?.name ?? "—"}</span>
+        );
+      },
+      className: "hidden lg:table-cell",
+      headerClassName: "hidden lg:table-cell",
+    },
+    {
+      key: "sessionCount",
+      header: "Adet",
+      render: (row) => (
+        <span className="tabular-nums text-center">{row.sessionCount}</span>
+      ),
+      className: "hidden sm:table-cell text-center",
+      headerClassName: "hidden sm:table-cell text-center",
+    },
+    {
+      key: "unitPrice",
+      header: "Birim",
+      render: (row) => (
+        <span className="tabular-nums text-muted-foreground">
+          {formatCurrency(row.studentPrice)}
+        </span>
+      ),
+      className: "hidden md:table-cell text-right",
+      headerClassName: "hidden md:table-cell text-right",
+    },
+    {
+      key: "total",
+      header: "Toplam",
+      render: (row) => (
+        <span className="tabular-nums font-medium">
+          {formatCurrency(row.studentPrice * row.sessionCount)}
+        </span>
+      ),
+      className: "text-right",
+      headerClassName: "text-right",
+    },
+    {
+      key: "status",
+      header: "Durum",
+      render: (row) => (
+        <div className="flex flex-col items-end gap-1">
+          <StatusBadge status={row.status} />
+          {row.billingMode === "historical_non_billable" && <HistoricalRecordBadge />}
+        </div>
+      ),
+      className: "text-right",
+      headerClassName: "text-right",
+    },
+  ];
+}
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: "Nakit",
+  bank_transfer: "Banka Havalesi",
+  credit_card: "Kredi Kartı",
+  other: "Diğer",
+};
+
+const paymentColumns: Column<Payment>[] = [
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => (
+      <span className="tabular-nums text-sm">{formatDate(row.date)}</span>
+    ),
+  },
+  {
+    key: "amount",
+    header: "Tutar",
+    render: (row) => (
+      <span className="tabular-nums font-semibold text-emerald-600">
+        {formatCurrency(row.amount)}
+      </span>
+    ),
+  },
+  {
+    key: "method",
+    header: "Yöntem",
+    render: (row) => (
+      <span className="text-muted-foreground text-sm">{PAYMENT_METHOD_LABELS[row.method]}</span>
+    ),
+    className: "hidden md:table-cell",
+    headerClassName: "hidden md:table-cell",
+  },
+  {
+    key: "notes",
+    header: "Açıklama",
+    render: (row) => (
+      <span className={cn("text-sm", row.notes ? "text-foreground" : "text-muted-foreground/40")}>
+        {row.notes ?? "—"}
+      </span>
+    ),
+    className: "hidden lg:table-cell",
+    headerClassName: "hidden lg:table-cell",
+  },
+];
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-3 py-3">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <div className="mt-0.5 text-sm font-medium text-foreground">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ────────────────────────────────────────────────────────────
+
+interface StudentDetailViewProps {
+  studentId: string;
+}
+
+export function StudentDetailView({ studentId }: StudentDetailViewProps) {
+  const store = useStore();
+  return <StudentDetailViewContent studentId={studentId} store={store} />;
+}
+
+function StudentDetailViewContent({
+  studentId,
+  store,
+}: StudentDetailViewProps & { store: ReturnType<typeof useStore> }) {
+  const [editOpen, setEditOpen] = useState(false);
+  // Staff see lessons and contact details, never prices or the account.
+  const { seesMoney } = useAccess();
+  const sessionColumns = buildSessionColumns(store.teachers, store.educationTypes).filter(
+    (c) => seesMoney || (c.key !== "unitPrice" && c.key !== "total")
+  );
+  const detail = buildStudentDetail(
+    studentId,
+    store.students,
+    store.educationTypes,
+    store.teachers,
+    store.sessions,
+    store.payments,
+    store.openingBalances
+  );
+
+  // Cari Hesap state
+  const today = new Date();
+  const nowYear = today.getFullYear();
+  const nowMonth = today.getMonth() + 1;
+  const defaultMonthValue = `${nowYear}-${String(nowMonth).padStart(2, "0")}`;
+  const [selectedMonthStr, setSelectedMonthStr] = useState(defaultMonthValue);
+  const [caYear, caMonth] = selectedMonthStr.split("-").map(Number) as [number, number];
+  const account = buildStudentCurrentAccount(
+    studentId,
+    store.sessions,
+    store.payments,
+    caYear,
+    caMonth,
+    store.openingBalances
+  );
+  const plannedSummary = getStudentPlannedSummary(studentId, store.sessions);
+
+  if (!detail) {
+    return (
+      <div className="space-y-6">
+        <Link
+          href="/app/students"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Öğrenciler
+        </Link>
+        <EmptyState
+          title="Öğrenci bulunamadı"
+          description="Bu kimliğe ait öğrenci kaydı mevcut değil."
+          icon={User}
+          action={{
+            label: "Öğrencilere Dön",
+            onClick: () => window.history.back(),
+          }}
+        />
+      </div>
+    );
+  }
+
+  const initials = detail.fullName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  // ─── Tab contents ───────────────────────────────────────────────────────────
+
+  const generalInfoContent = (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {/* Student info */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Öğrenci Bilgileri
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border/60">
+          <InfoRow icon={User} label="Ad Soyad" value={detail.fullName} />
+          {detail.studentNumber && <InfoRow icon={Hash} label="Öğrenci No" value={detail.studentNumber} />}
+          <InfoRow
+            icon={CalendarDays}
+            label="Doğum Tarihi"
+            value={formatDate(detail.birthDate)}
+          />
+          {detail.healthInfo && (
+            <InfoRow icon={HeartPulse} label="Sağlık Bilgisi" value={<span className="whitespace-pre-line">{detail.healthInfo}</span>} />
+          )}
+          {(detail.emergencyContactName || detail.emergencyContactPhone) && (
+            <InfoRow
+              icon={Phone}
+              label="Acil Durum Kişisi"
+              value={
+                <>
+                  {detail.emergencyContactName}
+                  {detail.emergencyContactPhone && (
+                    <a href={`tel:${detail.emergencyContactPhone.replace(/\D/g, "")}`} className="ml-2 text-primary hover:underline">
+                      {detail.emergencyContactPhone}
+                    </a>
+                  )}
+                </>
+              }
+            />
+          )}
+          <InfoRow
+            icon={ShieldCheck}
+            label="KVKK Onayı"
+            value={
+              detail.kvkkConsent ? (
+                <span className="text-emerald-600">Alındı{detail.kvkkConsentDate ? ` · ${formatDate(detail.kvkkConsentDate)}` : ""}</span>
+              ) : (
+                <span className={store.institutionSettings.students.requireKvkkConsent ? "text-destructive" : "text-muted-foreground"}>
+                  Alınmadı
+                </span>
+              )
+            }
+          />
+          <InfoRow
+            icon={GraduationCap}
+            label="Eğitim Türleri"
+            value={
+              detail.educationTypeNames.length > 0 ? (
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {detail.educationTypeNames.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-muted-foreground">Tanımlanmamış</span>
+              )
+            }
+          />
+          <InfoRow
+            icon={GraduationCap}
+            label="Atanan Öğretmenler"
+            value={
+              detail.assignedTeachers.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mt-0.5">
+                  {detail.assignedTeachers.map((t) => (
+                    <Link
+                      key={t.id}
+                      href={`/app/teachers/${t.id}`}
+                      className="text-primary hover:underline text-sm"
+                    >
+                      {t.fullName}
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                "Henüz seans atanmadığı için öğretmen görünmüyor."
+              )
+            }
+          />
+        </CardContent>
+      </Card>
+
+      {/* Veli (optional contact on the student record) */}
+      {(detail.guardianName || detail.guardianPhone) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Veli Bilgileri
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 divide-y divide-border/60">
+            {detail.guardianName && <InfoRow icon={User} label="Veli" value={detail.guardianName} />}
+            {detail.guardianPhone && (
+              <InfoRow
+                icon={Phone}
+                label="Telefon"
+                value={
+                  <a href={`tel:${detail.guardianPhone}`} className="text-primary hover:underline">
+                    {detail.guardianPhone}
+                  </a>
+                }
+              />
+            )}
+            {(() => {
+              // Ayarlar → Öğrenci → Veli İletişim Tercihi
+              const contact = getGuardianContactLink(detail.guardianPhone, store.institutionSettings.students.guardianContactPreference);
+              return contact ? (
+                <div className="pb-2 pl-10">
+                  <a
+                    href={contact.href}
+                    target={contact.href.startsWith("http") ? "_blank" : undefined}
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                  >
+                    {contact.label}
+                  </a>
+                </div>
+              ) : null;
+            })()}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+
+  const sessionsContent = (
+    <DataTable
+      data={detail.sessions}
+      columns={sessionColumns}
+      keyExtractor={(s) => s.id}
+      emptyTitle="Seans bulunamadı"
+      emptyDescription="Bu öğrenciye ait seans kaydı bulunmamaktadır."
+    />
+  );
+
+  const historicalPayments = store.historicalPayments
+    .filter((p) => p.studentId === studentId)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const paymentsContent = (
+    <div className="space-y-4">
+      <DataTable
+        data={detail.payments}
+        columns={paymentColumns}
+        keyExtractor={(p) => p.id}
+        emptyTitle="Ödeme bulunamadı"
+        emptyDescription="Bu öğrenciye ait ödeme kaydı bulunmamaktadır."
+      />
+      {historicalPayments.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-foreground">Aktarılan geçmiş ödemeler</p>
+            <HistoricalRecordBadge label="Borca dahil değil" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Excel aktarımındaki devir tarihinden önceki ödemeler. O tarihteki bakiye devir olarak girdiği için yalnızca kayıt olarak durur.
+          </p>
+          <DataTable data={historicalPayments} columns={paymentColumns} keyExtractor={(p) => p.id} dense />
+        </div>
+      )}
+    </div>
+  );
+
+  const notesContent = (
+    <Card>
+      <CardContent className="pt-5">
+        {detail.notes ? (
+          <div className="flex gap-3">
+            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+              <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">{detail.notes}</p>
+          </div>
+        ) : (
+          <EmptyState
+            title="Not eklenmemiş"
+            description="Bu öğrenci için henüz bir not girilmemiş."
+            icon={StickyNote}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const monthLabel = new Intl.DateTimeFormat("tr-TR", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(caYear, caMonth - 1, 1));
+
+  const cariHesapContent = (
+    <div className="space-y-5">
+      {/* Month selector */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">{monthLabel}</span>
+        </div>
+        <input aria-label="Ay seçin"
+          type="month"
+          value={selectedMonthStr}
+          onChange={(e) => e.target.value && setSelectedMonthStr(e.target.value)}
+          className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        {selectedMonthStr !== defaultMonthValue && (
+          <button
+            onClick={() => setSelectedMonthStr(defaultMonthValue)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Bu Aya Dön
+          </button>
+        )}
+      </div>
+
+      {/* Monthly breakdown */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Aylık Hesap Hareketi — {monthLabel}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Önceki Devir
+              </p>
+              <p
+                className={cn(
+                  "mt-1 text-lg font-bold tabular-nums",
+                  account.previousBalance > 0
+                    ? "text-destructive"
+                    : account.previousBalance < 0
+                      ? "text-emerald-600"
+                      : "text-foreground"
+                )}
+              >
+                {formatCurrency(Math.abs(account.previousBalance))}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {account.previousBalance > 0
+                  ? "Borç devri"
+                  : account.previousBalance < 0
+                    ? "Alacak devri"
+                    : "Sıfır"}
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Bu Ay Tahakkuk
+              </p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
+                {formatCurrency(account.currentMonthBilled)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Seans bedeli</p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Bu Ay Ödeme
+              </p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-emerald-600">
+                {formatCurrency(account.currentMonthPaid)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Tahsil edilen</p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Güncel Bakiye
+              </p>
+              <p
+                className={cn(
+                  "mt-1 text-lg font-bold tabular-nums",
+                  account.currentBalance > 0
+                    ? "text-destructive"
+                    : "text-emerald-600"
+                )}
+              >
+                {formatCurrency(Math.abs(account.currentBalance))}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {account.currentBalance > 0 ? "Öğrenci borçlu" : "Bakiye yok"}
+              </p>
+            </div>
+          </div>
+
+          {/* Formula explanation */}
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/20 border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+            <span className={cn("font-semibold", account.previousBalance > 0 ? "text-destructive" : "text-foreground")}>
+              {formatCurrency(account.previousBalance)}
+            </span>
+            <span>(önceki devir)</span>
+            <span>+</span>
+            <span className="font-semibold text-foreground">{formatCurrency(account.currentMonthBilled)}</span>
+            <span>(tahakkuk)</span>
+            <span>−</span>
+            <span className="font-semibold text-emerald-600">{formatCurrency(account.currentMonthPaid)}</span>
+            <span>(ödeme)</span>
+            <span>=</span>
+            <span className={cn("font-bold", account.currentBalance > 0 ? "text-destructive" : "text-emerald-600")}>
+              {formatCurrency(account.currentBalance)}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* All-time totals */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Toplam Hesap Özeti
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border/60">
+          {[
+            {
+              label: "Toplam Tahakkuk",
+              value: formatCurrency(account.totalBilled),
+              sub: "Tüm zamanlar",
+              color: "text-foreground",
+            },
+            {
+              label: "Toplam Ödeme",
+              value: formatCurrency(account.totalPaid),
+              sub: "Tahsil edilen",
+              color: "text-emerald-600",
+            },
+            {
+              label: "Kalan Borç",
+              value: formatCurrency(account.remainingDebt),
+              sub: account.remainingDebt > 0 ? "Ödenmemiş" : "Borç yok",
+              color: account.remainingDebt > 0 ? "text-destructive" : "text-emerald-600",
+            },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between py-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">{row.label}</p>
+                <p className="text-xs text-muted-foreground">{row.sub}</p>
+              </div>
+              <span className={cn("text-base font-bold tabular-nums", row.color)}>
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const weeklyPlanCount = store.weeklySessionPlans.filter((p) => p.studentId === studentId).length;
+
+  const tabs: TabItem[] = [
+    { key: "general", label: "Genel Bilgiler", content: generalInfoContent },
+    {
+      key: "sessions",
+      label: "Seanslar",
+      badge: detail.sessions.length,
+      content: sessionsContent,
+    },
+    {
+      key: "plan",
+      label: "Seans Planı",
+      badge: weeklyPlanCount > 0 ? weeklyPlanCount : undefined,
+      content: <StudentWeeklyPlansTab studentId={studentId} />,
+    },
+    ...(seesMoney
+      ? [
+          { key: "payments", label: "Ödemeler", badge: detail.payments.length, content: paymentsContent },
+          { key: "cari", label: "Cari Hesap", content: cariHesapContent },
+        ]
+      : []),
+    { key: "notes", label: "Notlar", content: notesContent },
+  ];
+
+  const rawStudent = store.students.find((s) => s.id === studentId);
+
+  return (
+    <>
+      <div className="space-y-6">
+        {/* Back link */}
+        <Link
+          href="/app/students"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Öğrenciler
+        </Link>
+
+        {/* Header card */}
+        <Card className="relative overflow-hidden rounded-2xl border-border/70 bg-gradient-to-br from-primary/[0.06] via-card to-card shadow-sm">
+          <div
+            className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-primary/10 blur-3xl"
+            aria-hidden
+          />
+          <CardContent className="relative p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/10">
+                  <AvatarFallback className="bg-primary/10 text-primary text-lg font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h1 className="text-xl font-bold text-foreground">{detail.fullName}</h1>
+                    <StatusBadge status={detail.status} />
+                  </div>
+                  {(detail.guardianName || detail.guardianPhone) && (
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                      {detail.guardianName && (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {detail.guardianName}
+                        </span>
+                      )}
+                      {detail.guardianPhone && (
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {detail.guardianPhone}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {detail.educationTypeNames.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {detail.educationTypeNames.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <DetailHeaderMeta createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEditOpen(true)}
+                className="shrink-0"
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                Düzenle
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* KPI stat cards */}
+        {seesMoney && (
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              title="Toplam Seans"
+              value={detail.totalSessions}
+              description="Tüm zamanlar"
+              icon={CalendarDays}
+              variant="default"
+            />
+            <StatCard
+              title="Toplam Tutar"
+              value={formatCurrency(detail.totalBilled)}
+              description="Tahakkuk eden"
+              icon={TrendingUp}
+              variant="default"
+            />
+            <StatCard
+              title="Alınan Ödeme"
+              value={formatCurrency(detail.totalPaid)}
+              description="Tahsil edilen"
+              icon={CreditCard}
+              variant="success"
+            />
+            <StatCard
+              title="Kalan Borç"
+              value={formatCurrency(detail.totalDebt)}
+              description="Ödenmemiş"
+              icon={AlertCircle}
+              variant={detail.totalDebt > 0 ? "danger" : "success"}
+            />
+          </div>
+        )}
+
+        {/* Ayarlar → Öğrenci → Borç uyarısı göster (eşik: Ayarlar → Finans) */}
+        {seesMoney &&
+          store.institutionSettings.students.debtWarningEnabled &&
+          detail.totalDebt > 0 &&
+          detail.totalDebt >= store.institutionSettings.finance.studentDebtWarningThreshold && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
+              <p className="text-sm text-destructive">
+                Bu öğrencinin borcu ({formatCurrency(detail.totalDebt)}) kurumun borç uyarı eşiğini (
+                {formatCurrency(store.institutionSettings.finance.studentDebtWarningThreshold)}) aşıyor.
+              </p>
+            </div>
+          )}
+
+        {/* Planned sessions — informational only, never billed */}
+        {plannedSummary.count > 0 && (
+          <PlannedSessionsCard count={plannedSummary.count} totalValue={plannedSummary.totalValue} />
+        )}
+
+        {/* Tabs */}
+        <Tabs tabs={tabs} defaultTab="general" />
+      </div>
+
+      {rawStudent && (
+        <StudentFormDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          initialData={rawStudent}
+        />
+      )}
+    </>
+  );
+}

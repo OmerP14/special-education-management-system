@@ -1,0 +1,972 @@
+// ─── Tenant ───────────────────────────────────────────────────────────────────
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+}
+
+// ─── Education Type ────────────────────────────────────────────────────────────
+export type EducationTypeStatus = "active" | "inactive";
+
+export interface EducationType {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string;
+  /** Hex color, drawn from EDUCATION_TYPE_COLOR_PALETTE — used consistently for
+   *  calendar session cards, the calendar legend, and filter badges. */
+  color: string;
+  defaultStudentPrice: number;
+  /** "inactive" hides the type from new-record selectors everywhere but never
+   *  changes how it renders on historical records/reports — see
+   *  getActiveEducationTypes/getEducationTypeLabel in education-types.ts. */
+  status: EducationTypeStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ─── Student ───────────────────────────────────────────────────────────────────
+export type StudentStatus = "active" | "inactive" | "on_hold";
+
+export interface Student {
+  id: string;
+  tenantId: string;
+  fullName: string;
+  birthDate: string;
+  status: StudentStatus;
+  /** Optional contact person (there are no separate guardian records). */
+  guardianName?: string;
+  guardianPhone?: string;
+  educationTypeIds: string[];
+  weeklySessionCount?: number;
+  assignedTeacherIds?: string[];
+  notes?: string;
+  /** Ayarlar → Öğrenci → Öğrenci numarası (auto-generated or manual). */
+  studentNumber?: string;
+  /** Sequence behind an auto-generated studentNumber. */
+  studentSequence?: number;
+  /** KVKK (personal data) consent and when it was recorded. */
+  kvkkConsent?: boolean;
+  kvkkConsentDate?: string;
+  /** Health / diagnosis information relevant to sessions. */
+  healthInfo?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  createdAt: string;
+  updatedAt?: string;
+  /** Set when created by Excel Import — lets that batch be rolled back. */
+  importBatchId?: string;
+}
+
+// ─── Teacher ───────────────────────────────────────────────────────────────────
+/** "archived" is set ONLY by the Teacher Merge workflow (see TeacherMergeHistory) —
+ *  never manually selectable in the edit form. An archived teacher keeps every one
+ *  of its historical Session/TeacherEarning/TeacherPayment rows intact for audit;
+ *  only NEW activity is redirected to whichever teacher absorbed it. */
+export type TeacherStatus = "active" | "inactive" | "archived";
+export type TeacherEarningType =
+  | "per_session"
+  | "monthly_salary"
+  | "salary_plus_quota"
+  | "percentage";
+
+export interface Teacher {
+  id: string;
+  tenantId: string;
+  fullName: string;
+  phone: string;
+  email?: string;
+  status: TeacherStatus;
+  /** A teacher's education types live exclusively on active
+   *  TeacherEducationTypeAssignment rows — see getTeacherActiveEducationTypeIds
+   *  in teacher-assignments.ts. There is deliberately no field here; keeping a
+   *  second, independently-editable list is exactly what this model must avoid. */
+  earningType?: TeacherEarningType;
+  monthlySalary?: number;
+  /** For salary_plus_quota: monthly sessions included in the base salary. */
+  includedSessionQuota?: number;
+  /** For salary_plus_quota: extra earning per session above the quota. */
+  extraSessionEarning?: number;
+  earningPercentage?: number;
+  customBranch?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  /** When the teacher was switched to Pasif (set by the store, cleared when
+   *  they are made active again). A salaried teacher is owed salary up to and
+   *  including this pay period. */
+  leftAt?: string;
+  importBatchId?: string;
+  /** Set together with status:"archived" when this record was merged away —
+   *  see TeacherMergeHistory. Never set directly; only mergeTeachers/rollback
+   *  in the store write these three fields. */
+  archivedAt?: string;
+  archivedReason?: string;
+  mergedIntoTeacherId?: string;
+  /** Devir: what the institution owed this teacher on `date` for work before
+   *  it (set by an Excel import, whose older sessions earn nothing). Counted
+   *  as earning in the hakediş period that holds `date`. */
+  openingBalance?: TeacherOpeningBalance;
+}
+
+export interface TeacherOpeningBalance {
+  amount: number;
+  date: string; // "YYYY-MM-DD"
+  importBatchId?: string;
+}
+
+// ─── Session ───────────────────────────────────────────────────────────────────
+export type SessionStatus =
+  | "planned"
+  | "completed"
+  | "cancelled"
+  | "no_show"
+  | "makeup";
+
+/** "billable" (default when absent — every manually-created/existing session)
+ *  counts toward student/guardian debt, tahakkuk, and receivables everywhere.
+ *  "historical_non_billable" is set ONLY by a historical import that the user
+ *  explicitly chose to bring in as pure session history (no payments/opening
+ *  balance included) — it still shows up in session history, attendance, and
+ *  session counts, but is excluded from every debt/tahakkuk calculation so a
+ *  migration never silently invents receivables the center never billed. */
+export type SessionBillingMode = "billable" | "historical_non_billable";
+
+export interface Session {
+  id: string;
+  tenantId: string;
+  studentId: string;
+  teacherId: string;
+  educationTypeId: string;
+  date: string;
+  durationMinutes: number;
+  sessionCount: number;
+  studentPrice: number;
+  teacherEarning: number;
+  status: SessionStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  recurringGroupId?: string;
+  weeklyPlanId?: string;
+  importBatchId?: string;
+  /** Undefined is treated identically to "billable" everywhere — see
+   *  SessionBillingMode. */
+  billingMode?: SessionBillingMode;
+  /** See TeacherEarningCalculationStatus. Undefined (every session created
+   *  before this field existed) is resolved via resolveTeacherEarningStatus()
+   *  in finance.ts, never re-derived ad hoc. */
+  teacherEarningStatus?: TeacherEarningCalculationStatus;
+  /** Share of `teacherEarning` the teacher is owed for this session's status
+   *  (1 = full, 0.5 = half/partial, 0 = none), fixed from Ayarlar → Öğretmen
+   *  ve Hakediş when the session is saved — so later policy changes never
+   *  silently rewrite past earnings. See getSessionEarningFactor. */
+  earningFactor?: number;
+  /** Set when a manager approves the earning (only matters with "Hakediş
+   *  Oluşturma Anı: Yönetici onayladığında"). */
+  earningApprovedAt?: string;
+}
+
+// ─── Weekly Session Plan ───────────────────────────────────────────────────────
+
+export interface WeeklyScheduleSlot {
+  dayOfWeek: number; // 0 = Sunday, 1 = Monday … 6 = Saturday
+  time: string;      // "HH:MM"
+}
+
+export interface WeeklySessionPlan {
+  id: string;
+  tenantId: string;
+  studentId: string;
+  teacherId: string;
+  educationTypeId: string;
+  studentPrice: number;
+  teacherEarning: number;
+  /** 1 = tek ders, 2 = blok ders — every generated session is lessonCount ×
+   *  40 min with sessionCount = lessonCount. Absent on plans saved before
+   *  block lessons existed (= 1). */
+  lessonCount?: number;
+  startDate: string;  // "YYYY-MM-DD"
+  endDate: string;    // "YYYY-MM-DD"
+  weeklySchedule: WeeklyScheduleSlot[];
+  isActive: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ─── Payment ───────────────────────────────────────────────────────────────────
+export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "other";
+/** "installment" only on payments recorded before installment plans were
+ *  removed — they count as ordinary payments everywhere. */
+export type PaymentSource = "manual" | "installment" | "import";
+
+export interface Payment {
+  id: string;
+  tenantId: string;
+  studentId: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+  paymentSource?: PaymentSource;
+  notes?: string;
+  /** Issued on creation from Ayarlar → Finans (Makbuz Numara Formatı). */
+  receiptNumber?: string;
+  receiptSequence?: number;
+  createdAt: string;
+  updatedAt?: string;
+  importBatchId?: string;
+  /** Imported as history only — dated before the import's devir date, whose
+   *  devir balance already accounts for it. Never counted anywhere (the store
+   *  leaves it out of `payments`); listed in the student's history. */
+  historical?: boolean;
+}
+
+// ─── Opening Balance (Devir Bakiyesi) ──────────────────────────────────────────
+// A historical carry-in balance for a student who has debt/credit predating any
+// session or payment history in the system. Never becomes a fake Session or
+// Payment — it only feeds into previous-balance/remaining-debt calculations
+// (see getPreviousBalance / getStudentDebt), so Tahakkuk/Tahsilat figures stay
+// pure sums of real sessions/payments.
+export type OpeningBalanceType = "debt" | "credit";
+
+export interface OpeningBalance {
+  id: string;
+  tenantId: string;
+  studentId: string;
+  amount: number; // always positive; sign is carried by balanceType
+  balanceType: OpeningBalanceType;
+  date: string; // "YYYY-MM-DD" — balance is "as of" this date
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+  importBatchId?: string;
+}
+
+// ─── Teacher Education Type Assignment ──────────────────────────────────────────
+// The canonical, single source of truth for "which education types can this
+// teacher provide, and what do they earn per session for each" — see
+// resolveTeacherSessionEarning in finance.ts, the only function allowed to turn
+// this (+ Teacher.earningType) into an actual payout. Teacher.specializations
+// was removed rather than kept in sync with this, so there is structurally only
+// one place this information can live.
+export type TeacherEducationTypeAssignmentStatus = "active" | "inactive";
+
+export interface TeacherEducationTypeAssignment {
+  id: string;
+  tenantId: string;
+  teacherId: string;
+  educationTypeId: string;
+  /** Fixed per-session earning for per_session teachers. null = not yet
+   *  configured — distinct from an intentional ₺0 — see
+   *  TeacherEarningResolutionStatus.missing_configuration. Unused (left null)
+   *  for percentage/monthly_salary/salary_plus_quota teachers: those pay via
+   *  teacher-level fields: this row only gates which education types they may
+   *  provide for those earning types. */
+  earningAmount: number | null;
+  /** "inactive" means the teacher no longer provides this education type —
+   *  set by unchecking it in TeacherFormDrawer. The row is kept (not deleted)
+   *  so historical sessions and merge/report logic can still resolve it. */
+  status: TeacherEducationTypeAssignmentStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ─── Teacher Earning Resolution (canonical per-session resolver) ───────────────
+// See resolveTeacherSessionEarning in finance.ts — the one function allowed to
+// turn a Teacher + educationTypeId + assignments into an actual payout amount.
+
+export type TeacherEarningResolutionStatus = "resolved" | "missing_configuration" | "not_applicable";
+
+export type TeacherEarningSource =
+  | "teacher_education_type_fixed"
+  | "teacher_percentage"
+  | "salary_included"
+  | "salary_quota_extra"
+  | "missing_assignment";
+
+export interface TeacherEarningResolution {
+  amount: number;
+  source: TeacherEarningSource;
+  status: TeacherEarningResolutionStatus;
+  /** Turkish, user-facing — never a raw source code. */
+  explanation: string;
+}
+
+/** Canonical "is this teacher's payout setup complete" status — see
+ *  getTeacherEarningConfigurationStatus in teacher-assignments.ts. Deliberately
+ *  distinct from TeacherEarningCalculationStatus below, which is about whether
+ *  ONE ALREADY-STORED session's earning resolved, not the teacher's current setup. */
+export type TeacherEarningConfigurationStatus =
+  | "configured"
+  | "missing_pricing"
+  | "no_assignment"
+  | "salaried"
+  | "salary_quota"
+  | "inactive_teacher";
+
+// ─── Teacher Earning ───────────────────────────────────────────────────────────
+export type EarningStatus = "pending" | "paid";
+
+/** Whether a session/earning's `teacherEarning`/`amount` is a real calculated
+ *  value or an unreliable 0-fallback because the teacher had no configured
+ *  earning model/price at the time (e.g. a per_session teacher with no custom
+ *  price for that education type). Undefined (pre-existing records) is treated
+ *  as "calculated" unless it can be safely re-derived otherwise — see
+ *  resolveTeacherEarningStatus() in finance.ts, the single source of truth for
+ *  this rule; never re-derive it inline in a component. */
+export type TeacherEarningCalculationStatus = "calculated" | "unknown";
+
+export interface TeacherEarning {
+  id: string;
+  tenantId: string;
+  teacherId: string;
+  sessionId: string;
+  amount: number;
+  status: EarningStatus;
+  /** See TeacherEarningCalculationStatus. Named distinctly from `status`
+   *  (pending/paid) to avoid confusing "has this been paid" with "was this
+   *  amount actually calculable". */
+  calculationStatus?: TeacherEarningCalculationStatus;
+  paidAt?: string;
+  createdAt: string;
+}
+
+// ─── Teacher Payment ────────────────────────────────────────────────────────────
+export type TeacherPaymentType =
+  | "salary"
+  | "advance"
+  | "partial"
+  | "bonus"
+  | "deduction"
+  | "other";
+
+// Records an actual payment made to a teacher, independent of student/guardian
+// payments. This is the source of truth for how much of a teacher's earnings
+// have been paid — never the TeacherEarning ledger above.
+export interface TeacherPayment {
+  id: string;
+  tenantId: string;
+  teacherId: string;
+  amount: number;
+  method: PaymentMethod;
+  paymentType: TeacherPaymentType;
+  date: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+  importBatchId?: string;
+  /** Imported as history only — see Payment.historical. */
+  historical?: boolean;
+}
+
+// ─── Derived / UI Models ───────────────────────────────────────────────────────
+export interface StudentListItem {
+  id: string;
+  tenantId: string;
+  fullName: string;
+  studentNumber?: string;
+  birthDate: string;
+  status: StudentStatus;
+  notes?: string;
+  createdAt: string;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  educationTypeNames: string[];
+  assignedTeacherNames: string[];
+  totalSessions: number;
+  totalBilled: number;
+  totalPaid: number;
+  totalDebt: number;
+}
+
+export interface StudentDetail extends Student {
+  educationTypeNames: string[];
+  assignedTeachers: Teacher[];
+  sessions: Session[];
+  payments: Payment[];
+  totalSessions: number;
+  totalBilled: number;
+  totalPaid: number;
+  totalDebt: number;
+}
+
+export interface TeacherStudentRow {
+  studentId: string;
+  studentName: string;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  educationTypeNames: string[];
+  totalSessions: number;
+  lastSessionDate: string | null;
+}
+
+/** One row of the Teacher Detail "Eğitim Türleri ve Hakedişler" tab — always
+ *  sourced from a real TeacherEducationTypeAssignment, never from
+ *  EducationType defaults. */
+export interface TeacherEducationAssignmentRow {
+  assignmentId: string;
+  educationTypeId: string;
+  educationTypeName: string;
+  educationTypeColor: string;
+  /** The education type itself may have been deactivated in Settings
+   *  independently of this teacher's assignment — surfaced separately so the
+   *  UI can distinguish "I stopped providing this" from "this no longer
+   *  exists as an offering." */
+  educationTypeStatus: EducationTypeStatus;
+  assignmentStatus: TeacherEducationTypeAssignmentStatus;
+  earningAmount: number | null;
+  sessionCount: number;
+  updatedAt: string;
+}
+
+export interface TeacherListItem {
+  id: string;
+  tenantId: string;
+  fullName: string;
+  phone: string;
+  email?: string;
+  status: TeacherStatus;
+  educationTypeNames: string[];
+  createdAt: string;
+  totalSessions: number;
+  completedSessions: number;
+  monthlyEarnings: number;
+  pendingEarnings: number;
+  /** Earning-eligible sessions whose teacherEarning could not be reliably
+   *  calculated (missing per_session assignment price at commit time) — never
+   *  folded into pendingEarnings/monthlyEarnings as a confirmed ₺0. Distinct
+   *  from configurationStatus — see getTeacherEarningConfigurationStatus. */
+  unknownSessionCount: number;
+  /** Canonical "is this teacher's payout setup complete" status — see
+   *  getTeacherEarningConfigurationStatus in teacher-assignments.ts. Never
+   *  conflated with unknownSessionCount (historical sessions vs. current setup). */
+  configurationStatus: TeacherEarningConfigurationStatus;
+  configurationStatusLabel: string;
+}
+
+export interface TeacherDetail extends Teacher {
+  educationTypeNames: string[];
+  sessions: Session[];
+  studentRows: TeacherStudentRow[];
+  earnings: TeacherEarning[];
+  assignmentRows: TeacherEducationAssignmentRow[];
+  totalSessions: number;
+  completedSessions: number;
+  monthlyEarnings: number;
+  pendingEarnings: number;
+  totalEarnings: number;
+  /** All-time earning-eligible sessions with an unknown (unresolved) earning —
+   *  see TeacherListItem.unknownSessionCount. */
+  unknownSessionCount: number;
+  configurationStatus: TeacherEarningConfigurationStatus;
+  configurationStatusLabel: string;
+}
+
+export interface DashboardStats {
+  activeStudents: number;
+  activeTeachers: number;
+  sessionsThisMonth: number;
+  /** Ciro — this month's accrual from completed/no_show/makeup sessions. Never cash. */
+  revenueThisMonth: number;
+  /** Tahsilat — this month's actual guardian payments received. Never accrual. */
+  collectedThisMonth: number;
+  pendingPayments: number;
+  pendingEarnings: number;
+  /** All-time, across every teacher — sessions whose teacherEarning is unknown/
+   *  unresolved. `pendingEarnings` above never invents an amount for these; this
+   *  count is what lets the UI say so instead of presenting pendingEarnings as
+   *  the complete picture. */
+  unknownEarningSessionCount: number;
+}
+
+/** Informational only — planned sessions are not billed until completed/no_show/makeup. */
+export interface PlannedSessionsSummary {
+  count: number;
+  totalValue: number;
+}
+
+export interface SessionListItem {
+  id: string;
+  tenantId: string;
+  date: string;
+  studentId: string;
+  studentName: string;
+  teacherId: string;
+  teacherName: string;
+  educationTypeId: string;
+  educationTypeName: string;
+  sessionCount: number;
+  studentPrice: number;
+  totalAmount: number;
+  teacherEarningUnit: number;
+  totalTeacherEarning: number;
+  centerProfit: number;
+  status: SessionStatus;
+  notes?: string;
+  durationMinutes: number;
+  billingMode?: SessionBillingMode;
+  /** Resolved (never undefined) via resolveTeacherEarningStatus() — see
+   *  TeacherEarningCalculationStatus. */
+  teacherEarningStatus: TeacherEarningCalculationStatus;
+}
+
+export interface SessionPageStats {
+  total: number;
+  completed: number;
+  planned: number;
+  cancelledAndNoShow: number;
+  makeup: number;
+}
+
+// ─── Payment / Debt models ─────────────────────────────────────────────────────
+
+export type DebtStatus = "paid" | "partial" | "unpaid";
+
+export interface PaymentListItem {
+  id: string;
+  tenantId: string;
+  date: string;
+  studentId: string;
+  studentName: string;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  method: PaymentMethod;
+  methodLabel: string;
+  amount: number;
+  totalBilled: number;
+  totalPaid: number;
+  remainingDebt: number;
+  debtStatus: DebtStatus;
+  notes?: string;
+  paymentSource?: PaymentSource;
+}
+
+export interface StudentDebtItem {
+  studentId: string;
+  studentName: string;
+  guardianName: string | null;
+  totalBilled: number;
+  totalPaid: number;
+  remainingDebt: number;
+  debtStatus: DebtStatus;
+  /** Latest payment date, or latest billed session date if no payment exists. Display only. */
+  lastActivityDate: string | null;
+  /** Latest billed session date, or latest payment date if no billed session exists. Display only. */
+  lastDebtActivityDate: string | null;
+  /** True if this student carries a nonzero migrated opening balance (Devir Bakiyesi). */
+  hasOpeningBalance: boolean;
+}
+
+/** Month-scoped account row for a student — Önceki Devir / Bu Ay Tahakkuk / Bu Ay
+ *  Tahsilat / Güncel Bakiye, mirroring StudentCurrentAccount but enriched for report tables. */
+export interface StudentMonthlyAccountRow {
+  studentId: string;
+  studentName: string;
+  guardianName: string | null;
+  previousBalance: number;
+  currentMonthBilled: number;
+  currentMonthPaid: number;
+  currentBalance: number;
+  /** Latest payment date, or latest billed session date if no payment exists. Display only. */
+  lastActivityDate: string | null;
+  /** Latest billed session date, or latest payment date if no billed session exists. Display only. */
+  lastDebtActivityDate: string | null;
+}
+
+export interface PaymentPageStats {
+  collectedThisMonth: number;
+  totalBilled: number;
+  totalCollected: number;
+  totalRemaining: number;
+  studentsWithDebt: number;
+}
+
+// ─── Teacher Earning UI models ─────────────────────────────────────────────────
+
+export interface TeacherEarningListItem {
+  id: string;
+  tenantId: string;
+  teacherId: string;
+  teacherName: string;
+  sessionId: string;
+  sessionDate: string;
+  studentId: string;
+  studentName: string;
+  educationTypeId: string;
+  educationTypeName: string;
+  sessionCount: number;
+  unitEarning: number;
+  totalEarning: number;
+  status: EarningStatus;
+  /** Resolved (never undefined) via resolveTeacherEarningStatus() against the
+   *  underlying Session record. */
+  teacherEarningStatus: TeacherEarningCalculationStatus;
+  paidAt?: string;
+  createdAt: string;
+}
+
+export interface TeacherEarningOverviewItem {
+  teacherId: string;
+  teacherName: string;
+  totalEarning: number;
+  paidEarning: number;
+  pendingEarning: number;
+  earningCount: number;
+  unknownSessionCount: number;
+}
+
+export interface TeacherEarningPageStats {
+  thisMonthTotal: number;
+  paidTotal: number;
+  pendingTotal: number;
+  teachersWithEarnings: number;
+  /** All-time, across every teacher — see DashboardStats.unknownEarningSessionCount. */
+  unresolvedSessionCount: number;
+}
+
+export interface MonthlyTeacherEarningSummary {
+  teacherId: string;
+  teacherName: string;
+  earningType?: TeacherEarningType;
+  sessionCount: number;
+  totalEarning: number;
+  paidEarning: number;
+  pendingEarning: number;
+  /** Earning-eligible sessions in this month with an unknown/unresolved earning. */
+  unknownSessionCount: number;
+  /** salary_plus_quota breakdown */
+  salaryComponent?: number;
+  includedQuota?: number;
+  quotaUsed?: number;
+  extraSessions?: number;
+  extraEarning?: number;
+}
+
+// ─── Report models ─────────────────────────────────────────────────────────────
+
+export interface TeacherReportRow {
+  teacherId: string;
+  teacherName: string;
+  totalSessions: number;
+  completedSessions: number;
+  totalEarning: number;
+  paidEarning: number;
+  pendingEarning: number;
+  uniqueStudentCount: number;
+  status: TeacherStatus;
+  /** Latest earning-eligible (completed/makeup) session date in the filtered set. Display only. */
+  lastSessionDate: string | null;
+  /** Earning-eligible sessions in range with an unknown/unresolved earning. */
+  unknownSessionCount: number;
+}
+
+export interface TeacherPaymentReportRow {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  paymentType: TeacherPaymentType;
+  paymentTypeLabel: string;
+  amount: number;
+  method: PaymentMethod;
+  methodLabel: string;
+  date: string;
+  description?: string;
+}
+
+/**
+ * Month-scoped account summary for a teacher — the teacher-side equivalent of
+ * StudentCurrentAccount. Mirrors the same previous-balance/this-month/current-balance
+ * shape so both sides of the ledger read the same way.
+ */
+export interface TeacherMonthAccountSummary {
+  teacherId: string;
+  teacherName: string;
+  year: number;
+  month: number;
+  /** Unpaid teacher earnings from every month before the selected one. */
+  previousBalance: number;
+  /** Hakediş generated in the selected month only (calculateTeacherMonthlyPayable). */
+  thisMonthEarning: number;
+  /** Cash/bank payments dated within the selected month (never Kesinti). */
+  thisMonthPaid: number;
+  /** Kesinti dated within the selected month. */
+  thisMonthDeducted: number;
+  /** previousBalance + thisMonthEarning − thisMonthPaid − thisMonthDeducted, clamped ≥ 0. */
+  currentBalance: number;
+  /** All-time pending across every month — same figure as getTeacherEarningTotals. */
+  totalPending: number;
+  /** Latest earning-eligible (completed/makeup) session date for this teacher. Display only. */
+  lastSessionDate: string | null;
+  /** Earning-eligible sessions in the selected month with an unknown/unresolved earning. */
+  unknownSessionCount: number;
+  /** All-time equivalent of unknownSessionCount — same scope as totalPending. */
+  totalUnknownSessionCount: number;
+}
+
+export interface SessionStatusBreakdown {
+  total: number;
+  completed: number;
+  planned: number;
+  cancelled: number;
+  noShow: number;
+  makeup: number;
+}
+
+export interface StudentAttendanceRow extends SessionStatusBreakdown {
+  studentId: string;
+  studentName: string;
+  /** Latest session date within the filtered set. Display only. */
+  lastSessionDate: string | null;
+}
+
+export interface TeacherSessionCountRow extends SessionStatusBreakdown {
+  teacherId: string;
+  teacherName: string;
+  /** Latest session date within the filtered set. Display only. */
+  lastSessionDate: string | null;
+}
+
+// ─── Cari Hesap (Current Account) ─────────────────────────────────────────────
+
+export interface StudentCurrentAccount {
+  year: number;
+  month: number;
+  previousBalance: number;
+  currentMonthBilled: number;
+  currentMonthPaid: number;
+  currentBalance: number;
+  totalBilled: number;
+  totalPaid: number;
+  remainingDebt: number;
+}
+
+// ─── Excel Import / Historical Data Migration ─────────────────────────────────
+
+/** One entity type is imported per wizard pass — matches the dependency order a
+ *  real migration needs (people before sessions, sessions/payments before balances). */
+export type ImportEntityType =
+  | "students"
+  | "teachers"
+  | "sessions"
+  | "payments"
+  | "teacherPayments"
+  | "openingBalances";
+
+/** Historical applies migration-specific rules (status/duplicate handling geared
+ *  at bulk backfill); Operational is for current/future day-to-day data. */
+export type ImportMode = "historical" | "operational";
+
+export type ImportRowStatus = "valid" | "warning" | "error" | "duplicate";
+
+export interface ImportSystemField {
+  key: string;
+  label: string;
+  required: boolean;
+}
+
+export interface ImportColumnMapping {
+  excelColumn: string;
+  systemField: string | null;
+  sampleData: string;
+}
+
+export interface ImportEntityMatch {
+  entityType: "Öğrenci" | "Öğretmen" | "Eğitim Türü";
+  value: string;
+  matched: boolean;
+}
+
+/** Best-effort values already readable from an error row's own raw cells (fee,
+ *  time) — display-only, never auto-committed. Lets the repair panel pre-fill
+ *  everything the importer already knows so the user only has to touch the one
+ *  field that actually failed validation (e.g. a broken date). */
+export interface ImportRowRepairHints {
+  fee?: number;
+  time?: string;
+}
+
+export interface ImportPreviewRow {
+  rowNumber: number;
+  displayText: string;
+  status: ImportRowStatus;
+  issues: string[];
+  entityMatches: ImportEntityMatch[];
+  repairHints?: ImportRowRepairHints;
+  /** User can uncheck a warning/conflict row to exclude it from commit. Duplicate
+   *  and error rows are always excluded regardless of this flag. */
+  include: boolean;
+  /** True when this row stages a Session whose teacherEarning is a 0-fallback,
+   *  not a real calculation — the teacher has no configured earning model/price
+   *  (or no explicit hakediş column value) at staging time. The Session record
+   *  itself still gets a numeric teacherEarning (unchanged accounting behavior),
+   *  but the import preview must never present that fallback as a known hakediş. */
+  teacherEarningUnknown?: boolean;
+  /** True when both the teacher AND education type resolved to real records,
+   *  but the teacher has no active TeacherEducationTypeAssignment for that
+   *  education type — a genuinely different problem from teacherEarningUnknown
+   *  (missing price vs. never assigned at all). Operational imports default this
+   *  row to excluded pending repair; historical imports default it included as
+   *  an explicit unresolved-earning row (teacherEarningUnknown is always forced
+   *  true alongside this — never a confident number for an unassigned pair). */
+  teacherAssignmentIncompatible?: boolean;
+}
+
+export interface ImportSummary {
+  totalRows: number;
+  validRows: number;
+  warningRows: number;
+  errorRows: number;
+  duplicateRows: number;
+  /** Rows silently dropped as non-data (TOPLAM/summary lines, blank rows, template
+   *  sheets) — never counted as errors, never shown as red rows. */
+  skippedRows: number;
+  /** Rows that will actually be written on commit (valid + included warnings). */
+  toCommitRows: number;
+}
+
+/** Financial preview shown in Step 3 before anything is written — computed from
+ *  the staged (not-yet-committed) rows using the same helpers reports use. */
+export interface ImportFinancialImpact {
+  sessionsToCreate: number;
+  paymentsToCreate: number;
+  teacherPaymentsToCreate: number;
+  openingBalancesToCreate: number;
+  totalTahakkukImpact: number;
+  totalTahsilatImpact: number;
+  teacherPaymentImpact: number;
+  cashImpact: number;
+  remainingBalanceImpact: number;
+  /** Sum of calculateSessionTeacherEarning() over sessions with a KNOWN
+   *  (reliably configured) teacher earning only — see sessionsWithUnknownTeacherEarning.
+   *  The same per-session hakediş formula Reports/Dashboard already use, never a
+   *  new calculation. */
+  estimatedTeacherEarningImpact: number;
+  /** totalTahakkukImpact - estimatedTeacherEarningImpact, restricted to the same
+   *  known-earning sessions, mirroring calculateSessionCenterProfit()'s existing
+   *  per-session formula. */
+  estimatedCenterProfitImpact: number;
+  /** Sessions whose teacherEarning had to fall back to 0 because the teacher has
+   *  no configured earning model/price (Excel data alone never carries hakediş —
+   *  only student billing). When > 0, estimated hakediş/profit above are computed
+   *  over the KNOWN subset only and the UI must not present them as the full
+   *  picture — see ImportPreviewRow.teacherEarningUnknown. */
+  sessionsWithUnknownTeacherEarning: number;
+  /** Sessions staged with billingMode: "historical_non_billable" (the user chose
+   *  "Sadece ders geçmişi olarak aktar") — excluded from totalTahakkukImpact/
+   *  estimatedTeacherEarningImpact/estimatedCenterProfitImpact above entirely,
+   *  since they will never bill the student. Still counted in sessionsToCreate. */
+  historicalNonBillableSessionsToCreate: number;
+}
+
+/** Result returned after commit — the basis for the on-screen import/error report. */
+export interface ImportResult {
+  imported: number;
+  skippedDuplicates: number;
+  skippedErrors: number;
+  warnings: number;
+}
+
+// ─── Import Batch (rollback / audit trail) ─────────────────────────────────────
+
+export interface ImportBatchEntityIds {
+  students: string[];
+  /** Only in batches imported before guardians were removed. */
+  guardians?: string[];
+  teachers: string[];
+  sessions: string[];
+  payments: string[];
+  teacherPayments: string[];
+  openingBalances: string[];
+}
+
+/**
+ * One record per committed import (potentially spanning several entity types in
+ * one multi-select run). Rollback deletes exactly the ids listed here — never a
+ * broader query — so a batch can never remove data it didn't create.
+ */
+export interface ImportBatch {
+  id: string;
+  tenantId: string;
+  fileName: string;
+  importedAt: string;
+  importMode: ImportMode;
+  importedBy: string;
+  entityTypes: ImportEntityType[];
+  rowCount: number;
+  createdEntityIds: ImportBatchEntityIds;
+  skippedRows: number;
+  warningRows: number;
+  duplicateRows: number;
+  financialSummary: ImportFinancialImpact;
+  /** SHA-256 of the source file's bytes — detects "this exact file was already
+   *  imported" independent of row-level duplicate matching. */
+  fileFingerprint: string;
+  rolledBackAt?: string;
+  /** Teachers whose devir this import set (Teacher.openingBalance). */
+  teacherDevirIds?: string[];
+}
+
+export interface EditedImportRecord {
+  entityType: ImportEntityType;
+  id: string;
+  label: string;
+}
+
+// ─── Teacher Merge (duplicate-teacher consolidation) ───────────────────────────
+// A merge never deletes the duplicate teacher or any of its historical rows — it
+// reassigns every Session/TeacherEarning/TeacherPayment/TeacherEducationTypeAssignment/
+// WeeklySessionPlan.teacherId from the duplicate to the primary, then archives
+// the duplicate (status:"archived"). Reports/Dashboard/Calendar all derive from
+// these same arrays, so they update for free — nothing else needs to know a
+// merge happened. See lib/helpers/teacher-merge.ts and store.mergeTeachers.
+
+export interface TeacherMergeMovedCounts {
+  sessions: number;
+  teacherEarnings: number;
+  teacherPayments: number;
+  teacherEducationTypeAssignments: number;
+  weeklyPlans: number;
+}
+
+/**
+ * Everything needed to reverse a merge without touching any record that wasn't
+ * part of it. Only ids are kept for the reassigned entities (rollback just flips
+ * teacherId back); assignment rows dropped for conflicting with an assignment
+ * the primary already had are kept in full (they were removed from the live
+ * array entirely, so there's no id left to flip back — the whole row must be
+ * recreated). See rollbackTeacherMerge in store.tsx.
+ */
+export interface TeacherMergeSnapshot {
+  /** Full duplicate Teacher record exactly as it was immediately before archiving. */
+  duplicateTeacher: Teacher;
+  movedSessionIds: string[];
+  movedTeacherEarningIds: string[];
+  movedTeacherPaymentIds: string[];
+  movedWeeklyPlanIds: string[];
+  movedTeacherEducationTypeAssignmentIds: string[];
+  /** Assignment rows that existed on the duplicate but were NOT moved because
+   *  the primary already had an assignment for that educationTypeId —
+   *  buildTeacherMergePreview flags this as a blocking conflict, so in practice
+   *  this is always empty at the moment a merge is actually confirmed; kept for
+   *  defense-in-depth. */
+  droppedTeacherEducationTypeAssignments: TeacherEducationTypeAssignment[];
+}
+
+export interface TeacherMergeHistory {
+  id: string;
+  tenantId: string;
+  primaryTeacherId: string;
+  /** Snapshot of names at merge time — stays readable even if the primary is
+   *  later renamed or (via a later merge) archived itself. */
+  primaryTeacherName: string;
+  duplicateTeacherId: string;
+  duplicateTeacherName: string;
+  mergedAt: string;
+  mergedBy: string;
+  reason: string;
+  moved: TeacherMergeMovedCounts;
+  snapshot: TeacherMergeSnapshot;
+  rolledBackAt?: string;
+}

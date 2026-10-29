@@ -1,0 +1,761 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import Link from "next/link";
+import {
+  BanknoteIcon,
+  ReceiptText,
+  AlertCircle,
+  Users,
+  Search,
+  Plus,
+  X,
+  UserSearch,
+  History,
+} from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { StatCard } from "@/components/shared/StatCard";
+import { DataTable, type Column } from "@/components/shared/DataTable";
+import { PaymentFormDrawer } from "@/components/payments/PaymentFormDrawer";
+import { useStore } from "@/lib/data/store";
+import {
+  buildPaymentListItems,
+  buildStudentDebtItems,
+  buildPaymentPageStats,
+  getStudentTotalBilled,
+  getStudentTotalPaid,
+  getStudentNetBalance,
+  hasOnlyHistoricalNonBillableSessions,
+  formatCurrency,
+  formatDate,
+} from "@/lib/helpers/finance";
+import { normalizeName } from "@/lib/helpers/import-match";
+import type {
+  Payment,
+  PaymentListItem,
+  PaymentMethod,
+  DebtStatus,
+  Student,
+} from "@/types";
+import { cn } from "@/lib/utils";
+import { printPaymentReceipt } from "@/lib/helpers/export";
+
+// ─── Debt status badge (local — avoids collision with EarningStatus "paid") ───
+
+const DEBT_CONFIG: Record<DebtStatus, { label: string; className: string }> = {
+  paid: {
+    label: "Borçsuz",
+    className: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  },
+  partial: {
+    label: "Kısmi Ödeme",
+    className: "bg-amber-100 text-amber-700 border-amber-200",
+  },
+  unpaid: {
+    label: "Ödenmedi",
+    className: "bg-red-100 text-red-700 border-red-200",
+  },
+};
+
+function DebtBadge({ status }: { status: DebtStatus }) {
+  const cfg = DEBT_CONFIG[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+        cfg.className
+      )}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+// ─── Method badge ─────────────────────────────────────────────────────────────
+
+const METHOD_ICONS: Record<PaymentMethod, string> = {
+  cash: "💵",
+  bank_transfer: "🏦",
+  credit_card: "💳",
+  other: "📋",
+};
+
+// ─── Column definitions ────────────────────────────────────────────────────────
+
+const columns: Column<PaymentListItem>[] = [
+  {
+    key: "date",
+    header: "Tarih",
+    render: (row) => (
+      <span className="tabular-nums text-sm font-medium">{formatDate(row.date)}</span>
+    ),
+  },
+  {
+    key: "student",
+    header: "Öğrenci",
+    render: (row) => (
+      <Link
+        href={`/app/students/${row.studentId}`}
+        className="font-medium text-foreground hover:text-primary transition-colors"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.studentName}
+      </Link>
+    ),
+  },
+  {
+    key: "guardian",
+    header: "Veli",
+    render: (row) =>
+      row.guardianName ? (
+        <span className="text-muted-foreground text-sm">{row.guardianName}</span>
+      ) : (
+        <span className="text-muted-foreground/40">—</span>
+      ),
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+  {
+    key: "method",
+    header: "Ödeme Yöntemi",
+    render: (row) => (
+      <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <span className="text-base leading-none">{METHOD_ICONS[row.method]}</span>
+        {row.methodLabel}
+      </span>
+    ),
+    className: "hidden md:table-cell",
+    headerClassName: "hidden md:table-cell",
+  },
+  {
+    key: "notes",
+    header: "Açıklama",
+    render: (row) =>
+      row.notes ? (
+        <span className="text-sm text-muted-foreground line-clamp-1">{row.notes}</span>
+      ) : (
+        <span className="text-muted-foreground/40">—</span>
+      ),
+    className: "hidden lg:table-cell max-w-[200px]",
+    headerClassName: "hidden lg:table-cell",
+  },
+  {
+    key: "amount",
+    header: "Ödenen Tutar",
+    render: (row) => (
+      <span className="tabular-nums font-semibold text-emerald-600">
+        {formatCurrency(row.amount)}
+      </span>
+    ),
+    className: "text-right",
+    headerClassName: "text-right",
+  },
+  {
+    key: "totalBilled",
+    header: "Toplam Tahakkuk",
+    render: (row) => (
+      <span className="tabular-nums text-muted-foreground">
+        {formatCurrency(row.totalBilled)}
+      </span>
+    ),
+    className: "hidden md:table-cell text-right",
+    headerClassName: "hidden md:table-cell text-right",
+  },
+  {
+    key: "remainingDebt",
+    header: "Kalan Borç",
+    render: (row) => (
+      <span
+        className={cn(
+          "tabular-nums font-medium",
+          row.remainingDebt > 0 ? "text-destructive" : "text-muted-foreground"
+        )}
+      >
+        {formatCurrency(row.remainingDebt)}
+      </span>
+    ),
+    className: "hidden sm:table-cell text-right",
+    headerClassName: "hidden sm:table-cell text-right",
+  },
+  {
+    key: "debtStatus",
+    header: "Durum",
+    render: (row) => <DebtBadge status={row.debtStatus} />,
+    className: "hidden sm:table-cell",
+    headerClassName: "hidden sm:table-cell",
+  },
+];
+
+// ─── Filter constants ──────────────────────────────────────────────────────────
+
+const DEBT_STATUS_FILTERS: { value: DebtStatus | "all"; label: string }[] = [
+  { value: "all", label: "Tümü" },
+  { value: "unpaid", label: "Ödenmedi" },
+  { value: "partial", label: "Kısmi" },
+  { value: "paid", label: "Borçsuz" },
+];
+
+const METHOD_FILTERS: { value: PaymentMethod | "all"; label: string }[] = [
+  { value: "all", label: "Tüm Yöntemler" },
+  { value: "cash", label: "Nakit" },
+  { value: "bank_transfer", label: "Banka Havalesi" },
+  { value: "credit_card", label: "Kredi Kartı" },
+  { value: "other", label: "Diğer" },
+];
+
+// ─── Month helpers ────────────────────────────────────────────────────────────
+
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-");
+  return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(
+    new Date(Number(y), Number(m) - 1, 1)
+  );
+}
+
+// ─── Debt progress bar ────────────────────────────────────────────────────────
+
+function DebtProgressBar({
+  totalBilled,
+  totalPaid,
+  debtStatus,
+}: {
+  totalBilled: number;
+  totalPaid: number;
+  debtStatus: DebtStatus;
+}) {
+  const pct = totalBilled > 0 ? Math.min(100, Math.round((totalPaid / totalBilled) * 100)) : 0;
+  const barClass =
+    debtStatus === "paid"
+      ? "bg-emerald-500"
+      : debtStatus === "partial"
+        ? "bg-amber-500"
+        : "bg-red-400";
+
+  return (
+    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+      <div
+        className={cn("h-full rounded-full transition-[width]", barClass)}
+        style={{ width: `${Math.max(pct, pct > 0 ? 3 : 0)}%` }}
+      />
+    </div>
+  );
+}
+
+// ─── Zero-activity student result panel ────────────────────────────────────────
+// Shown when a search/dropdown selection resolves to a real student who simply
+// has no payment/debt activity yet (e.g. a historical-only import).
+// Never fabricates a payment row — reads the exact same canonical finance
+// helpers (getStudentNetBalance/getStudentDebt) every other card uses, just
+// renders the ₺0 state explicitly instead of letting the student silently
+// disappear from search results.
+
+function ZeroActivityStudentCard({
+  student,
+  totalBilled,
+  totalPaid,
+  netBalance,
+  isHistoricalOnly,
+  onAddPayment,
+}: {
+  student: Student;
+  totalBilled: number;
+  totalPaid: number;
+  netBalance: number;
+  isHistoricalOnly: boolean;
+  onAddPayment: () => void;
+}) {
+  const hasOverpayment = netBalance < 0;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+            <UserSearch className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div>
+            <Link
+              href={`/app/students/${student.id}`}
+              className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
+            >
+              {student.fullName}
+            </Link>
+            <p className="text-xs text-muted-foreground">Ödeme/borç kaydı bulunan öğrenci listesinde görünmüyor</p>
+          </div>
+        </div>
+        <Button size="sm" variant="outline" onClick={onAddPayment}>
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          Ödeme Ekle
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahakkuk</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalBilled)}</p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Toplam Tahsilat</p>
+          <p className="mt-0.5 text-sm font-bold tabular-nums text-foreground">{formatCurrency(totalPaid)}</p>
+        </div>
+        <div className="rounded-lg bg-muted/40 p-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Kalan Borç</p>
+          <p className={cn("mt-0.5 text-sm font-bold tabular-nums", hasOverpayment ? "text-emerald-600" : "text-foreground")}>
+            {formatCurrency(Math.max(0, netBalance))}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1 text-xs text-muted-foreground">
+        {hasOverpayment && (
+          <p className="font-medium text-emerald-600">
+            Fazla Ödeme / Alacak Bakiyesi: {formatCurrency(Math.abs(netBalance))}
+          </p>
+        )}
+        <p>Henüz ödeme kaydı bulunmuyor.</p>
+        <p>Bu öğrencinin borcu bulunmuyor.</p>
+        {isHistoricalOnly && (
+          <p className="flex items-center gap-1 text-slate-600">
+            <History className="h-3 w-3" />
+            Geçmiş ders kayıtları borca dahil edilmemiştir.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function PaymentsPage() {
+  const store = useStore();
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [preselectedStudentId, setPreselectedStudentId] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState("");
+  const [debtStatusFilter, setDebtStatusFilter] = useState<DebtStatus | "all">("all");
+  const [methodFilter, setMethodFilter] = useState<PaymentMethod | "all">("all");
+  const [studentFilter, setStudentFilter] = useState("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const thisMonthLabel = monthLabel(monthKey(now));
+
+  // The "Bu Ay Alınan Ödeme" card must track whatever month the user has selected in the
+  // filter above — falling back to the real current month only when "Tümü" (all) is picked,
+  // never silently pinned to "now" while the user is looking at a different month.
+  const [statsYear, statsMonth] =
+    monthFilter === "all" ? [currentYear, currentMonth] : (monthFilter.split("-").map(Number) as [number, number]);
+  const statsMonthLabel = monthFilter === "all" ? thisMonthLabel : monthLabel(monthFilter);
+
+  const allItems = useMemo(
+    () =>
+      buildPaymentListItems(
+        store.payments,
+        store.students,
+        store.sessions,
+        store.openingBalances
+      ),
+    [store.payments, store.students, store.sessions, store.openingBalances]
+  );
+
+  const stats = useMemo(
+    () =>
+      buildPaymentPageStats(
+        store.payments,
+        store.sessions,
+        store.students,
+        statsYear,
+        statsMonth,
+        store.openingBalances
+      ),
+    [store.payments, store.sessions, store.students, statsYear, statsMonth, store.openingBalances]
+  );
+
+  const debtItems = useMemo(
+    () => buildStudentDebtItems(store.students, store.sessions, store.payments, store.openingBalances),
+    [store.students, store.sessions, store.payments, store.openingBalances]
+  );
+
+  // Students already surfaced by the debt/payment overview (real billed, paid, or
+  // opening-balance activity) — everyone else is a "zero-activity" match: a real
+  // student the search must still be able to find (Part 1, requirement 1-2).
+  const debtItemStudentIds = useMemo(() => new Set(debtItems.map((d) => d.studentId)), [debtItems]);
+
+  // Full-student-store search (Part 1) — every existing student must be
+  // searchable, not just ones with payment/debt activity. Resolved separately
+  // from `filtered` above (which only ever iterates students that already
+  // HAVE such activity) so a zero-activity match
+  // is surfaced via its own explicit result panel instead of a fabricated row.
+  const zeroActivityStudentMatches = useMemo(() => {
+    const hasNoActivity = (id: string) => !debtItemStudentIds.has(id);
+    // An explicit dropdown pick is the strongest signal (requirement 3: "selected
+    // from the student dropdown/filter") — it wins over free-text search.
+    if (studentFilter !== "all") {
+      const picked = store.students.find((s) => s.id === studentFilter);
+      return picked && hasNoActivity(picked.id) ? [picked] : [];
+    }
+    const q = normalizeName(search);
+    if (!q) return [];
+    return store.students.filter((s) => normalizeName(s.fullName).includes(q) && hasNoActivity(s.id));
+  }, [studentFilter, search, store.students, debtItemStudentIds]);
+
+  const handleEdit = (row: PaymentListItem) => {
+    const payment = store.payments.find((p) => p.id === row.id);
+    if (payment) {
+      setPreselectedStudentId(undefined);
+      setEditingPayment(payment);
+      setDrawerOpen(true);
+    }
+  };
+
+  const handleAddPaymentForStudent = (studentId: string) => {
+    setEditingPayment(null);
+    setPreselectedStudentId(studentId);
+    setDrawerOpen(true);
+  };
+
+  const handleDrawerClose = (open: boolean) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setEditingPayment(null);
+      setPreselectedStudentId(undefined);
+    }
+  };
+
+  const handlePrintReceipt = (row: PaymentListItem) => {
+    const payment = store.payments.find((p) => p.id === row.id);
+    if (!payment) return;
+    printPaymentReceipt({
+      payment,
+      studentName: row.studentName,
+      guardianName: row.guardianName ?? undefined,
+    });
+  };
+
+  const editColumnEntry: Column<PaymentListItem> = {
+    key: "action",
+    header: "",
+    render: (row) => (
+      <div className="flex items-center justify-end gap-3">
+        <button
+          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => { e.stopPropagation(); handlePrintReceipt(row); }}
+          title={store.payments.find((p) => p.id === row.id)?.receiptNumber ?? "Makbuz"}
+        >
+          Makbuz
+        </button>
+        <button
+          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+        >
+          Düzenle
+        </button>
+      </div>
+    ),
+    className: "text-right w-32",
+    headerClassName: "text-right w-32",
+  };
+
+  const columnsWithEdit: Column<PaymentListItem>[] = [...columns, editColumnEntry];
+
+  // Derive available months from payment dates
+  const monthOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { value: string; label: string }[] = [
+      { value: "all", label: "Tüm Aylar" },
+    ];
+    [...allItems].forEach((item) => {
+      const key = monthKey(new Date(item.date));
+      if (!seen.has(key)) {
+        seen.add(key);
+        opts.push({ value: key, label: monthLabel(key) });
+      }
+    });
+    return opts;
+  }, [allItems]);
+
+  // Apply all filters
+  const filtered = useMemo(() => {
+    const q = normalizeName(search);
+    return allItems.filter((item) => {
+      const matchSearch =
+        !q ||
+        normalizeName(item.studentName).includes(q) ||
+        (item.guardianName ? normalizeName(item.guardianName).includes(q) : false) ||
+        item.methodLabel.toLowerCase().includes(q) ||
+        (item.notes?.toLowerCase().includes(q) ?? false);
+      const matchDebt = debtStatusFilter === "all" || item.debtStatus === debtStatusFilter;
+      const matchMethod = methodFilter === "all" || item.method === methodFilter;
+      const matchStudent = studentFilter === "all" || item.studentId === studentFilter;
+      const matchMonth =
+        monthFilter === "all" || monthKey(new Date(item.date)) === monthFilter;
+      return matchSearch && matchDebt && matchMethod && matchStudent && matchMonth;
+    });
+  }, [allItems, search, debtStatusFilter, methodFilter, studentFilter, monthFilter]);
+
+  const hasActiveFilters =
+    search ||
+    debtStatusFilter !== "all" ||
+    methodFilter !== "all" ||
+    studentFilter !== "all" ||
+    monthFilter !== "all";
+
+  const clearFilters = () => {
+    setSearch("");
+    setDebtStatusFilter("all");
+    setMethodFilter("all");
+    setStudentFilter("all");
+    setMonthFilter("all");
+  };
+
+  return (
+    <>
+      <div className="space-y-6">
+        {/* Header */}
+        <PageHeader
+          title="Ödemeler"
+          description={`${allItems.length} ödeme kaydı · ${thisMonthLabel}`}
+          actions={
+            <Button size="sm" onClick={() => { setEditingPayment(null); setPreselectedStudentId(undefined); setDrawerOpen(true); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Ödeme Ekle
+            </Button>
+          }
+        />
+
+        {/* KPI cards — "Bu Ay Alınan Ödeme" follows the month filter below, not just "now" */}
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title={monthFilter === "all" ? "Bu Ay Alınan Ödeme" : "Seçili Ay Alınan Ödeme"}
+            value={formatCurrency(stats.collectedThisMonth)}
+            description={statsMonthLabel}
+            icon={BanknoteIcon}
+            variant="success"
+          />
+          <StatCard
+            title="Toplam Tahakkuk"
+            value={formatCurrency(stats.totalBilled)}
+            description="Tüm dönem"
+            icon={ReceiptText}
+            variant="default"
+          />
+          <StatCard
+            title="Toplam Alacak"
+            value={formatCurrency(stats.totalRemaining)}
+            description="Tahsil bekliyor"
+            icon={AlertCircle}
+            variant={stats.totalRemaining > 0 ? "warning" : "success"}
+          />
+          <StatCard
+            title="Borcu Olan Öğrenci"
+            value={stats.studentsWithDebt}
+            description="Borç bakiyesi var"
+            icon={Users}
+            variant={stats.studentsWithDebt > 0 ? "danger" : "success"}
+          />
+        </div>
+
+        {/* Debt overview card */}
+        {debtItems.length > 0 && (
+          <div className="rounded-lg border border-border bg-card">
+            <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">Öğrenci Borç Durumu</p>
+              <span className="text-xs text-muted-foreground">
+                {debtItems.filter((d) => d.remainingDebt > 0).length} borçlu öğrenci
+              </span>
+            </div>
+            <div className="divide-y divide-border/60">
+              {debtItems.map((item) => {
+                const pct =
+                  item.totalBilled > 0
+                    ? Math.round((item.totalPaid / item.totalBilled) * 100)
+                    : 0;
+                return (
+                  <div key={item.studentId} className="flex items-center gap-4 px-4 py-3">
+                    {/* Name + guardian */}
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/app/students/${item.studentId}`}
+                        className="text-sm font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        {item.studentName}
+                      </Link>
+                      {item.guardianName && <p className="text-xs text-muted-foreground">{item.guardianName}</p>}
+                      <DebtProgressBar
+                        totalBilled={item.totalBilled}
+                        totalPaid={item.totalPaid}
+                        debtStatus={item.debtStatus}
+                      />
+                    </div>
+
+                    {/* Billed / Paid — explicitly labeled, never a bare "X / Y" */}
+                    <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0">
+                      <span className="text-xs text-muted-foreground">
+                        Ödenen: <span className="font-medium text-foreground">{formatCurrency(item.totalPaid)}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        Tahakkuk: <span className="font-medium text-foreground">{formatCurrency(item.totalBilled)}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">{pct}% ödendi</span>
+                    </div>
+
+                    {/* Remaining + badge */}
+                    <div className="flex flex-col items-end gap-1 shrink-0 min-w-[80px]">
+                      <span
+                        className={cn(
+                          "tabular-nums text-sm font-semibold",
+                          item.remainingDebt > 0 ? "text-destructive" : "text-emerald-600"
+                        )}
+                      >
+                        {formatCurrency(item.remainingDebt)}
+                      </span>
+                      <DebtBadge status={item.debtStatus} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Zero-activity student matches — real students found by search/dropdown
+            that simply have no payment/debt activity yet (Part 1). */}
+        {zeroActivityStudentMatches.length > 0 && (
+          <div className="space-y-3">
+            {zeroActivityStudentMatches.map((student) => (
+              <ZeroActivityStudentCard
+                key={student.id}
+                student={student}
+                totalBilled={getStudentTotalBilled(student.id, store.sessions)}
+                totalPaid={getStudentTotalPaid(student.id, store.payments)}
+                netBalance={getStudentNetBalance(student.id, store.sessions, store.payments, store.openingBalances)}
+                isHistoricalOnly={hasOnlyHistoricalNonBillableSessions(student.id, store.sessions)}
+                onAddPayment={() => handleAddPaymentForStudent(student.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="space-y-3">
+          {/* Row 1: search + month */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input aria-label="Ödeme ara"
+                placeholder="Öğrenci, veli, yöntem veya açıklama ara…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8 h-9 text-sm"
+              />
+            </div>
+            <select aria-label="Aya göre filtrele"
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="h-9 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Row 2: debt status pills */}
+          <div className="flex flex-wrap gap-1.5">
+            {DEBT_STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setDebtStatusFilter(f.value)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
+                  debtStatusFilter === f.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Row 3: entity dropdowns + clear */}
+          <div className="flex flex-wrap gap-2">
+            <select aria-label="Ödeme yöntemine göre filtrele"
+              value={methodFilter}
+              onChange={(e) => setMethodFilter(e.target.value as PaymentMethod | "all")}
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {METHOD_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <select aria-label="Öğrenciye göre filtrele"
+              value={studentFilter}
+              onChange={(e) => setStudentFilter(e.target.value)}
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="all">Tüm Öğrenciler</option>
+              {store.students.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.fullName}
+                </option>
+              ))}
+            </select>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 h-8 rounded-lg border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Filtreleri Temizle
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Payments table */}
+        <div className="space-y-3">
+          <DataTable
+            data={filtered}
+            columns={columnsWithEdit}
+            keyExtractor={(p) => p.id}
+            emptyTitle={hasActiveFilters ? "Eşleşen ödeme bulunamadı" : "Henüz ödeme yok"}
+            emptyDescription={
+              hasActiveFilters
+                ? "Arama veya filtre kriterlerini değiştirmeyi deneyin."
+                : "Ödeme ekleyerek başlayın."
+            }
+          />
+          {filtered.length > 0 && filtered.length !== allItems.length && (
+            <p className="text-xs text-muted-foreground">
+              {allItems.length} kayıt içinde{" "}
+              <span className="font-medium text-foreground">{filtered.length}</span> ödeme
+              gösteriliyor
+            </p>
+          )}
+        </div>
+      </div>
+
+      <PaymentFormDrawer
+        open={drawerOpen}
+        onOpenChange={handleDrawerClose}
+        initialData={editingPayment ?? undefined}
+        preselectedStudentId={preselectedStudentId}
+      />
+    </>
+  );
+}

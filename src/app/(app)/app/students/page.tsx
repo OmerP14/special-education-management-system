@@ -1,0 +1,360 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import Link from "next/link";
+import { Plus, Search, ChevronRight, Users, UserCheck, Clock3, AlertCircle } from "lucide-react";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DataTable, type Column } from "@/components/shared/DataTable";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { CompactStatBar } from "@/components/shared/CompactStatBar";
+import { StudentFormDrawer } from "@/components/students/StudentFormDrawer";
+import { useStore } from "@/lib/data/store";
+import { buildStudentListItems, formatCurrency } from "@/lib/helpers/finance";
+import { useAccess } from "@/lib/auth/access";
+import type { Student, StudentListItem, StudentStatus } from "@/types";
+import { cn } from "@/lib/utils";
+
+function initialsOf(fullName: string): string {
+  return fullName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("");
+}
+
+// ─── Status filter options ─────────────────────────────────────────────────────
+
+const STATUS_FILTERS: { value: StudentStatus | "all"; label: string }[] = [
+  { value: "all", label: "Tümü" },
+  { value: "active", label: "Aktif" },
+  { value: "on_hold", label: "Beklemede" },
+  { value: "inactive", label: "Pasif" },
+];
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+/** Columns a staff account doesn't get (no money — see lib/auth/access.ts). */
+const MONEY_COLUMNS = new Set(["totalBilled", "totalPaid", "totalDebt"]);
+
+export default function StudentsPage() {
+  const { seesMoney } = useAccess();
+  const store = useStore();
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StudentStatus | "all">("all");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+
+  const allItems = useMemo(
+    () =>
+      buildStudentListItems(
+        store.students,
+        store.educationTypes,
+        store.teachers,
+        store.sessions,
+        store.payments,
+        store.openingBalances
+      ),
+    [store.students, store.educationTypes, store.teachers, store.sessions, store.payments, store.openingBalances]
+  );
+
+  // Ayarlar → Öğrenci: inactive students hidden or greyed out; debt
+  // warning above Ayarlar → Finans → Öğrenci Borç Uyarı Eşiği.
+  const { inactiveStudentBehavior, debtWarningEnabled } = store.institutionSettings.students;
+  const debtThreshold = store.institutionSettings.finance.studentDebtWarningThreshold;
+  const isOverDebtThreshold = (debt: number) => debtWarningEnabled && debt > 0 && debt >= debtThreshold;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allItems.filter((item) => {
+      if (inactiveStudentBehavior === "hide" && item.status === "inactive" && statusFilter !== "inactive") {
+        return false;
+      }
+      const matchesSearch =
+        !q ||
+        item.fullName.toLowerCase().includes(q) ||
+        (item.studentNumber?.toLowerCase().includes(q) ?? false) ||
+        item.guardianName?.toLowerCase().includes(q) ||
+        item.guardianPhone?.includes(q);
+      const matchesStatus =
+        statusFilter === "all" || item.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [allItems, search, statusFilter, inactiveStudentBehavior]);
+
+  const activeCount = allItems.filter((s) => s.status === "active").length;
+  const onHoldCount = allItems.filter((s) => s.status === "on_hold").length;
+  const totalDebt = allItems.reduce((sum, s) => sum + s.totalDebt, 0);
+
+  const handleEdit = (row: StudentListItem) => {
+    const student = store.students.find((s) => s.id === row.id);
+    if (student) {
+      setEditingStudent(student);
+      setDrawerOpen(true);
+    }
+  };
+
+  const handleDrawerClose = (open: boolean) => {
+    setDrawerOpen(open);
+    if (!open) setEditingStudent(null);
+  };
+
+  const columns: Column<StudentListItem>[] = [
+    {
+      key: "name",
+      header: "Öğrenci",
+      render: (row) => (
+        <Link
+          href={`/app/students/${row.id}`}
+          className="flex items-center gap-2.5 font-medium text-foreground transition-colors hover:text-primary"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Avatar className="h-7 w-7 shrink-0">
+            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+              {initialsOf(row.fullName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0">
+            <span className="block truncate">{row.fullName}</span>
+            {row.studentNumber && (
+              <span className="block text-xs font-normal tabular-nums text-muted-foreground">{row.studentNumber}</span>
+            )}
+          </span>
+        </Link>
+      ),
+    },
+    {
+      key: "guardian",
+      header: "Veli",
+      render: (row) =>
+        row.guardianName ? (
+          <span className="text-muted-foreground text-sm">{row.guardianName}</span>
+        ) : (
+          <span className="text-muted-foreground/40">—</span>
+        ),
+      className: "hidden sm:table-cell",
+      headerClassName: "hidden sm:table-cell",
+    },
+    {
+      key: "phone",
+      header: "Telefon",
+      render: (row) =>
+        row.guardianPhone ? (
+          <span className="tabular-nums text-muted-foreground text-xs">
+            {row.guardianPhone}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/40">—</span>
+        ),
+      className: "hidden lg:table-cell",
+      headerClassName: "hidden lg:table-cell",
+    },
+    {
+      key: "educations",
+      header: "Eğitimler",
+      render: (row) =>
+        row.educationTypeNames.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {row.educationTypeNames.map((name) => (
+              <span
+                key={name}
+                className="inline-flex rounded-full bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-muted-foreground/40">—</span>
+        ),
+      className: "hidden xl:table-cell",
+      headerClassName: "hidden xl:table-cell",
+    },
+    {
+      key: "totalSessions",
+      header: "Seans",
+      render: (row) => (
+        <span className="tabular-nums text-muted-foreground">{row.totalSessions}</span>
+      ),
+      className: "hidden md:table-cell text-right",
+      headerClassName: "hidden md:table-cell text-right",
+    },
+    {
+      key: "totalBilled",
+      header: "Toplam Tutar",
+      render: (row) => (
+        <span className="tabular-nums font-medium">{formatCurrency(row.totalBilled)}</span>
+      ),
+      className: "hidden lg:table-cell text-right",
+      headerClassName: "hidden lg:table-cell text-right",
+    },
+    {
+      key: "totalPaid",
+      header: "Alınan Ödeme",
+      render: (row) => (
+        <span className="tabular-nums font-medium text-emerald-600">
+          {formatCurrency(row.totalPaid)}
+        </span>
+      ),
+      className: "hidden lg:table-cell text-right",
+      headerClassName: "hidden lg:table-cell text-right",
+    },
+    {
+      key: "totalDebt",
+      header: "Kalan Borç",
+      render: (row) => (
+        <span
+          className={cn(
+            "inline-flex items-center justify-end gap-1 tabular-nums font-semibold",
+            row.totalDebt > 0 ? "text-destructive" : "text-muted-foreground"
+          )}
+        >
+          {isOverDebtThreshold(row.totalDebt) && (
+            <AlertCircle className="h-3.5 w-3.5">
+              <title>Borç uyarı eşiğini ({formatCurrency(debtThreshold)}) aşıyor</title>
+            </AlertCircle>
+          )}
+          {formatCurrency(row.totalDebt)}
+        </span>
+      ),
+      className: "text-right",
+      headerClassName: "text-right",
+    },
+    {
+      key: "status",
+      header: "Durum",
+      render: (row) => <StatusBadge status={row.status} />,
+      className: "hidden sm:table-cell",
+      headerClassName: "hidden sm:table-cell",
+    },
+    {
+      key: "edit",
+      header: "",
+      render: (row) => (
+        <button
+          className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
+        >
+          Düzenle
+        </button>
+      ),
+      className: "text-right w-20",
+      headerClassName: "text-right w-20",
+    },
+    {
+      key: "detail",
+      header: "",
+      render: (row) => (
+        <Link
+          href={`/app/students/${row.id}`}
+          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Detay
+          <ChevronRight className="h-3 w-3" />
+        </Link>
+      ),
+      className: "text-right w-16",
+      headerClassName: "text-right w-16",
+    },
+  ];
+
+
+  return (
+    <>
+      <div className="space-y-5">
+        <PageHeader
+          title="Öğrenciler"
+          description={`${activeCount} aktif öğrenci · ${allItems.length} toplam`}
+          actions={
+            <Button size="sm" onClick={() => { setEditingStudent(null); setDrawerOpen(true); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Öğrenci Ekle
+            </Button>
+          }
+        />
+
+        <CompactStatBar
+          items={[
+            { icon: Users, label: "Toplam Öğrenci", value: allItems.length, tone: "primary" },
+            { icon: UserCheck, label: "Aktif", value: activeCount, tone: "success" },
+            { icon: Clock3, label: "Beklemede", value: onHoldCount, tone: "warning" as const },
+            ...(seesMoney
+              ? [
+                  {
+                    icon: AlertCircle,
+                    label: "Toplam Borç",
+                    value: formatCurrency(totalDebt),
+                    tone: totalDebt > 0 ? ("danger" as const) : ("success" as const),
+                  },
+                ]
+              : []),
+          ]}
+        />
+
+        {/* Filters */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input aria-label="Öğrenci ara"
+              placeholder="Öğrenci, numara veya veli ara…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-9 text-sm"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setStatusFilter(f.value)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
+                  statusFilter === f.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Table */}
+        <DataTable
+          data={filtered}
+          columns={seesMoney ? columns : columns.filter((c) => !MONEY_COLUMNS.has(c.key))}
+          keyExtractor={(s) => s.id}
+          rowClassName={(s) =>
+            inactiveStudentBehavior === "show_greyed" && s.status === "inactive" ? "opacity-50" : undefined
+          }
+          emptyTitle={
+            search || statusFilter !== "all"
+              ? "Eşleşen öğrenci bulunamadı"
+              : "Henüz öğrenci yok"
+          }
+          emptyDescription={
+            search || statusFilter !== "all"
+              ? "Arama veya filtre kriterlerini değiştirmeyi deneyin."
+              : "Öğrenci ekleyerek başlayın."
+          }
+        />
+
+        {filtered.length > 0 && filtered.length !== allItems.length && (
+          <p className="text-xs text-muted-foreground">
+            {allItems.length} kayıt içinde {filtered.length} sonuç gösteriliyor
+          </p>
+        )}
+      </div>
+
+      <StudentFormDrawer
+        open={drawerOpen}
+        onOpenChange={handleDrawerClose}
+        initialData={editingStudent ?? undefined}
+      />
+    </>
+  );
+}

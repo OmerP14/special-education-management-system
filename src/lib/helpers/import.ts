@@ -1,0 +1,1677 @@
+import type {
+  ImportEntityType,
+  ImportMode,
+  ImportSystemField,
+  ImportColumnMapping,
+  ImportPreviewRow,
+  ImportEntityMatch,
+  ImportSummary,
+  ImportFinancialImpact,
+  ImportResult,
+  ImportBatch,
+  ImportBatchEntityIds,
+  EditedImportRecord,
+  Student,
+  Teacher,
+  Session,
+  SessionStatus,
+  Payment,
+  PaymentMethod,
+  TeacherPayment,
+  TeacherPaymentType,
+  OpeningBalance,
+  OpeningBalanceType,
+  EducationType,
+  TeacherEducationTypeAssignment,
+} from "@/types";
+import { cellToDisplayString, parseCellAsDateString, parseCellAsTimeString, parseCellAsNumber, sheetRowNumber, type ParsedSheet, type RawCell } from "@/lib/helpers/import-parse";
+import {
+  normalizeName,
+  matchStudent,
+  matchTeacher,
+  resolveStudentByName,
+  resolveTeacherByName,
+  findDuplicateSession,
+  findDuplicatePayment,
+  findDuplicateTeacherPayment,
+  findDuplicateOpeningBalance,
+  buildStudentIndex,
+  addStudentToIndex,
+  buildTeacherIndex,
+  addTeacherToIndex,
+  buildSessionDuplicateIndex,
+  addSessionToDuplicateIndex,
+  buildPaymentDuplicateIndex,
+  addPaymentToDuplicateIndex,
+  buildTeacherPaymentDuplicateIndex,
+  addTeacherPaymentToDuplicateIndex,
+  buildOpeningBalanceDuplicateIndex,
+  addOpeningBalanceToDuplicateIndex,
+  studentHasOpeningBalance,
+} from "@/lib/helpers/import-match";
+import { buildSessionConflictIndex, addSessionToConflictIndex, checkSessionConflictIndexed } from "@/lib/helpers/session-conflict";
+import {
+  calculateTeacherSessionEarning,
+  calculateSessionTotal,
+  calculateSessionTeacherEarning,
+  calculateSessionCenterProfit,
+  isDeductionPaymentType,
+} from "@/lib/helpers/finance";
+import { isTeacherAssignedToEducationType } from "@/lib/helpers/teacher-assignments";
+import { createId, TENANT_ID } from "@/lib/data/ids";
+
+// ─── Entity type labels ─────────────────────────────────────────────────────────
+
+export const IMPORT_ENTITY_TYPES: ImportEntityType[] = [
+  "students",
+  "teachers",
+  "sessions",
+  "payments",
+  "teacherPayments",
+  "openingBalances",
+];
+
+/** Fixed processing order for a multi-select import run — people before the
+ *  records that reference them, balances before the activity that follows them. */
+export const IMPORT_DEPENDENCY_ORDER: ImportEntityType[] = [
+  "students",
+  "teachers",
+  "openingBalances",
+  "sessions",
+  "payments",
+  "teacherPayments",
+];
+
+export function sortByDependencyOrder<T>(items: T[], typeOf: (item: T) => ImportEntityType): T[] {
+  return [...items].sort(
+    (a, b) => IMPORT_DEPENDENCY_ORDER.indexOf(typeOf(a)) - IMPORT_DEPENDENCY_ORDER.indexOf(typeOf(b))
+  );
+}
+
+function sortTaskRowSetsByDependency<T extends { type: ImportEntityType }>(sets: T[]): T[] {
+  return sortByDependencyOrder(sets, (s) => s.type);
+}
+
+export function getImportTypeLabel(type: ImportEntityType): string {
+  const labels: Record<ImportEntityType, string> = {
+    students: "Öğrenciler",
+    teachers: "Öğretmenler",
+    sessions: "Seanslar",
+    payments: "Ödemeler",
+    teacherPayments: "Öğretmen Ödemeleri",
+    openingBalances: "Devir Bakiyeleri",
+  };
+  return labels[type];
+}
+
+// ─── System fields per entity type ──────────────────────────────────────────────
+
+const SYSTEM_FIELDS: Record<ImportEntityType, ImportSystemField[]> = {
+  students: [
+    { key: "fullName", label: "Öğrenci Adı Soyadı", required: true },
+    { key: "birthDate", label: "Doğum Tarihi", required: false },
+    { key: "status", label: "Durum", required: false },
+    { key: "weeklySessionCount", label: "Haftalık Seans Sayısı", required: false },
+    { key: "guardianName", label: "Veli Adı", required: false },
+    { key: "guardianPhone", label: "Veli Telefonu", required: false },
+    { key: "notes", label: "Notlar", required: false },
+  ],
+  teachers: [
+    { key: "fullName", label: "Öğretmen Adı Soyadı", required: true },
+    { key: "phone", label: "Telefon", required: false },
+    { key: "email", label: "E-posta", required: false },
+    { key: "status", label: "Durum", required: false },
+  ],
+  sessions: [
+    { key: "studentName", label: "Öğrenci", required: true },
+    { key: "teacherName", label: "Öğretmen", required: true },
+    { key: "educationType", label: "Eğitim Türü", required: false },
+    { key: "date", label: "Tarih", required: true },
+    { key: "time", label: "Saat", required: false },
+    { key: "sessionCount", label: "Seans Sayısı", required: false },
+    { key: "studentPrice", label: "Öğrenci Birim Fiyatı", required: false },
+    { key: "teacherEarning", label: "Öğretmen Hakedişi", required: false },
+    { key: "status", label: "Durum", required: false },
+    { key: "notes", label: "Notlar", required: false },
+  ],
+  payments: [
+    { key: "studentName", label: "Öğrenci", required: true },
+    { key: "amount", label: "Tutar", required: true },
+    { key: "date", label: "Tarih", required: true },
+    { key: "method", label: "Ödeme Yöntemi", required: false },
+    { key: "notes", label: "Notlar", required: false },
+  ],
+  teacherPayments: [
+    { key: "teacherName", label: "Öğretmen", required: true },
+    { key: "amount", label: "Tutar", required: true },
+    { key: "date", label: "Tarih", required: true },
+    { key: "paymentType", label: "Ödeme Türü", required: false },
+    { key: "method", label: "Ödeme Yöntemi", required: false },
+    { key: "description", label: "Açıklama", required: false },
+  ],
+  openingBalances: [
+    { key: "studentName", label: "Öğrenci", required: true },
+    { key: "guardianName", label: "Veli", required: false },
+    { key: "amount", label: "Tutar", required: true },
+    { key: "balanceType", label: "Borç / Alacak", required: false },
+    { key: "date", label: "Tarih", required: false },
+    { key: "note", label: "Not", required: false },
+  ],
+};
+
+export function getSystemFieldsForImportType(type: ImportEntityType): ImportSystemField[] {
+  return SYSTEM_FIELDS[type];
+}
+
+// ─── Header alias suggestions (auto-mapping) ────────────────────────────────────
+
+const HEADER_ALIASES: Record<ImportEntityType, Record<string, string>> = {
+  students: {
+    "ad soyad": "fullName", "öğrenci adı": "fullName", "öğrenci adı soyadı": "fullName",
+    "isim": "fullName", "öğrenci": "fullName", "adı soyadı": "fullName",
+    "doğum tarihi": "birthDate", "dogum tarihi": "birthDate",
+    "durum": "status", "aktif/pasif": "status",
+    "seans/hafta": "weeklySessionCount", "haftalık seans sayısı": "weeklySessionCount", "haftalık seans": "weeklySessionCount",
+    "veli adı": "guardianName", "veli": "guardianName", "veli adı soyadı": "guardianName",
+    "telefon": "guardianPhone", "veli telefonu": "guardianPhone", "veli telefon": "guardianPhone",
+    "notlar": "notes", "not": "notes",
+    "öğrencinin adı soyadı": "fullName", "danışan": "fullName", "danışan adı": "fullName",
+    "anne baba": "guardianName", "veli tel": "guardianPhone", "=cep": "guardianPhone",
+  },
+  teachers: {
+    "ad soyad": "fullName", "öğretmen adı": "fullName", "öğretmen": "fullName", "isim": "fullName",
+    "telefon": "phone",
+    "e-posta": "email", "email": "email",
+    "durum": "status", "aktif/pasif": "status",
+    "eğitmen": "fullName", "terapist": "fullName", "uzman": "fullName",
+  },
+  sessions: {
+    "öğrenci adı": "studentName", "öğrenci": "studentName",
+    "öğretmen adı": "teacherName", "öğretmen": "teacherName",
+    "eğitim türü": "educationType", "eğitim": "educationType",
+    "tarih": "date", "seans tarihi": "date",
+    "saat": "time",
+    "adet": "sessionCount", "seans sayısı": "sessionCount",
+    "fiyat": "studentPrice", "fiyat (₺)": "studentPrice", "öğrenci birim fiyatı": "studentPrice", "ücret": "studentPrice",
+    "hakediş": "teacherEarning", "hakediş (₺)": "teacherEarning", "öğretmen hakedişi": "teacherEarning",
+    "durum": "status",
+    "notlar": "notes", "not": "notes",
+    "danışan": "studentName", "ders tarihi": "date", "seans saati": "time", "ders saati": "time",
+    "ders sayısı": "sessionCount", "eğitmen": "teacherName", "terapist": "teacherName", "uzman": "teacherName",
+    "branş": "educationType", "program": "educationType",
+    "ders ücreti": "studentPrice", "seans ücreti": "studentPrice", "birim fiyat": "studentPrice",
+  },
+  payments: {
+    "öğrenci": "studentName", "öğrenci adı": "studentName",
+    "tutar": "amount", "tutar (₺)": "amount", "miktar": "amount",
+    "tarih": "date", "ödeme tarihi": "date",
+    "ödeme şekli": "method", "ödeme yöntemi": "method", "yöntem": "method",
+    "notlar": "notes", "açıklama": "notes",
+    "ödenen": "amount", "ödenen tutar": "amount", "tahsilat": "amount", "alınan": "amount", "=ödeme": "amount",
+    "tahsilat tarihi": "date", "danışan": "studentName",
+  },
+  teacherPayments: {
+    "öğretmen adı": "teacherName", "öğretmen": "teacherName",
+    "tutar": "amount", "tutar (₺)": "amount", "hakediş (₺)": "amount",
+    "tarih": "date", "ödeme tarihi": "date",
+    "ödeme türü": "paymentType", "tür": "paymentType",
+    "ödeme yöntemi": "method", "yöntem": "method",
+    "açıklama": "description", "notlar": "description",
+  },
+  openingBalances: {
+    "öğrenci": "studentName", "öğrenci adı": "studentName",
+    "veli": "guardianName", "veli adı": "guardianName",
+    "tutar": "amount", "bakiye": "amount",
+    "borç/alacak": "balanceType", "borç / alacak": "balanceType", "tür": "balanceType",
+    "tarih": "date",
+    "not": "note", "açıklama": "note",
+    "kalan": "amount", "kalan borç": "amount", "=borç": "amount", "devir": "amount", "devir bakiyesi": "amount",
+    "güncel bakiye": "amount", "danışan": "studentName",
+  },
+};
+
+/** Lower-case, Turkish letters folded to ASCII, currency marks and
+ *  punctuation dropped: "Ödenen Tutar (₺)" → "odenen tutar". */
+export function foldHeader(s: string): string {
+  return s
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[çğıöşü]/g, (c) => ({ ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" })[c]!)
+    .replace(/i̇/g, "i")
+    .replace(/₺|\btl\b|\btry\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** How well a header fits an alias: exact first, then every alias word
+ *  matching a header word in order, either one a prefix of the other
+ *  ("Ödeme Tarihi" ~ "tarih", "Veli Ad Soyad" ~ "veli adı soyadı"); longer
+ *  aliases win ties. An alias written "=x" only matches exactly. */
+function aliasScore(header: string, alias: string): number {
+  const exactOnly = alias.startsWith("=");
+  const a = exactOnly ? alias.slice(1).trim() : alias;
+  if (header === a) return 3000 + a.length;
+  if (exactOnly) return 0;
+  const words = a.split(" ");
+  let i = 0;
+  for (const word of header.split(" ")) {
+    const w = words[i];
+    if (w && (word.startsWith(w) || (word.length >= 2 && w.startsWith(word)))) i++;
+  }
+  return i === words.length ? 2000 + a.length : 0;
+}
+
+/** Words naming a different person than the type's own records: a teachers
+ *  table never takes its name from a "Veli …" or "Öğrenci …" column. */
+const FOREIGN_HEADER_WORDS: Partial<Record<ImportEntityType, string[]>> = {
+  students: ["ogretmen", "terapist", "egitmen"],
+  teachers: ["ogrenci", "veli", "danisan"],
+  payments: ["ogretmen", "terapist", "egitmen"],
+  teacherPayments: ["ogrenci", "veli", "danisan"],
+};
+
+/** Pairs each column with the system field its header fits best — every
+ *  field at most once, the best-fitting column winning. */
+export function suggestColumnMappings(sheet: ParsedSheet, type: ImportEntityType): ImportColumnMapping[] {
+  const aliases = Object.entries(HEADER_ALIASES[type]).map(
+    ([alias, field]) => [(alias.startsWith("=") ? "=" : "") + foldHeader(alias), field] as const
+  );
+  const foreign = FOREIGN_HEADER_WORDS[type] ?? [];
+  const candidates: { col: number; field: string; score: number }[] = [];
+  sheet.headers.forEach((header, col) => {
+    const folded = foldHeader(header);
+    if (!folded) return;
+    const foreignWord = foreign.find((w) => folded.split(" ").some((word) => word.startsWith(w)));
+    for (const [alias, field] of aliases) {
+      if (foreignWord && !alias.includes(foreignWord)) continue;
+      const score = aliasScore(folded, alias);
+      if (score > 0) candidates.push({ col, field, score });
+    }
+  });
+  candidates.sort((a, b) => b.score - a.score || a.col - b.col);
+  const fieldOf = new Map<number, string>();
+  const used = new Set<string>();
+  for (const c of candidates) {
+    if (fieldOf.has(c.col) || used.has(c.field)) continue;
+    fieldOf.set(c.col, c.field);
+    used.add(c.field);
+  }
+  return sheet.headers.map((header, i) => {
+    const sample = sheet.rows.find((r) => cellToDisplayString(r[i]) !== "");
+    return {
+      excelColumn: header || `Sütun ${i + 1}`,
+      systemField: fieldOf.get(i) ?? null,
+      sampleData: sample ? cellToDisplayString(sample[i]) : "",
+    };
+  });
+}
+
+// ─── Value alias resolvers ───────────────────────────────────────────────────────
+
+const STATUS_ALIASES: Record<string, SessionStatus> = {
+  "tamamlandı": "completed", "tamamlandi": "completed", "completed": "completed", "yapıldı": "completed", "done": "completed",
+  "planlandı": "planned", "planlandi": "planned", "planned": "planned", "bekliyor": "planned", "scheduled": "planned",
+  "iptal": "cancelled", "i̇ptal": "cancelled", "cancelled": "cancelled", "canceled": "cancelled", "iptal edildi": "cancelled",
+  "gelmedi": "no_show", "no_show": "no_show", "no-show": "no_show", "noshow": "no_show", "katılmadı": "no_show",
+  "telafi": "makeup", "makeup": "makeup", "make-up": "makeup", "make up": "makeup",
+};
+
+// What people actually write in a "Durum" column, matched by word start after
+// the exact aliases above miss ("Geldi", "Raporlu", "Gelmedi (habersiz)",
+// "Tamamlandı ✓"). Order matters: "gelmedi" must win over "geldi"-like words.
+const STATUS_KEYWORDS: [SessionStatus, string[]][] = [
+  ["no_show", ["gelmedi", "gelmeyen", "katılmadı", "katilmadi", "devamsız", "devamsiz", "noshow"]],
+  ["makeup", ["telafi", "makeup"]],
+  ["cancelled", ["iptal", "izin", "rapor", "hasta", "mazeret", "ertelen", "tatil", "cancel"]],
+  ["completed", ["tamam", "yapıldı", "yapildi", "geldi", "katıldı", "katildi", "işlendi", "islendi", "done", "complet"]],
+  ["planned", ["plan", "bekl", "sched"]],
+];
+
+export function resolveSessionStatusValue(raw: string): { status: SessionStatus; recognized: boolean } {
+  const key = raw.trim().toLocaleLowerCase("tr-TR");
+  const exact = STATUS_ALIASES[key];
+  if (exact) return { status: exact, recognized: true };
+  const folded = key.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (folded.includes("no show")) return { status: "no_show", recognized: true };
+  const words = folded.split(" ");
+  for (const [status, prefixes] of STATUS_KEYWORDS) {
+    if (words.some((w) => prefixes.some((p) => w.startsWith(p)))) return { status, recognized: true };
+  }
+  return { status: "planned", recognized: false };
+}
+
+const METHOD_ALIASES: Record<string, PaymentMethod> = {
+  "nakit": "cash", "cash": "cash",
+  "havale": "bank_transfer", "eft": "bank_transfer", "eft/havale": "bank_transfer", "eft / havale": "bank_transfer",
+  "banka havalesi": "bank_transfer", "banka": "bank_transfer", "bank_transfer": "bank_transfer",
+  "kredi kartı": "credit_card", "kredi karti": "credit_card", "kart": "credit_card", "credit_card": "credit_card",
+  "diğer": "other", "diger": "other", "other": "other",
+};
+
+export function resolvePaymentMethodValue(raw: string): { method: PaymentMethod; recognized: boolean } {
+  if (!raw.trim()) return { method: "cash", recognized: true }; // no method column mapped — cash is a reasonable default, not a warning
+  const key = raw.trim().toLocaleLowerCase("tr-TR");
+  const method = METHOD_ALIASES[key];
+  return method ? { method, recognized: true } : { method: "other", recognized: false };
+}
+
+const TEACHER_PAYMENT_TYPE_ALIASES: Record<string, TeacherPaymentType> = {
+  "maaş": "salary", "maas": "salary", "salary": "salary",
+  "avans": "advance", "advance": "advance",
+  "ara ödeme": "partial", "ara odeme": "partial", "partial": "partial",
+  "prim": "bonus", "bonus": "bonus",
+  "kesinti": "deduction", "deduction": "deduction",
+  "diğer": "other", "diger": "other", "other": "other",
+};
+
+export function resolveTeacherPaymentTypeValue(raw: string): { type: TeacherPaymentType; recognized: boolean } {
+  if (!raw.trim()) return { type: "salary", recognized: true };
+  const key = raw.trim().toLocaleLowerCase("tr-TR");
+  const type = TEACHER_PAYMENT_TYPE_ALIASES[key];
+  return type ? { type, recognized: true } : { type: "other", recognized: false };
+}
+
+const BALANCE_TYPE_ALIASES: Record<string, OpeningBalanceType> = {
+  "borç": "debt", "borc": "debt", "debt": "debt", "alacaklı": "debt",
+  "alacak": "credit", "credit": "credit", "kredi": "credit",
+};
+
+export function resolveOpeningBalanceTypeValue(raw: string): { type: OpeningBalanceType; recognized: boolean } {
+  const key = raw.trim().toLocaleLowerCase("tr-TR");
+  const type = BALANCE_TYPE_ALIASES[key];
+  return type ? { type, recognized: true } : { type: "debt", recognized: false };
+}
+
+/** "  zeynep   DEMİR " → "Zeynep Demir" (Turkish casing, hyphenated parts
+ *  too) — imported names are stored the way the rest of the app writes them.
+ *  Matching never depends on this: it always compares normalizeName(). */
+function personName(raw: string): string {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word
+        .split("-")
+        .map((p) => (p ? p[0]!.toLocaleUpperCase("tr-TR") + p.slice(1).toLocaleLowerCase("tr-TR") : p))
+        .join("-")
+    )
+    .join(" ");
+}
+
+/** The clock time a date cell carries, if any — a Date with a time part or a
+ *  "13.10.2026 14:30" string. Midnight means "no time given". */
+function timeInDateCell(cell: RawCell): string | null {
+  if (cell instanceof Date) {
+    const t = parseCellAsTimeString(cell);
+    return t === "00:00" ? null : t;
+  }
+  if (typeof cell === "number") return cell % 1 === 0 ? null : parseCellAsTimeString(cell % 1);
+  const m = typeof cell === "string" ? cell.trim().match(/[T\s](\d{1,2}[:.]\d{2})(:\d{2})?$/) : null;
+  return m ? parseCellAsTimeString(m[1]!.replace(".", ":")) : null;
+}
+
+// ─── Staged records (resolved, not-yet-committed rows) ──────────────────────────
+
+export type StagedRecord =
+  | { kind: "students"; record: Student }
+  | { kind: "teachers"; record: Teacher }
+  | { kind: "sessions"; record: Session }
+  | { kind: "payments"; record: Payment }
+  | { kind: "teacherPayments"; record: TeacherPayment }
+  | { kind: "openingBalances"; record: OpeningBalance };
+
+export interface StagedRow {
+  preview: ImportPreviewRow;
+  staged: StagedRecord[];
+}
+
+function col(mapping: ImportColumnMapping[], key: string): number {
+  return mapping.findIndex((m) => m.systemField === key);
+}
+
+function cellAt(row: (string | number | boolean | Date | null | undefined)[], index: number): string {
+  return index >= 0 ? cellToDisplayString(row[index]) : "";
+}
+
+export function newId(prefix: string): string {
+  return createId(`${prefix}-import`);
+}
+
+// ─── Students ────────────────────────────────────────────────────────────────────
+
+export function buildStagedStudentRows(
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  existingStudents: Student[]
+): StagedRow[] {
+  const iName = col(mapping, "fullName");
+  const iBirth = col(mapping, "birthDate");
+  const iStatus = col(mapping, "status");
+  const iWeekly = col(mapping, "weeklySessionCount");
+  const iGuardianName = col(mapping, "guardianName");
+  const iGuardianPhone = col(mapping, "guardianPhone");
+  const iNotes = col(mapping, "notes");
+
+  const studentIndex = buildStudentIndex(existingStudents);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const fullName = cellAt(raw, iName);
+    const guardianPhone = cellAt(raw, iGuardianPhone);
+    const guardianName = cellAt(raw, iGuardianName);
+
+    if (!fullName) {
+      rows.push({
+        preview: { rowNumber, displayText: "(Ad boş)", status: "error", issues: ["'Öğrenci Adı Soyadı' zorunlu alan boş bırakılamaz"], entityMatches: [], include: false },
+        staged: [],
+      });
+      return;
+    }
+
+    const match = matchStudent(fullName, guardianPhone, studentIndex);
+    const matches: ImportEntityMatch[] = [{ entityType: "Öğrenci", value: fullName, matched: match.tier !== "new" }];
+
+    if (match.tier === "matched") {
+      rows.push({
+        preview: { rowNumber, displayText: `${fullName}`, status: "duplicate", issues: ["Bu öğrenci sistemde zaten kayıtlı"], entityMatches: matches, include: false },
+        staged: [],
+      });
+      return;
+    }
+
+    const issues: string[] = [];
+    if (match.tier === "possible") {
+      issues.push("Bu isimde bir öğrenci zaten sistemde kayıtlı; farklı kişi olarak içe aktarılacak");
+    }
+
+    const staged: StagedRecord[] = [];
+
+    // birthDate isn't required — a genuinely blank cell is fine — but a cell that HAS
+    // a value that fails to parse (bad Excel serial, malformed string, impossible
+    // calendar date) must never be silently dropped to "": that leaves the record
+    // looking blank while the user never learns their date was rejected, and an
+    // invalid string could still slip through to formatDate elsewhere. Warn and
+    // leave it empty instead.
+    const birthDateRaw = iBirth >= 0 ? cellAt(raw, iBirth) : "";
+    const birthDateParsed = iBirth >= 0 ? parseCellAsDateString(raw[iBirth]) : null;
+    if (iBirth >= 0 && birthDateRaw && !birthDateParsed) {
+      issues.push(`Geçersiz doğum tarihi: '${birthDateRaw}' → boş bırakılacak`);
+    }
+    const birthDate = birthDateParsed ?? "";
+    const statusRaw = cellAt(raw, iStatus).toLocaleLowerCase("tr-TR");
+    const status = statusRaw.includes("pasif") || statusRaw === "inactive" ? "inactive"
+      : statusRaw.includes("bekle") || statusRaw === "on_hold" ? "on_hold"
+      : "active";
+    const weeklyCount = iWeekly >= 0 ? parseCellAsNumber(raw[iWeekly]) ?? undefined : undefined;
+    const notes = cellAt(raw, iNotes) || undefined;
+
+    const student: Student = {
+      id: newId("student"),
+      tenantId: TENANT_ID,
+      fullName: personName(fullName),
+      birthDate,
+      status,
+      guardianName: guardianName ? personName(guardianName) : undefined,
+      guardianPhone: guardianPhone || undefined,
+      educationTypeIds: [],
+      weeklySessionCount: weeklyCount,
+      notes,
+      createdAt: new Date().toISOString(),
+    };
+    addStudentToIndex(studentIndex, student);
+    staged.push({ kind: "students", record: student });
+
+    rows.push({
+      preview: {
+        rowNumber,
+        displayText: guardianName ? `${fullName} — ${guardianName}` : fullName,
+        status: issues.length > 0 ? "warning" : "valid",
+        issues,
+        entityMatches: matches,
+        include: true,
+      },
+      staged,
+    });
+  });
+
+  return rows;
+}
+
+// ─── Teachers ────────────────────────────────────────────────────────────────────
+
+export function buildStagedTeacherRows(sheet: ParsedSheet, mapping: ImportColumnMapping[], existingTeachers: Teacher[]): StagedRow[] {
+  const iName = col(mapping, "fullName");
+  const iPhone = col(mapping, "phone");
+  const iEmail = col(mapping, "email");
+  const iStatus = col(mapping, "status");
+
+  const teacherIndex = buildTeacherIndex(existingTeachers);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const fullName = cellAt(raw, iName);
+    const phone = cellAt(raw, iPhone);
+
+    if (!fullName) {
+      rows.push({ preview: { rowNumber, displayText: "(Ad boş)", status: "error", issues: ["'Öğretmen Adı Soyadı' zorunlu alan boş bırakılamaz"], entityMatches: [], include: false }, staged: [] });
+      return;
+    }
+
+    const match = matchTeacher(fullName, phone, teacherIndex);
+    const matches: ImportEntityMatch[] = [{ entityType: "Öğretmen", value: fullName, matched: match.tier !== "new" }];
+
+    if (match.tier === "matched") {
+      rows.push({ preview: { rowNumber, displayText: fullName, status: "duplicate", issues: ["Bu öğretmen sistemde zaten kayıtlı"], entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const issues: string[] = [];
+    if (match.tier === "possible") issues.push("Bu isimde bir öğretmen zaten sistemde kayıtlı; farklı kişi olarak içe aktarılacak");
+
+    const statusRaw = cellAt(raw, iStatus).toLocaleLowerCase("tr-TR");
+    const status = statusRaw.includes("pasif") || statusRaw === "inactive" ? "inactive" : "active";
+
+    const teacher: Teacher = {
+      id: newId("teacher"),
+      tenantId: TENANT_ID,
+      fullName: personName(fullName),
+      phone: phone || "—",
+      email: cellAt(raw, iEmail) || undefined,
+      status,
+      createdAt: new Date().toISOString(),
+    };
+    addTeacherToIndex(teacherIndex, teacher);
+
+    rows.push({
+      preview: { rowNumber, displayText: fullName, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: true },
+      staged: [{ kind: "teachers", record: teacher }],
+    });
+  });
+
+  return rows;
+}
+
+// ─── Sessions ────────────────────────────────────────────────────────────────────
+
+export function buildStagedSessionRows(
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  mode: ImportMode,
+  existingSessions: Session[],
+  students: Student[],
+  teachers: Teacher[],
+  educationTypes: EducationType[],
+  teacherEducationTypeAssignments: TeacherEducationTypeAssignment[] = [],
+  /** Teachers created by this same import — they can't have an education
+   *  type assignment yet, so their lessons assign them instead of being held. */
+  newTeacherIds: ReadonlySet<string> = new Set()
+): StagedRow[] {
+  const iStudent = col(mapping, "studentName");
+  const iTeacher = col(mapping, "teacherName");
+  const iEduType = col(mapping, "educationType");
+  const iDate = col(mapping, "date");
+  const iTime = col(mapping, "time");
+  const iCount = col(mapping, "sessionCount");
+  const iPrice = col(mapping, "studentPrice");
+  const iEarning = col(mapping, "teacherEarning");
+  const iStatus = col(mapping, "status");
+  const iNotes = col(mapping, "notes");
+
+  // Sessions staged within this same batch — checked for conflicts/duplicates too,
+  // so two rows in the same file can't double-book each other either. Students/
+  // teachers never change while staging Sessions, so those indexes are built once;
+  // the session indexes grow by one per created row, updated in O(1) each time.
+  const studentIndex = buildStudentIndex(students);
+  const teacherIndex = buildTeacherIndex(teachers);
+  const sessionDuplicateIndex = buildSessionDuplicateIndex(existingSessions);
+  const sessionConflictIndex = buildSessionConflictIndex(existingSessions);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const studentName = cellAt(raw, iStudent);
+    const teacherName = cellAt(raw, iTeacher);
+    const eduTypeName = cellAt(raw, iEduType);
+    const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
+    // No time column (or an empty cell): a "06.10.2026 11:00" date cell still
+    // carries the hour; only a bare date falls back to 09:00.
+    const timeStr =
+      parseCellAsTimeString(iTime >= 0 ? raw[iTime] : null) ?? timeInDateCell(iDate >= 0 ? raw[iDate] : null) ?? "09:00";
+    const priceRaw = iPrice >= 0 ? parseCellAsNumber(raw[iPrice]) : null;
+
+    const displayText = `${studentName || "?"} / ${teacherName || "?"} / ${dateStr ?? cellAt(raw, iDate)}`;
+    const errors: string[] = [];
+
+    if (!studentName) errors.push("'Öğrenci' zorunlu alan boş bırakılamaz");
+    if (!teacherName) errors.push("'Öğretmen' zorunlu alan boş bırakılamaz");
+    if (!dateStr) errors.push(`Geçersiz veya eksik tarih: '${cellAt(raw, iDate)}'`);
+
+    const studentRes = studentName ? resolveStudentByName(studentName, studentIndex) : null;
+    const teacherRes = teacherName ? resolveTeacherByName(teacherName, teacherIndex) : null;
+    // No education type in the file → the institution's first active one.
+    const fallbackEduType = !eduTypeName ? educationTypes.find((et) => et.status === "active") ?? educationTypes[0] ?? null : null;
+    const eduType = eduTypeName
+      ? educationTypes.find((et) => normalizeName(et.name) === normalizeName(eduTypeName)) ?? null
+      : fallbackEduType;
+    if (!eduTypeName && !eduType) errors.push("Eğitim türü yok ve sistemde tanımlı eğitim türü bulunmuyor");
+    // No price in the file → the education type's price.
+    const priceFromType = priceRaw === null && eduType && eduType.defaultStudentPrice > 0 ? eduType.defaultStudentPrice : null;
+    if (priceRaw === null && priceFromType === null) {
+      errors.push("'Öğrenci Birim Fiyatı' boş ve eğitim türünün tanımlı ücreti yok");
+    }
+
+    if (studentRes && !studentRes.student) errors.push(`'${studentName}' adlı öğrenci sistemde bulunamadı`);
+    if (teacherRes && !teacherRes.teacher) errors.push(`'${teacherName}' adlı öğretmen sistemde bulunamadı`);
+    if (eduTypeName && !eduType) errors.push(`'${eduTypeName}' eğitim türü sistemde bulunamadı`);
+
+    const matches: ImportEntityMatch[] = [
+      ...(studentName ? [{ entityType: "Öğrenci" as const, value: studentName, matched: !!studentRes?.student }] : []),
+      ...(teacherName ? [{ entityType: "Öğretmen" as const, value: teacherName, matched: !!teacherRes?.teacher }] : []),
+      ...(eduTypeName ? [{ entityType: "Eğitim Türü" as const, value: eduTypeName, matched: !!eduType }] : []),
+    ];
+
+    if (errors.length > 0) {
+      rows.push({
+        preview: {
+          rowNumber,
+          displayText,
+          status: "error",
+          issues: errors,
+          entityMatches: matches,
+          include: false,
+          repairHints: { fee: priceRaw ?? undefined, time: timeStr },
+        },
+        staged: [],
+      });
+      return;
+    }
+
+    const issues: string[] = [];
+    if (studentRes!.ambiguous) issues.push(`'${studentName}' adında birden fazla öğrenci bulundu; ilk eşleşme kullanılacak`);
+    if (teacherRes!.ambiguous) issues.push(`'${teacherName}' adında birden fazla öğretmen bulundu; ilk eşleşme kullanılacak`);
+    if (fallbackEduType) issues.push(`Eğitim türü belirtilmemiş → '${fallbackEduType.name}' kullanıldı`);
+    if (priceFromType !== null) issues.push(`Ücret belirtilmemiş → eğitim türünün ücreti (${priceFromType}) kullanıldı`);
+
+    const studentId = studentRes!.student!.id;
+    const teacherId = teacherRes!.teacher!.id;
+    const educationTypeId = eduType!.id;
+
+    // Teacher and education type both resolved to real records, but there's no
+    // active assignment linking them — a different problem from a missing price
+    // (section 13: never silently create an arbitrary earning for an
+    // unassigned pair). Operational imports need repair before committing;
+    // historical imports may proceed but only as an explicitly unresolved row.
+    const teacherEarningRaw = iEarning >= 0 ? parseCellAsNumber(raw[iEarning]) : null;
+    const assigned = isTeacherAssignedToEducationType(teacherId, educationTypeId, teacherEducationTypeAssignments);
+    // The file itself pairs them when the teacher is new in this import or the
+    // row states the teacher's earning: the lesson goes in and the teacher is
+    // assigned to the type on commit (see collectImportedTeacherAssignments).
+    const assignOnCommit = !assigned && (newTeacherIds.has(teacherId) || teacherEarningRaw !== null);
+    const assignmentIncompatible = !assigned && !assignOnCommit;
+    if (assignOnCommit) {
+      issues.push(`'${teacherRes!.teacher!.fullName}' öğretmeni '${eduType!.name}' eğitim türüne tanımlanacak`);
+    } else if (assignmentIncompatible) {
+      issues.push(
+        `'${teacherRes!.teacher!.fullName}' adlı öğretmen '${eduType!.name}' eğitim türünü vermek üzere tanımlanmamış`
+      );
+    }
+    const startsAt = `${dateStr}T${timeStr}:00`;
+    const sessionCount = iCount >= 0 ? Math.max(1, parseCellAsNumber(raw[iCount]) ?? 1) : 1;
+    const studentPrice = priceRaw ?? priceFromType!;
+    // No status in the file: a lesson already past was held, a future one is planned.
+    const defaultStatus: SessionStatus = new Date(startsAt).getTime() < Date.now() ? "completed" : "planned";
+    const resolved =
+      iStatus >= 0 && cellAt(raw, iStatus) ? resolveSessionStatusValue(cellAt(raw, iStatus)) : { status: defaultStatus, recognized: true };
+    // An unreadable status falls back to the date rule, same as an empty cell —
+    // a past lesson left "planned" would be auto-completed (and billed) anyway,
+    // so say so plainly instead of promising "Planlandı".
+    const status = resolved.recognized ? resolved.status : defaultStatus;
+
+    if (iStatus >= 0 && !resolved.recognized) {
+      issues.push(
+        `Bilinmeyen durum değeri: '${cellAt(raw, iStatus)}' → ${status === "completed" ? "Tamamlandı (ücretli)" : "Planlandı"} olarak içe aktarılacak; gerekirse düzeltin`
+      );
+    }
+
+    // Exact duplicate (already exists — same student+teacher+educationType+instant).
+    const duplicate = findDuplicateSession(studentId, teacherId, educationTypeId, startsAt, sessionDuplicateIndex);
+    if (duplicate) {
+      rows.push({ preview: { rowNumber, displayText, status: "duplicate", issues: ["Bu seans zaten mevcut"], entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    // Overlap conflict — never bypassed. Historical migrations often carry legitimate
+    // overlaps the source system never enforced, so those default to included (still
+    // visible, still requires the Step-3 confirm); operational entries default excluded,
+    // matching the same hard-block posture new sessions get everywhere else.
+    const conflict = checkSessionConflictIndexed(sessionConflictIndex, {
+      studentId,
+      teacherId,
+      startsAt,
+      durationMinutes: 40,
+    });
+    let includeByDefault = true;
+    if (conflict.hasConflict) {
+      issues.push(conflict.message ?? "Bu öğrenci veya öğretmen aynı saatte başka bir seansa kayıtlı");
+      includeByDefault = mode === "historical";
+    }
+    if (assignmentIncompatible && mode === "operational") {
+      includeByDefault = false;
+    }
+
+    // Excel "Öğretmen Hakedişi" column (if mapped) always wins when present — only
+    // when the file is silent on it AND the teacher has no configured earning
+    // model/price does the value become an unreliable 0-fallback (never shown as
+    // a real hakediş in the financial preview; see teacherEarningUnknown below).
+    // An incompatible teacher/education-type pair always forces this, even if the
+    // sheet supplied an explicit hakediş value — that value can't be trusted for
+    // a pairing the teacher was never actually assigned to.
+    const calculatedTeacherEarning = assignmentIncompatible || assignOnCommit
+      ? null
+      : calculateTeacherSessionEarning(teacherRes!.teacher!, educationTypeId, studentPrice, teacherEducationTypeAssignments);
+    const teacherEarningUnknown =
+      assignmentIncompatible || (teacherEarningRaw === null && calculatedTeacherEarning === null);
+    const teacherEarning = assignmentIncompatible ? 0 : teacherEarningRaw ?? calculatedTeacherEarning ?? 0;
+
+    const session: Session = {
+      id: newId("session"),
+      tenantId: TENANT_ID,
+      studentId,
+      teacherId,
+      educationTypeId,
+      date: startsAt,
+      durationMinutes: 40,
+      sessionCount,
+      studentPrice,
+      teacherEarning,
+      status,
+      notes: cellAt(raw, iNotes) || undefined,
+      createdAt: new Date().toISOString(),
+      teacherEarningStatus: teacherEarningUnknown ? "unknown" : "calculated",
+    };
+    addSessionToDuplicateIndex(sessionDuplicateIndex, session);
+    addSessionToConflictIndex(sessionConflictIndex, session);
+
+    rows.push({
+      preview: {
+        rowNumber,
+        displayText,
+        status: issues.length > 0 ? "warning" : "valid",
+        issues,
+        entityMatches: matches,
+        include: includeByDefault,
+        teacherEarningUnknown,
+        teacherAssignmentIncompatible: assignmentIncompatible,
+      },
+      staged: [{ kind: "sessions", record: session }],
+    });
+  });
+
+  return rows;
+}
+
+// ─── Payments ────────────────────────────────────────────────────────────────────
+
+export function buildStagedPaymentRows(
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  existingPayments: Payment[],
+  students: Student[]
+): StagedRow[] {
+  const iStudent = col(mapping, "studentName");
+  const iAmount = col(mapping, "amount");
+  const iDate = col(mapping, "date");
+  const iMethod = col(mapping, "method");
+  const iNotes = col(mapping, "notes");
+
+  const studentIndex = buildStudentIndex(students);
+  const paymentDuplicateIndex = buildPaymentDuplicateIndex(existingPayments);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const studentName = cellAt(raw, iStudent);
+    const amount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
+    const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
+    const displayText = `${studentName || "?"} — ${amount ?? "?"}`;
+
+    const errors: string[] = [];
+    if (!studentName) errors.push("'Öğrenci' zorunlu alan boş bırakılamaz");
+    if (amount === null || amount <= 0) errors.push("'Tutar' zorunlu alan boş veya geçersiz");
+    if (!dateStr) errors.push(`Geçersiz veya eksik tarih: '${cellAt(raw, iDate)}'`);
+
+    const studentRes = studentName ? resolveStudentByName(studentName, studentIndex) : null;
+    if (studentRes && !studentRes.student) errors.push(`'${studentName}' adlı öğrenci sistemde bulunamadı`);
+
+    const matches: ImportEntityMatch[] = studentName
+      ? [{ entityType: "Öğrenci", value: studentName, matched: !!studentRes?.student }]
+      : [];
+
+    if (errors.length > 0) {
+      rows.push({ preview: { rowNumber, displayText, status: "error", issues: errors, entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const ambiguityIssue = studentRes!.ambiguous ? [`'${studentName}' adında birden fazla öğrenci bulundu; ilk eşleşme kullanılacak`] : [];
+
+    const studentId = studentRes!.student!.id;
+    const duplicate = findDuplicatePayment(studentId, dateStr!, amount!, paymentDuplicateIndex);
+    if (duplicate) {
+      rows.push({ preview: { rowNumber, displayText, status: "duplicate", issues: ["Bu ödeme zaten mevcut"], entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const { method, recognized } = resolvePaymentMethodValue(cellAt(raw, iMethod));
+    const issues: string[] = [...ambiguityIssue];
+    if (iMethod >= 0 && !recognized) {
+      issues.push(`Bilinmeyen ödeme yöntemi: '${cellAt(raw, iMethod)}' → Diğer olarak içe aktarılacak`);
+    }
+
+    const payment: Payment = {
+      id: newId("payment"),
+      tenantId: TENANT_ID,
+      studentId,
+      amount: amount!,
+      method,
+      date: dateStr!,
+      paymentSource: "import",
+      notes: cellAt(raw, iNotes) || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    addPaymentToDuplicateIndex(paymentDuplicateIndex, payment);
+
+    rows.push({
+      preview: { rowNumber, displayText, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: true },
+      staged: [{ kind: "payments", record: payment }],
+    });
+  });
+
+  return rows;
+}
+
+// ─── Teacher Payments ────────────────────────────────────────────────────────────
+
+export function buildStagedTeacherPaymentRows(
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  existingTeacherPayments: TeacherPayment[],
+  teachers: Teacher[]
+): StagedRow[] {
+  const iTeacher = col(mapping, "teacherName");
+  const iAmount = col(mapping, "amount");
+  const iDate = col(mapping, "date");
+  const iType = col(mapping, "paymentType");
+  const iMethod = col(mapping, "method");
+  const iDesc = col(mapping, "description");
+
+  const teacherIndex = buildTeacherIndex(teachers);
+  const teacherPaymentDuplicateIndex = buildTeacherPaymentDuplicateIndex(existingTeacherPayments);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const teacherName = cellAt(raw, iTeacher);
+    const amount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
+    const dateStr = parseCellAsDateString(iDate >= 0 ? raw[iDate] : null);
+    const displayText = `${teacherName || "?"} — ${amount ?? "?"}`;
+
+    const errors: string[] = [];
+    if (!teacherName) errors.push("'Öğretmen' zorunlu alan boş bırakılamaz");
+    if (amount === null || amount <= 0) errors.push("'Tutar' zorunlu alan boş veya geçersiz");
+    if (!dateStr) errors.push(`Geçersiz veya eksik tarih: '${cellAt(raw, iDate)}'`);
+
+    const teacherRes = teacherName ? resolveTeacherByName(teacherName, teacherIndex) : null;
+    if (teacherRes && !teacherRes.teacher) errors.push(`'${teacherName}' adlı öğretmen sistemde bulunamadı`);
+
+    const matches: ImportEntityMatch[] = teacherName
+      ? [{ entityType: "Öğretmen", value: teacherName, matched: !!teacherRes?.teacher }]
+      : [];
+
+    if (errors.length > 0) {
+      rows.push({ preview: { rowNumber, displayText, status: "error", issues: errors, entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const ambiguityIssue = teacherRes!.ambiguous ? [`'${teacherName}' adında birden fazla öğretmen bulundu; ilk eşleşme kullanılacak`] : [];
+
+    const teacherId = teacherRes!.teacher!.id;
+    const duplicate = findDuplicateTeacherPayment(teacherId, dateStr!, amount!, teacherPaymentDuplicateIndex);
+    if (duplicate) {
+      rows.push({ preview: { rowNumber, displayText, status: "duplicate", issues: ["Bu öğretmen ödemesi zaten mevcut"], entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const { type: paymentType, recognized: typeRecognized } = resolveTeacherPaymentTypeValue(cellAt(raw, iType));
+    const { method, recognized: methodRecognized } = resolvePaymentMethodValue(cellAt(raw, iMethod));
+    const issues: string[] = [...ambiguityIssue];
+    if (iType >= 0 && !typeRecognized) issues.push(`Bilinmeyen ödeme türü: '${cellAt(raw, iType)}' → Diğer olarak içe aktarılacak`);
+    if (iMethod >= 0 && !methodRecognized && !isDeductionPaymentType(paymentType)) {
+      issues.push(`Bilinmeyen ödeme yöntemi: '${cellAt(raw, iMethod)}' → Diğer olarak içe aktarılacak`);
+    }
+
+    const teacherPayment: TeacherPayment = {
+      id: newId("tpayment"),
+      tenantId: TENANT_ID,
+      teacherId,
+      amount: amount!,
+      method,
+      paymentType,
+      date: dateStr!,
+      description: cellAt(raw, iDesc) || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    addTeacherPaymentToDuplicateIndex(teacherPaymentDuplicateIndex, teacherPayment);
+
+    rows.push({
+      preview: { rowNumber, displayText, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: true },
+      staged: [{ kind: "teacherPayments", record: teacherPayment }],
+    });
+  });
+
+  return rows;
+}
+
+// ─── Opening Balances ────────────────────────────────────────────────────────────
+
+export function buildStagedOpeningBalanceRows(
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  existingOpeningBalances: OpeningBalance[],
+  students: Student[]
+): StagedRow[] {
+  const iStudent = col(mapping, "studentName");
+  const iAmount = col(mapping, "amount");
+  const iType = col(mapping, "balanceType");
+  const iDate = col(mapping, "date");
+  const iNote = col(mapping, "note");
+
+  const studentIndex = buildStudentIndex(students);
+  const openingBalanceDuplicateIndex = buildOpeningBalanceDuplicateIndex(existingOpeningBalances);
+  const rows: StagedRow[] = [];
+
+  sheet.rows.forEach((raw, idx) => {
+    const rowNumber = sheetRowNumber(sheet, idx);
+    const studentName = cellAt(raw, iStudent);
+    const signedAmount = iAmount >= 0 ? parseCellAsNumber(raw[iAmount]) : null;
+    const amount = signedAmount === null ? null : Math.abs(signedAmount);
+    // No date in the file → the import's devir date (filled in by applyDevirDate).
+    const dateStr = cellAt(raw, iDate) === "" ? "" : parseCellAsDateString(raw[iDate]);
+    const displayText = `${studentName || "?"} — ${signedAmount ?? "?"}`;
+
+    if (studentName && signedAmount === 0) {
+      rows.push({
+        preview: { rowNumber, displayText, status: "warning", issues: ["Bakiye 0 — devir gerekmiyor"], entityMatches: [], include: false },
+        staged: [],
+      });
+      return;
+    }
+
+    const errors: string[] = [];
+    if (!studentName) errors.push("'Öğrenci' zorunlu alan boş bırakılamaz");
+    if (amount === null) errors.push("'Tutar' zorunlu alan boş veya geçersiz");
+    if (dateStr === null) errors.push(`Geçersiz tarih: '${cellAt(raw, iDate)}'`);
+
+    const studentRes = studentName ? resolveStudentByName(studentName, studentIndex) : null;
+    if (studentRes && !studentRes.student) errors.push(`'${studentName}' adlı öğrenci sistemde bulunamadı`);
+
+    const matches: ImportEntityMatch[] = studentName
+      ? [{ entityType: "Öğrenci", value: studentName, matched: !!studentRes?.student }]
+      : [];
+
+    if (errors.length > 0) {
+      rows.push({ preview: { rowNumber, displayText, status: "error", issues: errors, entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const studentId = studentRes!.student!.id;
+    // No Borç/Alacak value: the sign decides (negative = the student's credit).
+    const typeCell = cellAt(raw, iType);
+    const { type: balanceType, recognized } = typeCell
+      ? resolveOpeningBalanceTypeValue(typeCell)
+      : { type: signedAmount! < 0 ? ("credit" as const) : ("debt" as const), recognized: true };
+
+    const duplicate = findDuplicateOpeningBalance(studentId, dateStr!, balanceType, openingBalanceDuplicateIndex);
+    if (duplicate) {
+      rows.push({ preview: { rowNumber, displayText, status: "duplicate", issues: ["Bu devir bakiyesi zaten mevcut"], entityMatches: matches, include: false }, staged: [] });
+      return;
+    }
+
+    const issues: string[] = [];
+    if (studentRes!.ambiguous) issues.push(`'${studentName}' adında birden fazla öğrenci bulundu; ilk eşleşme kullanılacak`);
+    if (!recognized) issues.push(`Bilinmeyen borç/alacak değeri: '${cellAt(raw, iType)}' → Borç olarak içe aktarılacak`);
+    if (studentHasOpeningBalance(studentId, openingBalanceDuplicateIndex)) issues.push("Bu öğrencinin zaten bir devir bakiyesi var");
+
+    const balance: OpeningBalance = {
+      id: newId("obal"),
+      tenantId: TENANT_ID,
+      studentId,
+      amount: amount!,
+      balanceType,
+      date: dateStr!,
+      note: cellAt(raw, iNote) || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    addOpeningBalanceToDuplicateIndex(openingBalanceDuplicateIndex, balance);
+
+    rows.push({
+      preview: { rowNumber, displayText, status: issues.length > 0 ? "warning" : "valid", issues, entityMatches: matches, include: true },
+      staged: [{ kind: "openingBalances", record: balance }],
+    });
+  });
+
+  return rows;
+}
+
+// ─── Dispatcher ──────────────────────────────────────────────────────────────────
+
+export interface ImportStoreSnapshot {
+  students: Student[];
+  teachers: Teacher[];
+  sessions: Session[];
+  payments: Payment[];
+  teacherPayments: TeacherPayment[];
+  openingBalances: OpeningBalance[];
+  /** Real per-teacher/per-education-type prices — without these, per_session
+   *  teachers can never be told apart from "no price configured yet" (see
+   *  calculateTeacherSessionEarning). Optional only so older callers/tests that
+   *  don't care about hakediş reliability don't have to supply it. */
+  teacherEducationTypeAssignments?: TeacherEducationTypeAssignment[];
+}
+
+export function buildStagedRows(
+  type: ImportEntityType,
+  mode: ImportMode,
+  sheet: ParsedSheet,
+  mapping: ImportColumnMapping[],
+  store: ImportStoreSnapshot,
+  educationTypes: EducationType[]
+): StagedRow[] {
+  switch (type) {
+    case "students":
+      return buildStagedStudentRows(sheet, mapping, store.students);
+    case "teachers":
+      return buildStagedTeacherRows(sheet, mapping, store.teachers);
+    case "sessions":
+      return buildStagedSessionRows(sheet, mapping, mode, store.sessions, store.students, store.teachers, educationTypes, store.teacherEducationTypeAssignments ?? []);
+    case "payments":
+      return buildStagedPaymentRows(sheet, mapping, store.payments, store.students);
+    case "teacherPayments":
+      return buildStagedTeacherPaymentRows(sheet, mapping, store.teacherPayments, store.teachers);
+    case "openingBalances":
+      return buildStagedOpeningBalanceRows(sheet, mapping, store.openingBalances, store.students);
+  }
+}
+
+// ─── Multi-select import (dependency-ordered, cross-referencing) ───────────────
+
+export interface MultiImportTaskInput {
+  type: ImportEntityType;
+  sheet: ParsedSheet;
+  mapping: ImportColumnMapping[];
+}
+
+export interface MultiImportTaskResult {
+  type: ImportEntityType;
+  sheet: ParsedSheet;
+  rows: StagedRow[];
+}
+
+function stageMultiImportTask(
+  task: MultiImportTaskInput,
+  snapshot: ImportStoreSnapshot,
+  mode: ImportMode,
+  educationTypes: EducationType[],
+  newTeacherIds: ReadonlySet<string>
+): StagedRow[] {
+  switch (task.type) {
+    case "students":
+      return buildStagedStudentRows(task.sheet, task.mapping, snapshot.students);
+    case "teachers":
+      return buildStagedTeacherRows(task.sheet, task.mapping, snapshot.teachers);
+    case "sessions":
+      return buildStagedSessionRows(
+        task.sheet,
+        task.mapping,
+        mode,
+        snapshot.sessions,
+        snapshot.students,
+        snapshot.teachers,
+        educationTypes,
+        snapshot.teacherEducationTypeAssignments ?? [],
+        newTeacherIds
+      );
+    case "payments":
+      return buildStagedPaymentRows(task.sheet, task.mapping, snapshot.payments, snapshot.students);
+    case "teacherPayments":
+      return buildStagedTeacherPaymentRows(task.sheet, task.mapping, snapshot.teacherPayments, snapshot.teachers);
+    case "openingBalances":
+      return buildStagedOpeningBalanceRows(task.sheet, task.mapping, snapshot.openingBalances, snapshot.students);
+  }
+}
+
+function appendCommittableRecordsToSnapshot(snapshot: ImportStoreSnapshot, rows: StagedRow[]): void {
+  for (const row of rows) {
+    if (row.preview.status === "error" || row.preview.status === "duplicate") continue;
+    for (const staged of row.staged) {
+      switch (staged.kind) {
+        case "students": snapshot.students.push(staged.record); break;
+        case "teachers": snapshot.teachers.push(staged.record); break;
+        case "sessions": snapshot.sessions.push(staged.record); break;
+        case "payments": snapshot.payments.push(staged.record); break;
+        case "teacherPayments": snapshot.teacherPayments.push(staged.record); break;
+        case "openingBalances": snapshot.openingBalances.push(staged.record); break;
+      }
+    }
+  }
+}
+
+/**
+ * Stages every selected import task in dependency order ([[IMPORT_DEPENDENCY_ORDER]]),
+ * accumulating each task's newly-staged (committable) records into a working snapshot
+ * before staging the next task. This is what lets a Session row reference a Student
+ * that only exists earlier in the SAME upload.
+ */
+export function buildMultiImportPreview(
+  tasks: MultiImportTaskInput[],
+  mode: ImportMode,
+  store: ImportStoreSnapshot,
+  educationTypes: EducationType[]
+): MultiImportTaskResult[] {
+  const orderedTasks = sortByDependencyOrder(tasks, (t) => t.type);
+  const snapshot: ImportStoreSnapshot = {
+    students: [...store.students],
+    teachers: [...store.teachers],
+    sessions: [...store.sessions],
+    payments: [...store.payments],
+    teacherPayments: [...store.teacherPayments],
+    openingBalances: [...store.openingBalances],
+    teacherEducationTypeAssignments: store.teacherEducationTypeAssignments ? [...store.teacherEducationTypeAssignments] : [],
+  };
+
+  const existingTeacherIds = new Set(store.teachers.map((t) => t.id));
+  const results: MultiImportTaskResult[] = [];
+  for (const task of orderedTasks) {
+    const newTeacherIds = new Set(snapshot.teachers.filter((t) => !existingTeacherIds.has(t.id)).map((t) => t.id));
+    const rows = stageMultiImportTask(task, snapshot, mode, educationTypes, newTeacherIds);
+    results.push({ type: task.type, sheet: task.sheet, rows });
+    appendCommittableRecordsToSnapshot(snapshot, rows);
+  }
+
+  return results;
+}
+
+// ─── Summary / financial impact / commit ────────────────────────────────────────
+
+/** `skippedRows` covers rows dropped BEFORE they ever became a StagedRow (TOPLAM/
+ *  summary lines, blank rows) — pass the source's own skip counter (e.g.
+ *  `StudentLedgerSheetResult.skippedRowCount`); it's additive to `totalRows`, never
+ *  double-counted against errors. */
+export function buildImportSummary(rows: StagedRow[], skippedRows: number = 0): ImportSummary {
+  const totalRows = rows.length + skippedRows;
+  const validRows = rows.filter((r) => r.preview.status === "valid").length;
+  const warningRows = rows.filter((r) => r.preview.status === "warning").length;
+  const errorRows = rows.filter((r) => r.preview.status === "error").length;
+  const duplicateRows = rows.filter((r) => r.preview.status === "duplicate").length;
+  const toCommitRows = rows.filter(
+    (r) => (r.preview.status === "valid" || r.preview.status === "warning") && r.preview.include
+  ).length;
+  return { totalRows, validRows, warningRows, errorRows, duplicateRows, skippedRows, toCommitRows };
+}
+
+export function buildFinancialImpact(rows: StagedRow[]): ImportFinancialImpact {
+  const impact: ImportFinancialImpact = {
+    sessionsToCreate: 0,
+    paymentsToCreate: 0,
+    teacherPaymentsToCreate: 0,
+    openingBalancesToCreate: 0,
+    totalTahakkukImpact: 0,
+    totalTahsilatImpact: 0,
+    teacherPaymentImpact: 0,
+    cashImpact: 0,
+    remainingBalanceImpact: 0,
+    estimatedTeacherEarningImpact: 0,
+    estimatedCenterProfitImpact: 0,
+    sessionsWithUnknownTeacherEarning: 0,
+    historicalNonBillableSessionsToCreate: 0,
+  };
+
+  for (const row of rows) {
+    if (!row.preview.include) continue;
+    if (row.preview.status !== "valid" && row.preview.status !== "warning") continue;
+
+    for (const staged of row.staged) {
+      switch (staged.kind) {
+        case "sessions": {
+          impact.sessionsToCreate++;
+          // A session the user explicitly chose to import as pure history (no
+          // debt) must never appear in the revenue/hakediş/profit preview either
+          // — those numbers describe what THIS batch will bill, and a
+          // historical_non_billable session bills nothing by design.
+          if (staged.record.billingMode === "historical_non_billable") {
+            impact.historicalNonBillableSessionsToCreate++;
+            break;
+          }
+          impact.totalTahakkukImpact += calculateSessionTotal(staged.record);
+          // Revenue/tahakkuk is always known (it's the Excel's own Ders Ücreti/Tutar),
+          // but a session whose teacherEarning is an unreliable 0-fallback must never
+          // be folded into the hakediş/profit totals as if it were a real number.
+          if (row.preview.teacherEarningUnknown) {
+            impact.sessionsWithUnknownTeacherEarning++;
+          } else {
+            impact.estimatedTeacherEarningImpact += calculateSessionTeacherEarning(staged.record);
+            impact.estimatedCenterProfitImpact += calculateSessionCenterProfit(staged.record);
+          }
+          break;
+        }
+        case "payments": {
+          impact.paymentsToCreate++;
+          // History only — the devir balance already accounts for it.
+          if (staged.record.historical) break;
+          impact.totalTahsilatImpact += staged.record.amount;
+          impact.cashImpact += staged.record.amount;
+          impact.remainingBalanceImpact -= staged.record.amount;
+          break;
+        }
+        case "teacherPayments": {
+          impact.teacherPaymentsToCreate++;
+          if (staged.record.historical) break;
+          impact.teacherPaymentImpact += staged.record.amount;
+          if (!isDeductionPaymentType(staged.record.paymentType)) {
+            impact.cashImpact -= staged.record.amount;
+          }
+          break;
+        }
+        case "openingBalances": {
+          impact.openingBalancesToCreate++;
+          impact.remainingBalanceImpact += staged.record.balanceType === "debt" ? staged.record.amount : -staged.record.amount;
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
+  return impact;
+}
+
+/** Per-entity-type count of records this run will actually create — the same
+ *  qualifying rule buildFinancialImpact/commitRowsIntoBatch use (included,
+ *  non-error, non-duplicate rows), just bucketed by record kind instead of
+ *  reduced to a single money/count figure. Powers the "what will be created"
+ *  breakdown in the preview and confirmation steps. */
+export function buildCreationBreakdown(rows: StagedRow[]): Record<ImportEntityType, number> {
+  const counts: Record<ImportEntityType, number> = {
+    students: 0,
+    teachers: 0,
+    sessions: 0,
+    payments: 0,
+    teacherPayments: 0,
+    openingBalances: 0,
+  };
+
+  for (const row of rows) {
+    if (!row.preview.include) continue;
+    if (row.preview.status !== "valid" && row.preview.status !== "warning") continue;
+    for (const staged of row.staged) counts[staged.kind]++;
+  }
+
+  return counts;
+}
+
+/** Teacher ↔ education type pairs the committed lessons use but that have no
+ *  assignment yet (see `assignOnCommit` in buildStagedSessionRows). Each pair's
+ *  earning is the amount its lessons carry when they all agree, otherwise left
+ *  for the user to fill in (null) — never a guess. */
+export function collectImportedTeacherAssignments(
+  rowSets: { rows: StagedRow[] }[],
+  existing: TeacherEducationTypeAssignment[]
+): { teacherId: string; educationTypeId: string; earningAmount: number | null }[] {
+  const amounts = new Map<string, Set<number | null>>();
+  for (const { rows } of rowSets) {
+    for (const row of rows) {
+      if (!row.preview.include || (row.preview.status !== "valid" && row.preview.status !== "warning")) continue;
+      for (const staged of row.staged) {
+        if (staged.kind !== "sessions") continue;
+        const s = staged.record;
+        if (isTeacherAssignedToEducationType(s.teacherId, s.educationTypeId, existing)) continue;
+        const key = `${s.teacherId}\u0000${s.educationTypeId}`;
+        if (!amounts.has(key)) amounts.set(key, new Set());
+        amounts.get(key)!.add(s.teacherEarningStatus === "unknown" ? null : s.teacherEarning);
+      }
+    }
+  }
+  return [...amounts].map(([key, values]) => {
+    const [teacherId, educationTypeId] = key.split("\u0000") as [string, string];
+    const only = values.size === 1 ? [...values][0]! : null;
+    return { teacherId, educationTypeId, earningAmount: only };
+  });
+}
+
+interface CommitStore {
+  addStudent: (s: Student) => void;
+  addTeacher: (t: Teacher) => void;
+  addSession: (s: Session) => void;
+  addPayment: (p: Payment) => void;
+  addTeacherPayment: (p: TeacherPayment) => void;
+  addOpeningBalance: (b: OpeningBalance) => void;
+  setTeacherOpeningBalance: (teacherId: string, balance: Teacher["openingBalance"]) => void;
+  addImportBatch: (batch: ImportBatch) => void;
+}
+
+function emptyImportBatchEntityIds(): ImportBatchEntityIds {
+  return {
+    students: [],
+    guardians: [],
+    teachers: [],
+    sessions: [],
+    payments: [],
+    teacherPayments: [],
+    openingBalances: [],
+  };
+}
+
+function mergeImportResults(a: ImportResult, b: ImportResult): ImportResult {
+  return {
+    imported: a.imported + b.imported,
+    skippedDuplicates: a.skippedDuplicates + b.skippedDuplicates,
+    skippedErrors: a.skippedErrors + b.skippedErrors,
+    warnings: a.warnings + b.warnings,
+  };
+}
+
+/** Commits every included, non-error, non-duplicate row through the SAME store
+ *  actions the manual UI uses — imported records are indistinguishable from
+ *  hand-entered ones except for provenance (Payment.paymentSource === "import")
+ *  and `importBatchId`, which is what makes rollback possible. Mutates
+ *  `entityIds` in place so callers can accumulate ids across several row sets
+ *  (multi-type imports) into one shared ImportBatch. */
+function commitRowsIntoBatch(
+  rows: StagedRow[],
+  store: CommitStore,
+  batchId: string,
+  entityIds: ImportBatchEntityIds
+): ImportResult {
+  let imported = 0;
+  let skippedDuplicates = 0;
+  let skippedErrors = 0;
+  let warnings = 0;
+
+  for (const row of rows) {
+    if (row.preview.status === "error") {
+      skippedErrors++;
+      continue;
+    }
+    if (row.preview.status === "duplicate") {
+      skippedDuplicates++;
+      continue;
+    }
+    if (row.preview.status === "warning") warnings++;
+    if (!row.preview.include) continue;
+
+    for (const staged of row.staged) {
+      switch (staged.kind) {
+        case "students": {
+          const record: Student = { ...staged.record, importBatchId: batchId };
+          store.addStudent(record);
+          entityIds.students.push(record.id);
+          break;
+        }
+        case "teachers": {
+          const record: Teacher = { ...staged.record, importBatchId: batchId };
+          store.addTeacher(record);
+          entityIds.teachers.push(record.id);
+          break;
+        }
+        case "sessions": {
+          const record: Session = { ...staged.record, importBatchId: batchId };
+          store.addSession(record);
+          entityIds.sessions.push(record.id);
+          break;
+        }
+        case "payments": {
+          const record: Payment = { ...staged.record, importBatchId: batchId };
+          store.addPayment(record);
+          entityIds.payments.push(record.id);
+          break;
+        }
+        case "teacherPayments": {
+          const record: TeacherPayment = { ...staged.record, importBatchId: batchId };
+          store.addTeacherPayment(record);
+          entityIds.teacherPayments.push(record.id);
+          break;
+        }
+        case "openingBalances": {
+          const record: OpeningBalance = { ...staged.record, importBatchId: batchId };
+          store.addOpeningBalance(record);
+          entityIds.openingBalances.push(record.id);
+          break;
+        }
+      }
+    }
+    // One row can stage more than one record (e.g. a session row that also
+    // auto-creates its teacher, or a student row that also auto-creates its
+    // guardian) — count actual records written, not source rows, so `imported`
+    // matches the true total across entityIds and never undercounts.
+    imported += row.staged.length;
+  }
+
+  return { imported, skippedDuplicates, skippedErrors, warnings };
+}
+
+export interface CommitBatchMeta {
+  fileName: string;
+  importMode: ImportMode;
+  fileFingerprint: string;
+  entityTypes: ImportEntityType[];
+}
+
+/** Multi-type commit (multi-select import wizard) — commits every task's staged
+ *  rows in dependency order into ONE shared ImportBatch, so rollback removes
+ *  the entire run across every entity type at once. */
+export function commitMultiImportBatch(
+  taskRowSets: { type: ImportEntityType; rows: StagedRow[] }[],
+  store: CommitStore,
+  meta: Omit<CommitBatchMeta, "entityTypes"> & {
+    /** Teacher devirs to set, dated `devirDate` (see import-devir.ts). */
+    teacherDevir?: { teacherId: string; amount: number }[];
+    devirDate?: string;
+  }
+): { result: ImportResult; batch: ImportBatch } {
+  const batchId = newId("batch");
+  const entityIds = emptyImportBatchEntityIds();
+
+  let result: ImportResult = { imported: 0, skippedDuplicates: 0, skippedErrors: 0, warnings: 0 };
+  let summary: ImportSummary = { totalRows: 0, validRows: 0, warningRows: 0, errorRows: 0, duplicateRows: 0, skippedRows: 0, toCommitRows: 0 };
+  let impact: ImportFinancialImpact = {
+    sessionsToCreate: 0,
+    paymentsToCreate: 0,
+    teacherPaymentsToCreate: 0,
+    openingBalancesToCreate: 0,
+    totalTahakkukImpact: 0,
+    totalTahsilatImpact: 0,
+    teacherPaymentImpact: 0,
+    cashImpact: 0,
+    remainingBalanceImpact: 0,
+    estimatedTeacherEarningImpact: 0,
+    estimatedCenterProfitImpact: 0,
+    sessionsWithUnknownTeacherEarning: 0,
+    historicalNonBillableSessionsToCreate: 0,
+  };
+
+  const sortedSets = sortTaskRowSetsByDependency(taskRowSets);
+  for (const { rows } of sortedSets) {
+    result = mergeImportResults(result, commitRowsIntoBatch(rows, store, batchId, entityIds));
+    const rowSummary = buildImportSummary(rows);
+    summary = {
+      totalRows: summary.totalRows + rowSummary.totalRows,
+      validRows: summary.validRows + rowSummary.validRows,
+      warningRows: summary.warningRows + rowSummary.warningRows,
+      errorRows: summary.errorRows + rowSummary.errorRows,
+      duplicateRows: summary.duplicateRows + rowSummary.duplicateRows,
+      skippedRows: summary.skippedRows + rowSummary.skippedRows,
+      toCommitRows: summary.toCommitRows + rowSummary.toCommitRows,
+    };
+    const rowImpact = buildFinancialImpact(rows);
+    impact = {
+      sessionsToCreate: impact.sessionsToCreate + rowImpact.sessionsToCreate,
+      paymentsToCreate: impact.paymentsToCreate + rowImpact.paymentsToCreate,
+      teacherPaymentsToCreate: impact.teacherPaymentsToCreate + rowImpact.teacherPaymentsToCreate,
+      openingBalancesToCreate: impact.openingBalancesToCreate + rowImpact.openingBalancesToCreate,
+      totalTahakkukImpact: impact.totalTahakkukImpact + rowImpact.totalTahakkukImpact,
+      totalTahsilatImpact: impact.totalTahsilatImpact + rowImpact.totalTahsilatImpact,
+      teacherPaymentImpact: impact.teacherPaymentImpact + rowImpact.teacherPaymentImpact,
+      cashImpact: impact.cashImpact + rowImpact.cashImpact,
+      remainingBalanceImpact: impact.remainingBalanceImpact + rowImpact.remainingBalanceImpact,
+      estimatedTeacherEarningImpact: impact.estimatedTeacherEarningImpact + rowImpact.estimatedTeacherEarningImpact,
+      estimatedCenterProfitImpact: impact.estimatedCenterProfitImpact + rowImpact.estimatedCenterProfitImpact,
+      sessionsWithUnknownTeacherEarning: impact.sessionsWithUnknownTeacherEarning + rowImpact.sessionsWithUnknownTeacherEarning,
+      historicalNonBillableSessionsToCreate: impact.historicalNonBillableSessionsToCreate + rowImpact.historicalNonBillableSessionsToCreate,
+    };
+  }
+
+  const batch: ImportBatch = {
+    id: batchId,
+    tenantId: TENANT_ID,
+    fileName: meta.fileName,
+    importedAt: new Date().toISOString(),
+    importMode: meta.importMode,
+    importedBy: "Sistem Kullanıcısı",
+    entityTypes: [...new Set(sortedSets.map((s) => s.type))],
+    rowCount: summary.totalRows,
+    createdEntityIds: entityIds,
+    skippedRows: summary.errorRows,
+    warningRows: summary.warningRows,
+    duplicateRows: summary.duplicateRows,
+    financialSummary: impact,
+    fileFingerprint: meta.fileFingerprint,
+  };
+  const teacherDevir = (meta.teacherDevir ?? []).filter((d) => d.amount !== 0);
+  if (teacherDevir.length > 0 && meta.devirDate) {
+    for (const d of teacherDevir) {
+      store.setTeacherOpeningBalance(d.teacherId, { amount: d.amount, date: meta.devirDate, importBatchId: batchId });
+    }
+    batch.teacherDevirIds = teacherDevir.map((d) => d.teacherId);
+  }
+  store.addImportBatch(batch);
+
+  return { result, batch };
+}
+
+// ─── Fingerprint / idempotency ───────────────────────────────────────────────
+
+/** SHA-256 of the raw file bytes — used to detect "this exact file was already
+ *  imported" independent of row-level duplicate matching (which only catches
+ *  duplicates at the record level, not "you uploaded the same spreadsheet twice"). */
+export async function computeFileFingerprint(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** Most recent non-rolled-back batch that was committed from a file with this
+ *  same fingerprint, if any — surfaced as an early warning on upload. */
+export function findExistingBatchByFingerprint(
+  fingerprint: string,
+  batches: ImportBatch[]
+): ImportBatch | null {
+  const matches = batches.filter((b) => b.fileFingerprint === fingerprint && !b.rolledBackAt);
+  if (matches.length === 0) return null;
+  return matches.reduce((latest, b) =>
+    new Date(b.importedAt).getTime() > new Date(latest.importedAt).getTime() ? b : latest
+  );
+}
+
+// ─── Rollback ────────────────────────────────────────────────────────────────
+
+function wasEditedSinceImport(record: { updatedAt?: string } | undefined, importedAt: string): boolean {
+  if (!record || !record.updatedAt) return false;
+  return new Date(record.updatedAt).getTime() > new Date(importedAt).getTime();
+}
+
+/** Detects any record created by this batch that was subsequently hand-edited —
+ *  rollback must never silently discard that edit, so these are always kept. */
+export function findEditedRecordsSinceImport(
+  batch: ImportBatch,
+  store: ImportStoreSnapshot
+): EditedImportRecord[] {
+  const edited: EditedImportRecord[] = [];
+
+  function check<T extends { id: string; updatedAt?: string }>(
+    entityType: ImportEntityType,
+    ids: string[],
+    list: T[],
+    label: (record: T) => string
+  ) {
+    for (const id of ids) {
+      const record = list.find((r) => r.id === id);
+      if (wasEditedSinceImport(record, batch.importedAt)) {
+        edited.push({ entityType, id, label: label(record!) });
+      }
+    }
+  }
+
+  check("students", batch.createdEntityIds.students, store.students, (r) => r.fullName);
+  check("teachers", batch.createdEntityIds.teachers, store.teachers, (r) => r.fullName);
+  check("sessions", batch.createdEntityIds.sessions, store.sessions, (r) => parseCellAsDateString(r.date) ?? r.date);
+  check("payments", batch.createdEntityIds.payments, store.payments, (r) => `${r.date} — ${r.amount}`);
+  check("teacherPayments", batch.createdEntityIds.teacherPayments, store.teacherPayments, (r) => `${r.date} — ${r.amount}`);
+  check("openingBalances", batch.createdEntityIds.openingBalances, store.openingBalances, (r) => `${r.date} — ${r.amount}`);
+
+  return edited;
+}
+
+interface RollbackStore {
+  deleteStudents: (ids: string[]) => void;
+  deleteTeachers: (ids: string[]) => void;
+  deleteSessions: (ids: string[]) => void;
+  deletePayments: (ids: string[]) => void;
+  deleteTeacherPayments: (ids: string[]) => void;
+  deleteOpeningBalances: (ids: string[]) => void;
+  setTeacherOpeningBalance: (teacherId: string, balance: Teacher["openingBalance"]) => void;
+  markImportBatchRolledBack: (batchId: string) => void;
+}
+
+export interface RollbackResult {
+  /** Records this batch created but that were hand-edited afterwards — never
+   *  deleted, so the user's edit survives. Reported so the UI can explain why
+   *  the record is still there. */
+  skippedEditedRecords: EditedImportRecord[];
+}
+
+/** Removes ONLY the records this batch created (never a broader query), skipping
+ *  any that were edited after import. Never touches records that pre-date the
+ *  import, per spec. */
+export function rollbackImportBatch(
+  batch: ImportBatch,
+  storeSnapshot: ImportStoreSnapshot,
+  store: RollbackStore
+): RollbackResult {
+  const edited = findEditedRecordsSinceImport(batch, storeSnapshot);
+  const editedIdsByType = new Map<ImportEntityType, Set<string>>();
+  for (const e of edited) {
+    if (!editedIdsByType.has(e.entityType)) editedIdsByType.set(e.entityType, new Set());
+    editedIdsByType.get(e.entityType)!.add(e.id);
+  }
+  const safeIds = (type: ImportEntityType, ids: string[]) => {
+    const excluded = editedIdsByType.get(type);
+    return excluded ? ids.filter((id) => !excluded.has(id)) : ids;
+  };
+
+  store.deleteStudents(safeIds("students", batch.createdEntityIds.students));
+  store.deleteTeachers(safeIds("teachers", batch.createdEntityIds.teachers));
+  store.deleteSessions(safeIds("sessions", batch.createdEntityIds.sessions));
+  store.deletePayments(safeIds("payments", batch.createdEntityIds.payments));
+  store.deleteTeacherPayments(safeIds("teacherPayments", batch.createdEntityIds.teacherPayments));
+  store.deleteOpeningBalances(safeIds("openingBalances", batch.createdEntityIds.openingBalances));
+  for (const teacherId of batch.teacherDevirIds ?? []) {
+    const teacher = storeSnapshot.teachers.find((t) => t.id === teacherId);
+    if (teacher?.openingBalance?.importBatchId === batch.id) store.setTeacherOpeningBalance(teacherId, undefined);
+  }
+  store.markImportBatchRolledBack(batch.id);
+
+  return { skippedEditedRecords: edited };
+}
